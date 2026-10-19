@@ -3,6 +3,50 @@
 What changed in each released version of pi-toolbox. Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-10-19
+
+### Added
+
+**Background jobs on the row that started them.** A `process start` call
+(pi-processes) finishes in milliseconds while the process it started runs on, so
+the row used to say `✓ … 0.0s` and the process's life showed up as separate
+`[process] …` messages further down. The row now tracks the process:
+`◐ process ticker  running 12s · READY matched`, changing in place to
+`✓ … exited 0 · 20s`, `✗ … exit 1 · 3s` or `⊘ … killed SIGTERM · 3s`. A running or
+failed job keeps its row under a folded summary, which spins and counts them
+(`▸ 5 calls · … · ◐ 1 running`); failed jobs count toward `N failed`.
+
+The job's notification messages are no longer drawn once its row shows them —
+pi-processes still delivers them to the model, toolbox only skips drawing them;
+a job without a row (one started from `/ps`) keeps its messages. A reloaded
+session is rebuilt from those persisted messages, and a job pi-processes no
+longer knows (a session from an earlier pi) reads `not running` instead of
+spinning forever. The spinner turns once a second for a job's first five
+minutes, then stands still and the clock ticks once a minute, so a dev server
+left running for hours doesn't repaint the transcript every second.
+
+This is an adapter: pi has no notion of background jobs, so `background-jobs.ts`
+has a small provider interface and pi-processes (its `processes:*` event
+protocol and `ad-process:notification` messages) is the first provider. If that
+protocol changes, rows simply go back to plain tool rows. New options
+`backgroundJobs` and `hideJobNotifications` (both default `true`).
+
+### Fixed
+
+**A quick call flashed a row under the summary.** A folded group shows the row
+of a call that is still running — so a call that ran for 40 ms popped out under
+`▸ 4 calls` and folded back a frame later, and a `process start` stopped within
+a second did the same. A running call (or job) now gets its row, and its
+`running …` mention in the summary, after one second; long commands still
+surface, quick ones never move. Likewise a step still streaming its thinking in
+the middle of a group no longer flashes `Thinking...` under the summary before
+its tool call arrives; at the start of a turn, with nothing folded yet, the label
+still shows.
+
+The README's "No mouse handling" section described a design removed long ago
+and contradicted the click support; it's rewritten, along with the broken
+screenshot placeholder and a duplicate border-color bullet.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added

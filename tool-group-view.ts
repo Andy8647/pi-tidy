@@ -11,13 +11,15 @@
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { AssistantMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { ANIMATE_MS, jobForTool, noteJobMessage, spinnerFrame, type JobState } from "./background-jobs.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { formatGroupLine, formatToolLine, GUTTER_CELLS, groupGutter } from "./tool-lines.ts";
 import {
   carrierView,
   classifyAssistant,
   closeGroup,
+  currentGroupHasMembers,
   noteBoundary,
   openGroup,
   planFor,
@@ -64,19 +66,35 @@ export function renderGroupedTool(
   // Another extension may have patched a boundary render on top of ours
   // since; re-wrap so the boundaries keep being seen.
   installGroupBoundaries();
-  const plan = planFor(tool, options.pinned);
+  const job = options.pinned ? undefined : jobForTool(tool);
+  const now = Date.now();
+  const plan = planFor(tool, options.pinned, job, now);
   if (takeLateJoin()) tool.ui?.requestRender?.();
+  if (plan.revealIn !== undefined) scheduleReveal(tool, plan.revealIn);
   if (!plan.header && !plan.gutter) return undefined;
 
   const { icons } = options;
   const lines: string[] = [];
   if (plan.header) {
-    const summary = summaryFor(tool);
-    if (summary) lines.push(truncateToWidth(formatGroupLine(summary, theme, { icons, open: plan.header === "open" }), width, "…"));
+    const jobs: JobState[] = [];
+    const summary = summaryFor(
+      tool,
+      (member) => {
+        const memberJob = jobForTool(member as GroupedTool);
+        if (memberJob) jobs.push(memberJob);
+        return memberJob;
+      },
+      now,
+    );
+    if (summary) {
+      const line = formatGroupLine(summary, theme, { icons, open: plan.header === "open", spinner: groupSpinner(jobs) });
+      lines.push(truncateToWidth(line, width, "…"));
+    }
   }
   const gutter = groupGutter(theme);
   if (plan.line) {
-    lines.push(truncateToWidth(gutter + formatToolLine(tool, theme, { icons }), width, "…"));
+    const spinner = job ? spinnerFrame(job) : undefined;
+    lines.push(truncateToWidth(gutter + formatToolLine(tool, theme, { icons, job, spinner }), width, "…"));
   }
   if (plan.full) {
     const indent = boxIndent(tool, plan);
@@ -85,6 +103,30 @@ export function renderGroupedTool(
     }
   }
   return lines;
+}
+
+const revealScheduled = new WeakSet<object>();
+
+/**
+ * A running row hidden for its first second must appear on time even if
+ * nothing else repaints (a quiet tool, or a background job's first second).
+ */
+function scheduleReveal(tool: GroupedTool, ms: number): void {
+  if (revealScheduled.has(tool)) return;
+  revealScheduled.add(tool);
+  const timer = setTimeout(() => {
+    revealScheduled.delete(tool);
+    tool.ui?.requestRender?.();
+  }, Math.max(0, ms) + 20);
+  timer.unref?.();
+}
+
+/** The header's glyph: spinning while any running job is young, then still. */
+function groupSpinner(jobs: JobState[]): string {
+  const now = Date.now();
+  const running = jobs.filter((job) => job.status === "running");
+  const young = running.some((job) => job.startTime === undefined || now - job.startTime < ANIMATE_MS);
+  return young ? spinnerFrame({ id: "", name: "", status: "running", startTime: now }, now) : "●";
 }
 
 /** `routeGroupedMouse` result meaning "not grouped: handle it as a plain box". */
@@ -103,7 +145,8 @@ export interface MouseRouting {
  * presses and drags fall through so text selection keeps working.
  */
 export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseRouting): unknown {
-  const plan = planFor(tool, routing.pinned);
+  const job = routing.pinned ? undefined : jobForTool(tool);
+  const plan = planFor(tool, routing.pinned, job);
   if (!plan.header && !plan.gutter) return NOT_GROUPED;
 
   // pi-tui names buttons ("left"); accept the raw SGR code too.
@@ -184,10 +227,22 @@ export function installGroupBoundaries(): void {
     const role = classifyAssistant(component.lastMessage);
     if (role === "boundary") noteBoundary(component);
     else if (role === "carrier") return carrierView(component, toolCallIds(component.lastMessage));
+    // A step still streaming its thinking mid-segment is, almost always, a
+    // carrier whose tool call hasn't arrived yet. Fold it with the group now
+    // rather than flash `Thinking...` under the summary for a second; text,
+    // if it comes, makes it a boundary and it shows. At a turn's start the
+    // group is empty and the label stays as a sign of life.
+    else if (component.isStreaming === true && currentGroupHasMembers()) return carrierView(component, []);
     return "plain";
   });
   wrapBoundaryRender((UserMessageComponent as any)?.prototype, (component) => {
     noteBoundary(component);
     return "plain";
   });
+  // A background job's notifications (`[process] "ticker" matched stdout:
+  // READY`) say what its row already shows. The model still receives them —
+  // this only skips drawing them.
+  wrapBoundaryRender((CustomMessageComponent as any)?.prototype, (component) =>
+    noteJobMessage(component.message) ? "hidden" : "plain",
+  );
 }

@@ -15,6 +15,10 @@
  *   groupTools: boolean     — fold each segment's tool calls into one summary
  *     line; click for one row per call, a row for its box (default: true)
  *   alwaysShowTools: string[] — tools that never fold (default: edit, write)
+ *   backgroundJobs: boolean — a call that started a pi-processes job shows the
+ *     job's live state on its row (default: true)
+ *   hideJobNotifications: boolean — skip drawing that job's notification
+ *     messages; the model still gets them (default: true)
  *   messageBorderColors: per-kind theme fg colors for message-box borders
  *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
  *      mdCode/accent/warning)
@@ -29,6 +33,7 @@ import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./fr
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
 import { loadConfig } from "./config.ts";
 import { toolboxEnabled } from "./live.ts";
+import { connectJobs, type EventBusLike } from "./background-jobs.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
 export { highlightBashCommand, formatBashCallHighlighted } from "./bash-highlight.ts";
@@ -113,7 +118,11 @@ export default function (pi: ExtensionAPI): void {
       toolColors: config.toolColors,
       groupTools: config.groupTools,
       alwaysShowTools: config.alwaysShowTools,
+      backgroundJobs: config.backgroundJobs,
+      hideJobNotifications: config.hideJobNotifications,
     });
+    // Live job updates (pi-processes broadcasts on the shared extension bus).
+    connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);
   } catch (error) {
     console.debug("[pi-toolbox] tool box frame patch failed:", error);
   }

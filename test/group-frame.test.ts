@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   AssistantMessageComponent,
+  CustomMessageComponent,
   createBashToolDefinition,
   createEditToolDefinition,
   initTheme,
@@ -21,6 +22,7 @@ import {
 import { Container } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../frame.ts";
 import { toolboxEnabled } from "../live.ts";
+import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
 
 initTheme("dark");
 const OPTIONS = { icons: false, groupTools: true } as const;
@@ -187,7 +189,8 @@ test("a failed call keeps its row under the folded header and opens on click", (
   assert.ok(frame(chat).some((line) => line.includes("boom")));
 });
 
-test("a running call keeps its row under the folded header", () => {
+test("a running call gets its row under the folded header after a second", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
   const chat = new Container();
   const a = bash("ls", "a");
   const b = bash("sleep 30", "", { partial: true });
@@ -195,9 +198,33 @@ test("a running call keeps its row under the folded header", () => {
   chat.addChild(a.component);
   chat.addChild(step(b.id));
   chat.addChild(b.component);
+  assert.deepEqual(visible(frame(chat)), [" Waiting.", " ▸ 2 calls · bash×2 · 0.2s"], "no flicker for quick calls");
+  t.mock.timers.tick(1000);
   const lines = visible(frame(chat));
   assert.equal(lines[1], " ▸ 2 calls · bash×2 · running bash");
   assert.equal(lines[2], " │ ⋯ bash sleep 30");
+});
+
+test("a step streaming its thinking folds with the group mid-segment, not at a turn's start", () => {
+  const thinkingStep = () => {
+    const c = new AssistantMessageComponent(
+      { role: "assistant", content: [{ type: "thinking", thinking: "…" }], stopReason: "toolUse" } as any,
+      true,
+    );
+    c.updateContent({ role: "assistant", content: [{ type: "thinking", thinking: "…" }] } as any, true);
+    return c;
+  };
+  const mid = new Container();
+  const a = bash("ls", "a");
+  mid.addChild(textStep("Go.", a.id));
+  mid.addChild(a.component);
+  mid.addChild(thinkingStep());
+  assert.ok(!frame(mid).some((line) => line.includes("Thinking...")), "no flash under the summary");
+
+  const start = new Container();
+  start.addChild(new UserMessageComponent("hi"));
+  start.addChild(thinkingStep());
+  assert.ok(frame(start).some((line) => line.includes("Thinking...")), "a sign of life before any call");
 });
 
 test("edit keeps pi's own box, splits the group, and its box takes clicks", () => {
@@ -289,4 +316,131 @@ test("user-message boundary survives a predecessor-skipping render patch on top"
   } finally {
     proto.render = previous;
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Background jobs (pi-processes protocol, on a stand-in event bus)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** pi's extension bus with pi-processes answering `processes:request:get`. */
+function processesBus(known: Record<string, object>) {
+  const listeners = new Map<string, Array<(data: unknown) => void>>();
+  const b: EventBusLike = {
+    emit(channel, data) {
+      for (const handler of listeners.get(channel) ?? []) handler(data);
+    },
+    on(channel, handler) {
+      listeners.set(channel, [...(listeners.get(channel) ?? []), handler]);
+      return () => {};
+    },
+  };
+  b.on("processes:request:get", (payload) => {
+    const { id, reply } = payload as { id: string; reply(info: unknown): void };
+    reply(known[id] ?? null);
+  });
+  return b;
+}
+
+const procInfo = (id: string, extra: object = {}) => ({
+  id,
+  name: id,
+  pid: 1,
+  command: "x",
+  cwd: "/tmp",
+  startTime: Date.now() - 12_000,
+  endTime: null,
+  status: "running",
+  exitCode: null,
+  success: null,
+  endReason: null,
+  signal: null,
+  errorMessage: null,
+  ...extra,
+});
+
+/** A `process start` call the way pi-processes returns it (no renderer: pi's fallback box). */
+function processStart(name: string) {
+  const id = `call-${++nextId}`;
+  const c = new ToolExecutionComponent("process", id, { action: "start", name, command: "x" }, {}, undefined, ui as any, cwd);
+  c.setExpanded(false);
+  c.setArgsComplete();
+  c.markExecutionStarted();
+  c.updateResult(
+    {
+      content: [{ type: "text", text: `Started process ${name}` }],
+      isError: false,
+      durationMs: 5,
+      details: { action: "start", process: procInfo(name), notify: {} },
+    } as any,
+    false,
+  );
+  return { id, component: c as unknown as Box };
+}
+
+const notice = (processId: string, kind: string, extra: object = {}) =>
+  new CustomMessageComponent({
+    role: "custom",
+    customType: "ad-process:notification",
+    content: `[process] "${processId}" ${kind}`,
+    display: true,
+    details: { kind, processId, processName: processId, command: "x", timestamp: Date.now(), summary: "", attention: "turn", ...extra },
+    timestamp: Date.now(),
+  } as any);
+
+test("a running job keeps a spinning row under the folded header", () => {
+  resetJobs();
+  const b = processesBus({ ticker: procInfo("ticker") });
+  connectJobs(b);
+  const chat = new Container();
+  const start = processStart("ticker");
+  const ls = bash("ls", "a");
+  chat.addChild(textStep("Starting.", start.id, "process"));
+  chat.addChild(start.component);
+  chat.addChild(step(ls.id));
+  chat.addChild(ls.component);
+  const lines = visible(frame(chat));
+  assert.match(lines[1], /^ ▸ 2 calls · bash×1 {2}process×1 · [◐◓◑◒] 1 running · /);
+  assert.match(lines[2], /^ │ [◐◓◑◒] process ticker {2}running 1[23]s$/);
+
+  // The job ends: the row changes in place, and the ended job folds away.
+  b.emit("processes:ended", procInfo("ticker", { status: "exited", success: true, exitCode: 0, endTime: Date.now() }));
+  const after = visible(frame(chat));
+  assert.equal(after.length, 2, "nothing left to show while folded");
+  assert.doesNotMatch(after[1], /running/);
+  click(chat, "2 calls");
+  assert.ok(frame(chat).some((line) => /│ ✓ process ticker {2}exited 0 · 1[23]s/.test(line)));
+});
+
+test("a job's notifications are hidden once its row exists; strangers stay", () => {
+  resetJobs();
+  connectJobs(processesBus({ ticker: procInfo("ticker") }));
+  const chat = new Container();
+  const start = processStart("ticker");
+  chat.addChild(textStep("Starting.", start.id, "process"));
+  chat.addChild(start.component);
+  chat.addChild(notice("ticker", "log_match", { logMatch: { pattern: "READY" } }));
+  chat.addChild(notice("someone-else", "success"));
+  chat.addChild(text("Got READY."));
+  const lines = frame(chat);
+  assert.ok(!lines.some((line) => line.includes('"ticker"')), "ticker's notice is folded into its row");
+  assert.ok(lines.some((line) => line.includes('"someone-else"')), "a job with no row keeps its notice");
+  assert.ok(lines.some((line) => /process ticker {2}running \d+s · READY matched/.test(line)), "the row carries what it said");
+});
+
+test("a reloaded session: jobs pi-processes doesn't know are rebuilt from their notifications", () => {
+  resetJobs();
+  connectJobs(processesBus({})); // a fresh pi: the manager knows nothing
+  const chat = new Container();
+  const ticker = processStart("ticker");
+  const lost = processStart("lost");
+  chat.addChild(textStep("Starting.", ticker.id, "process"));
+  chat.addChild(ticker.component);
+  chat.addChild(step(lost.id, "process"));
+  chat.addChild(lost.component);
+  chat.addChild(notice("ticker", "killed", { signal: { name: "SIGTERM" } }));
+  click(chat, "2 calls");
+  const lines = frame(chat);
+  assert.ok(lines.some((line) => /│ ⊘ process ticker {2}killed SIGTERM/.test(line)), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("│ ⊘ process lost  not running")));
+  assert.ok(!lines.some((line) => /[◐◓◑◒]/.test(line)), "nothing spins");
 });
