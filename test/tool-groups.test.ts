@@ -21,6 +21,7 @@ import {
   openGroup,
   planFor,
   resetGroups,
+  RUNNING_ROW_DELAY_MS,
   summaryFor,
   takeLateJoin,
 } from "../tool-groups.ts";
@@ -142,6 +143,7 @@ test("summary counts tools, orders by frequency then name, sums durations", () =
       durationMs: 175,
       running: "bash",
       failed: 0,
+      jobsRunning: 0,
     },
   );
 });
@@ -234,19 +236,57 @@ test("folding from the header also folds the boxes inside", () => {
   assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|B:read"], "reopens as plain rows");
 });
 
-test("the running tool keeps its row under the folded header", () => {
+test("a call running past a second gets its row under the folded header", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
   resetGroups();
   const a = tool("bash");
   const b = tool("bash", { isPartial: true });
   const transcript: Entry[] = [boundary(), a, carrier(b), b];
+  assert.deepEqual(frame(transcript), ["text", "C2"], "not yet: most calls finish first");
+  assert.equal(summaryFor(a)?.running, undefined, "nor does the summary say running");
+  assert.equal(planFor(b).revealIn, RUNNING_ROW_DELAY_MS, "the patch schedules a repaint for then");
+  t.mock.timers.tick(RUNNING_ROW_DELAY_MS);
   assert.deepEqual(frame(transcript), ["text", "C2", "|B:bash"]);
+  assert.equal(summaryFor(a)?.running, "bash");
 
   // The running tool is also the anchor when it's the first call.
   resetGroups();
   const only = tool("bash", { isPartial: true });
-  assert.deepEqual(frame([boundary(), only]), ["text", "C1", "|B:bash"]);
+  frame([boundary(), only]);
+  t.mock.timers.tick(RUNNING_ROW_DELAY_MS);
+  assert.deepEqual(frame([boundary(), only]).slice(1), ["C1", "|B:bash"]);
   only.isPartial = false;
   assert.deepEqual(frame([boundary(), only]).slice(1), ["C1"]);
+});
+
+test("a quick call never pops out from under the summary", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  resetGroups();
+  const [a, b] = [tool("bash"), tool("process", { isPartial: true })];
+  const transcript: Entry[] = [boundary(), a, carrier(b), b];
+  const seen: string[][] = [frame(transcript)];
+  t.mock.timers.tick(40);
+  b.isPartial = false; // finished in 40ms
+  seen.push(frame(transcript));
+  assert.deepEqual(seen, [
+    ["text", "C2"],
+    ["text", "C2"],
+  ]);
+});
+
+test("a background job gets its row after its first second, and only while running", () => {
+  resetGroups();
+  const [a, start] = [tool("bash"), tool("process")];
+  const transcript: Entry[] = [boundary(), a, carrier(start), start];
+  frame(transcript);
+  const now = 50_000;
+  const job = (startTime: number, status: "running" | "killed" | "failed" = "running") => ({ status, startTime });
+  assert.equal(planFor(start, false, job(now - 200), now).line, false, "just started");
+  assert.equal(planFor(start, false, job(now - 1200), now).line, true);
+  assert.equal(planFor(start, false, job(now - 600, "killed"), now).line, false, "stopped within the second: never shown");
+  assert.equal(planFor(start, false, job(now - 600, "failed"), now).line, true, "failures always show");
+  assert.equal(summaryFor(a, () => job(now - 200), now)?.jobsRunning, 0);
+  assert.equal(summaryFor(a, () => job(now - 1200), now)?.jobsRunning, 2);
 });
 
 test("a failed call keeps its row while folded, and its row opens its box", () => {
@@ -320,12 +360,14 @@ test("a tool joining after its group's summary drew asks for one more frame", ()
   assert.equal(takeLateJoin(), false, "settled: no further frames");
 });
 
-test("the summary reads live state: a member finishing updates the C line at once", () => {
+test("the summary reads live state: a member finishing updates the C line at once", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
   resetGroups();
   const a = tool("bash", { durationMs: 100 });
   const b = tool("bash", { isPartial: true });
   const transcript: Entry[] = [boundary(), a, carrier(b), b];
   frame(transcript);
+  t.mock.timers.tick(RUNNING_ROW_DELAY_MS);
   assert.equal(summaryFor(a)?.running, "bash");
   // b finishes; the anchor renders before b in the next pass and must see it.
   b.isPartial = false;
@@ -336,6 +378,7 @@ test("the summary reads live state: a member finishing updates the C line at onc
     durationMs: 300,
     running: undefined,
     failed: 0,
+    jobsRunning: 0,
   });
 });
 

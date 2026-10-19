@@ -31,11 +31,17 @@
  * first and get translated into "level 1" / "level 2".
  */
 
+import type { JobStatus } from "./background-jobs.ts";
+
 export interface GroupMember {
   toolName: string;
   durationMs?: number;
   isPartial: boolean;
   isError?: boolean;
+  /** The background job this call started (background-jobs.ts), if any. */
+  job?: JobStatus;
+  /** Running for under RUNNING_ROW_DELAY_MS: not worth announcing yet. */
+  fresh?: boolean;
 }
 
 export interface BreakdownEntry {
@@ -51,8 +57,10 @@ export interface GroupSummary {
   durationMs: number;
   /** Tool name of the member still executing, if any. */
   running?: string;
-  /** Members that finished with an error. */
+  /** Members that finished with an error, or whose background job failed. */
   failed: number;
+  /** Background jobs still running. */
+  jobsRunning: number;
 }
 
 /** Pure: what the summary line says, independent of theme or icons. */
@@ -61,18 +69,20 @@ export function buildGroupSummary(members: GroupMember[]): GroupSummary {
   let durationMs = 0;
   let running: string | undefined;
   let failed = 0;
+  let jobsRunning = 0;
   for (const member of members) {
-    if (!member.isPartial && member.isError) failed++;
+    if ((!member.isPartial && member.isError) || member.job === "failed") failed++;
+    if (member.job === "running" && !member.fresh) jobsRunning++;
     counts.set(member.toolName, (counts.get(member.toolName) ?? 0) + 1);
     if (typeof member.durationMs === "number" && Number.isFinite(member.durationMs)) {
       durationMs += member.durationMs;
     }
-    if (member.isPartial && running === undefined) running = member.toolName;
+    if (member.isPartial && !member.fresh && running === undefined) running = member.toolName;
   }
   const breakdown = [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  return { count: members.length, breakdown, durationMs, running, failed };
+  return { count: members.length, breakdown, durationMs, running, failed, jobsRunning };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +141,23 @@ export interface ViewPlan {
   full: boolean;
   /** Indent `line`/`full` under a `│` gutter: they belong to the header above. */
   gutter: boolean;
+  /** Ms until this hidden running row is due to appear — schedule a repaint. */
+  revealIn?: number;
+}
+
+/**
+ * How long a call (or the background job it started) must have been running
+ * before a folded group shows its row and says "running". Most calls finish
+ * well within it, and a row that pops out under the summary and folds back a
+ * frame later reads as a flicker. Long commands still surface after a second.
+ */
+export const RUNNING_ROW_DELAY_MS = 1000;
+
+/** The running thing's age, for the delay above. */
+export interface JobTiming {
+  status: JobStatus;
+  /** Epoch ms. */
+  startTime?: number;
 }
 
 /** An always-shown tool: pi's own box, nothing else. */
@@ -163,6 +190,8 @@ let current: Group = newGroup();
 const groupOfBoundary = new WeakMap<object, Group>();
 const groupOf = new WeakMap<object, Group>();
 const groupOfCarrier = new WeakMap<object, Group>();
+/** When each tool first rendered (≈ when its call appeared). */
+const firstSeen = new WeakMap<object, number>();
 /** Always-shown tools by call id, so the step that carried one can follow it. */
 const pinnedById = new Map<string, WeakRef<ToolLike>>();
 /** A tool joined a group whose summary line already rendered this frame. */
@@ -214,6 +243,7 @@ function join(tool: ToolLike): Group {
   // un-hides its carrier, which rendered before it too.
   if (group.members.length > 0 || tool.expanded) lateJoin = true;
   group.members.push(tool);
+  firstSeen.set(tool, Date.now());
   // pi hands a new box `setExpanded(toolOutputExpanded)` before it ever
   // renders: arriving already expanded means ctrl+o's expand-all is on.
   if (tool.expanded) group.level = 1;
@@ -235,7 +265,19 @@ export function takeLateJoin(): boolean {
  * `pinned`: the tool is in `alwaysShowTools`. It draws pi's own box and acts as
  * a boundary — whatever follows it starts a new group.
  */
-export function planFor(tool: ToolLike, pinned = false): ViewPlan {
+/** Ms the call (or its job) has been running, or undefined when nothing runs. */
+function runningFor(tool: ToolLike, job: JobTiming | undefined, now: number): number | undefined {
+  if (job?.status === "running") return now - (job.startTime ?? now);
+  if (tool.isPartial) return now - (firstSeen.get(tool) ?? now);
+  return undefined;
+}
+
+/** Whether the current group already holds calls (we're mid-segment). */
+export function currentGroupHasMembers(): boolean {
+  return current.members.length > 0;
+}
+
+export function planFor(tool: ToolLike, pinned = false, job?: JobTiming, now = Date.now()): ViewPlan {
   if (pinned) {
     if (tool.toolCallId && !pinnedById.has(tool.toolCallId)) {
       pinnedById.set(tool.toolCallId, new WeakRef(tool));
@@ -248,23 +290,37 @@ export function planFor(tool: ToolLike, pinned = false): ViewPlan {
   const group = join(tool);
   const header = group.members[0] === tool ? (group.level === 0 ? "closed" : "open") : null;
   if (group.level === 0) {
-    // 运行中的那个露一行 B,否则长命令跑三十秒时 C 行一动不动;
-    // 失败的也露,报错不该藏在 C 行里
-    return { header, line: tool.isPartial || failed(tool), full: false, gutter: true };
+    // 运行中的那个露一行 B,否则长命令跑三十秒时 C 行一动不动(跑满一秒才露,
+    // 免得几十毫秒的调用闪一下);失败的也露,报错不该藏在 C 行里。后台任务同理
+    if (failed(tool) || job?.status === "failed") return { header, line: true, full: false, gutter: true };
+    const age = runningFor(tool, job, now);
+    if (age === undefined) return { header, line: false, full: false, gutter: true };
+    if (age >= RUNNING_ROW_DELAY_MS) return { header, line: true, full: false, gutter: true };
+    return { header, line: false, full: false, gutter: true, revealIn: RUNNING_ROW_DELAY_MS - age };
   }
   return { header, line: !tool.expanded, full: tool.expanded, gutter: true };
 }
 
-export function summaryFor(tool: ToolLike): GroupSummary | undefined {
+export function summaryFor(
+  tool: ToolLike,
+  jobOf?: (member: ToolLike) => JobTiming | undefined,
+  now = Date.now(),
+): GroupSummary | undefined {
   const group = groupOf.get(tool);
   if (!group) return undefined;
   return buildGroupSummary(
-    group.members.map((member) => ({
-      toolName: member.toolName,
-      isPartial: member.isPartial,
-      isError: member.result?.isError === true,
-      durationMs: member.isPartial ? undefined : member.result?.durationMs,
-    })),
+    group.members.map((member) => {
+      const job = jobOf?.(member);
+      const age = runningFor(member, job, now);
+      return {
+        toolName: member.toolName,
+        isPartial: member.isPartial,
+        isError: member.result?.isError === true,
+        durationMs: member.isPartial ? undefined : member.result?.durationMs,
+        job: job?.status,
+        fresh: age !== undefined && age < RUNNING_ROW_DELAY_MS,
+      };
+    }),
   );
 }
 

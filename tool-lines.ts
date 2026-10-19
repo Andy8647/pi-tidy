@@ -7,6 +7,7 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
+import type { JobState } from "./background-jobs.ts";
 import type { GroupSummary } from "./tool-groups.ts";
 
 export interface LineOptions {
@@ -16,6 +17,10 @@ export interface LineOptions {
   maxArgChars?: number;
   /** Group line only: the group is unfolded (`▾`) rather than folded (`▸`). */
   open?: boolean;
+  /** Group line: the glyph for running background jobs. Tool line: this job's. */
+  spinner?: string;
+  /** Tool line only: the background job this call started. */
+  job?: JobState;
 }
 
 const DEFAULT_MAX_ARG_CHARS = 60;
@@ -43,6 +48,9 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
   if (breakdown.length > 0) parts.push(breakdown.join(theme.fg("muted", "  ")));
 
   if (summary.failed > 0) parts.push(theme.fg("error", `${summary.failed} failed`));
+  if (summary.jobsRunning > 0) {
+    parts.push(theme.fg("accent", `${options.spinner ?? "◐"} ${summary.jobsRunning} running`));
+  }
 
   if (summary.running) {
     parts.push(theme.fg("warning", `running ${summary.running}`));
@@ -145,9 +153,45 @@ export function summarizeArgs(toolName: string, args: unknown, maxChars = DEFAUL
   return "";
 }
 
+/** `running 12s · READY matched` / `exited 0 · 20s` / `killed SIGTERM · 3s` */
+export function describeJob(job: JobState, now = Date.now()): string {
+  const end = job.status === "running" ? now : job.endTime;
+  const took = job.startTime !== undefined && end !== undefined ? formatElapsed(end - job.startTime) : "";
+  const parts: string[] = [];
+  switch (job.status) {
+    case "running":
+      parts.push(took ? `running ${took}` : "running");
+      break;
+    case "done":
+      parts.push(`exited ${job.exitCode ?? 0}`);
+      break;
+    case "failed":
+      parts.push(typeof job.exitCode === "number" ? `exit ${job.exitCode}` : "failed");
+      break;
+    case "killed":
+      parts.push(job.signal ? `killed ${job.signal}` : "killed");
+      break;
+    case "gone":
+      return "not running";
+  }
+  if (job.status !== "running" && took) parts.push(took);
+  if (job.note) parts.push(job.note);
+  return parts.join(" · ");
+}
+
+/** Whole seconds, then minutes: `12s`, `3m05s`, `1h02m`. */
+function formatElapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m${(seconds % 60).toString().padStart(2, "0")}s`;
+  return `${Math.floor(seconds / 3600)}h${Math.floor((seconds % 3600) / 60).toString().padStart(2, "0")}m`;
+}
+
 /** ` ✓ bash cd ~ && python3 - <<'PY' (+26 lines)  3 lines · 0.1s` */
 export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string {
-  const { icons = true } = options;
+  const { icons = true, job } = options;
+  if (job) return formatJobLine(tool, job, theme, icons, options.spinner);
   const { isPartial } = tool;
   const isError = !isPartial && tool.result?.isError === true;
 
@@ -182,5 +226,21 @@ export function groupGutter(theme: ThemeLike): string {
 
 /** Cells `groupGutter` takes. */
 export const GUTTER_CELLS = 2;
+
+/** A call that started a background job: the row tracks the job, not the call. */
+function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, icons: boolean, spinner = "◐"): string {
+  const status =
+    job.status === "running"
+      ? theme.fg("accent", spinner)
+      : job.status === "done"
+        ? theme.fg("success", "✓")
+        : job.status === "failed"
+          ? theme.fg("error", "✗")
+          : theme.fg("muted", "⊘");
+  const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
+  const name = theme.fg("toolTitle", `${icon}${tool.toolName}`);
+  const color = job.status === "failed" ? "error" : job.status === "running" ? "warning" : "muted";
+  return ` ${status} ${name}${theme.fg("toolOutput", ` ${job.name}`)}  ${theme.fg(color, describeJob(job))}`;
+}
 
 export { formatDuration };

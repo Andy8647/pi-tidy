@@ -33,6 +33,10 @@ export interface ToolboxConfig {
    * default: the diff is the point). They also end the group before them.
    */
   alwaysShowTools: string[];
+  /** Track background jobs (pi-processes) on the row of the call that started them. */
+  backgroundJobs: boolean;
+  /** Hide a job's notification messages when its row already shows them. */
+  hideJobNotifications: boolean;
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -63,6 +67,8 @@ const DEFAULTS: ToolboxConfig = {
   bashResultLines: 1,
   groupTools: true,
   alwaysShowTools: ["edit", "write"],
+  backgroundJobs: true,
+  hideJobNotifications: true,
   messageBorderColors: {
     user: "toolTitle",
     compaction: "customMessageLabel",
@@ -92,6 +98,9 @@ export function loadConfig(): ToolboxConfig {
       alwaysShowTools: Array.isArray(toolbox?.alwaysShowTools)
         ? toolbox.alwaysShowTools.filter((name: unknown): name is string => typeof name === "string")
         : DEFAULTS.alwaysShowTools,
+      backgroundJobs: typeof toolbox?.backgroundJobs === "boolean" ? toolbox.backgroundJobs : DEFAULTS.backgroundJobs,
+      hideJobNotifications:
+        typeof toolbox?.hideJobNotifications === "boolean" ? toolbox.hideJobNotifications : DEFAULTS.hideJobNotifications,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
         ...toolbox?.messageBorderColors,

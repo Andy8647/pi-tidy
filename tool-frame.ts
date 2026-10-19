@@ -21,6 +21,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
+import { setJobOptions } from "./background-jobs.ts";
 import { liveSlot, toolboxEnabled } from "./live.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { noteSetExpanded } from "./tool-groups.ts";
@@ -88,6 +89,13 @@ export interface ToolFrameOptions {
   groupTools?: boolean;
   /** Tools that never fold into a group (default edit/write: the diff is the point). */
   alwaysShowTools?: string[];
+  /**
+   * Track background jobs a call started (pi-processes): the row shows the
+   * job's live state instead of the call's.
+   */
+  backgroundJobs?: boolean;
+  /** Skip drawing a job's notification messages when its row shows the same. */
+  hideJobNotifications?: boolean;
 }
 
 interface ResolvedToolFrameOptions {
@@ -113,8 +121,16 @@ function mouseTarget(tool: ToolBoxInternals): MouseTarget | undefined {
 }
 
 export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
-  const { icons = false, toolColors = {}, groupTools = true, alwaysShowTools = ["edit", "write"] } = options;
+  const {
+    icons = false,
+    toolColors = {},
+    groupTools = true,
+    alwaysShowTools = ["edit", "write"],
+    backgroundJobs = true,
+    hideJobNotifications = true,
+  } = options;
   toolOptions.set({ icons, toolColors, groupTools, alwaysShow: new Set(alwaysShowTools) });
+  setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
 
   const proto = ToolExecutionComponent.prototype as unknown as ToolBoxInternals & {
     render(width: number): string[];
