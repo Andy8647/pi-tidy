@@ -1,7 +1,24 @@
 # Changelog
 
-What changed in each released version of pi-toolbox. Versions follow
+What changed in each released version of pi-tidy (published as
+`@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.2] - 2026-10-19
+
+### Changed
+
+**Renamed to pi-tidy.** `@andy8647/pi-toolbox` said nothing about what the
+package does and sat under a personal scope; it is now the unscoped `pi-tidy`,
+and the repository is `Andy8647/pi-tidy` (GitHub redirects the old URLs). Swap
+the package with `pi remove npm:@andy8647/pi-toolbox && pi install npm:pi-tidy`.
+Settings move to a `"tidy"` key; the `"toolbox"` key is still read, so existing
+configs keep working. The old package is deprecated with a pointer here.
+
+**Peer dependencies are `*` again**, as pi asks of extensions. 0.4.0 set them to
+`>=1.1.0`, but npm treats a peer conflict as an error for the whole install, so
+one mismatched range can block every package in pi's directory — an older pi
+now gets a warning at session start instead.
 
 ## [0.4.1] - 2026-10-19
 

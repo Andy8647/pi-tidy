@@ -38,7 +38,7 @@ jobs:
       - name: Verify package contents
         run: |
           pnpm pack --pack-destination /tmp >/dev/null
-          TARBALL=$(ls /tmp/*pi-toolbox-*.tgz | head -1)
+          TARBALL=$(ls /tmp/pi-tidy-*.tgz | head -1)
           echo "packed: $TARBALL"
           tar -tzf "$TARBALL" | sort
           # Every module index.ts imports, directly or not — a missing one only

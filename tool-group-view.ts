@@ -218,7 +218,7 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
  * Group boundaries are seen through the message components' render. These
  * wrappers must be the *outermost* layer: pi-starline restyles
  * UserMessageComponent with a render patch that never calls its predecessor,
- * so a wrapper installed underneath it (toolbox loads first) would never run.
+ * so a wrapper installed underneath it (pi-tidy loads first) would never run.
  * Hence this runs at patch time and again from the tool render, by which time
  * every extension has installed its patches.
  */

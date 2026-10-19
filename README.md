@@ -1,4 +1,4 @@
-# pi-toolbox
+# pi-tidy
 
 Rounded transparent tool boxes for the [pi](https://github.com/earendil-works/pi) coding agent — and a
 transcript that folds a reply's tool calls into one line you can click open.
@@ -24,7 +24,7 @@ transcript that folds a reply's tool calls into one line you can click open.
   the *process's* state on its row: `◐ process ticker  running 12s · READY matched`, then
   `✓ … exited 0 · 20s` / `✗ … exit 1` / `⊘ … killed SIGTERM`. The summary spins while one runs
   (`◐ 1 running`), and the `[process] …` notification messages are folded into the row — pi-processes
-  still delivers them to the model, toolbox just doesn't draw them twice
+  still delivers them to the model, pi-tidy just doesn't draw them twice
 - **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
   plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
   restores the whole command
@@ -61,18 +61,31 @@ Click `▸ 5 calls` and it becomes a `▾` header with one row per call:
 ## Installation
 
 ```bash
-pi install npm:@andy8647/pi-toolbox
+pi install npm:pi-tidy
 ```
 
-Requires pi ≥ 1.1.0 (component mouse events, tool durations).
+Requires pi ≥ 1.1.0 (component mouse events, tool durations); on an older pi it
+says so at session start.
 
 Or straight from the repo:
 
 ```bash
-pi install git:github.com/Andy8647/pi-toolbox
+pi install git:github.com/Andy8647/pi-tidy
 ```
 
 Restart pi to activate.
+
+### Coming from pi-toolbox
+
+pi-tidy is `@andy8647/pi-toolbox` renamed (from 0.4.2). Swap the package, and
+remove the old one first so the two aren't loaded side by side:
+
+```bash
+pi remove npm:@andy8647/pi-toolbox
+pi install npm:pi-tidy
+```
+
+Your `"toolbox"` settings keep working; rename the key to `"tidy"` when convenient.
 
 ## Releasing
 
@@ -83,11 +96,11 @@ if the tag and the manifest version disagree.
 
 ## Configuration
 
-Add a `toolbox` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`:
+Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`:
 
 ```json
 {
-  "toolbox": {
+  "tidy": {
     "enabled": true,
     "highlightBash": true,
     "frameMessages": true,
@@ -145,7 +158,7 @@ invocations, `warning` (yellow) for extension notices.
 
 pi builds one `ToolExecutionComponent` per tool call, no matter which extension
 registered the tool. The extension API cannot wrap another extension's
-renderers, so pi-toolbox patches that component's `render` instead — which is
+renderers, so pi-tidy patches that component's `render` instead — which is
 why MCP and subagent boxes are framed too. Message boxes (compaction, branch
 summary, skill invocation, extension custom message) never go through that
 component; their own prototypes get the same treatment, with two exceptions
@@ -181,7 +194,7 @@ plain tool rows.
 ### Mouse
 
 Clicks come from pi's own fullscreen mode (`tuiMode: "fullscreen"`, pi ≥ 0.86
-component mouse events); toolbox never turns on mouse reporting itself. Only left
+component mouse events); pi-tidy never turns on mouse reporting itself. Only left
 clicks on its own rows are taken — presses and drags pass through, so text
 selection works as usual. Without fullscreen there are no clicks: `ctrl+o` still
 toggles every box.
