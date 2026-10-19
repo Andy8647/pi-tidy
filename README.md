@@ -1,7 +1,14 @@
 # pi-tidy
 
-Rounded transparent tool boxes for the [pi](https://github.com/earendil-works/pi) coding agent — and a
-transcript that folds a reply's tool calls into one line you can click open.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — Claude Code-style tool folding for the pi agent" width="840">
+</p>
+
+Claude Code-style tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a reply's
+tool calls fold into one line you can click open, while edits, failures and background jobs stay in
+view — and every box gets a rounded transparent frame.
+
+**▶ [Watch the 40-second demo](https://cdn.jsdelivr.net/gh/Andy8647/pi-tidy@v0.4.3/assets/demo.mp4)**
 
 ## Features
 
@@ -35,18 +42,13 @@ transcript that folds a reply's tool calls into one line you can click open.
 
 ## What it looks like
 
-```
- Checking the build first.
- ▸ 5 calls ·  bash×3  read×2 · 1 failed · 2.4s
- │ ✗  bash pnpm test  exit 1 · 1.8s
-╭──────────────────────────────────────────────╮
-│  󰛦 src/app.ts                               │
-│ -12 const retries = 3;                       │
-│ +12 const retries = 5;                       │
-╰──────────────────────────────────────────────╯
- ▸ 2 calls ·  bash×1  process×1 · ◐ 1 running · 0.1s
- │ ◐  process dev-server  running 42s · ready matched
-```
+A reply's tool calls, folded:
+
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/folded.png" alt="Five tool calls folded into one summary line" width="840">
+
+A background process (pi-processes), tracked on the row that started it:
+
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/process.png" alt="A background process row with its live state" width="560">
 
 Click `▸ 5 calls` and it becomes a `▾` header with one row per call:
 
