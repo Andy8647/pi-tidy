@@ -23,6 +23,9 @@ const { Text } = await import("@earendil-works/pi-tui");
 patchToolBoxFrames({
   icons: true,
   toolColors: { bash: "bashCol", read: "readCol" },
+  // 这组测试断言的是「完整盒子」的渲染(框、缓存、图标),
+  // 分组折叠(C 行)由 test/tool-groups.test.ts 单独覆盖。
+  groupTools: false,
 });
 
 function fakeToolBox(

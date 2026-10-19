@@ -11,9 +11,22 @@ Rounded transparent tool boxes with syntax highlighting for [pi](https://github.
 - **Nerd Font icons** — every box gets a kind icon; file tools show the target file's nvim-web-devicons glyph right in front of the path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Transparent background** — no solid background fill, works with terminal transparency
 - **Status-aware border colors** — grey while executing, green on success, red on error
+- **Grouped tool calls** — every tool call between two pieces of assistant text collapses to one line
+  (`▸ 4 calls ·  bash×3  read×1 · 1.2s`). Click it and it turns into a `▾` header with one row per call
+  under a `│` gutter; click a row for that call's full box, the box to fold it back, the `▾` header to
+  fold the whole group. The assistant's text always shows and is what separates groups, so you can
+  still see a reply drifting; tool-only model steps don't split a group. Edits and writes never fold —
+  their diff shows like any normal box (`alwaysShowTools`). Running and failed calls keep their own
+  row under a folded summary (which also counts the failures), every row says what the call produced
+  (`12 lines`, `3 matches`, `exit 1`), and `ctrl+o` still expands everything (and collapses back to
+  the summary)
+- **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
+  plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
+  restores the whole command
 - **Bash syntax highlighting** — commands get token-level coloring (commands, flags, strings, variables, operators, etc.)
-- **Collapse anchor** — an expanded box shows a `(ctrl+o to collapse)` row as its last line, the same text bash boxes show natively; pi-starline additionally makes it clickable to close just that box
-- **Scroll-safe caching** — content fingerprint caching prevents re-rendering on every scroll event
+- **Click a box to fold it** — clicks land on pi's own expand toggle at the right row, for every tool
+  including `renderShell: "self"` ones (edit, MCP)
+- **Scroll-safe caching** — an unchanged box costs one line comparison per frame, nothing is re-framed
 
 ## Screenshot
 
@@ -24,6 +37,8 @@ Rounded transparent tool boxes with syntax highlighting for [pi](https://github.
 ```bash
 pi install npm:@andy8647/pi-toolbox
 ```
+
+Requires pi ≥ 1.1.0 (component mouse events, tool durations).
 
 Or straight from the repo:
 
@@ -42,7 +57,7 @@ if the tag and the manifest version disagree.
 
 ## Configuration
 
-Add a `toolbox` key to your `~/.pi/agent/settings.json`:
+Add a `toolbox` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`:
 
 ```json
 {
@@ -52,6 +67,9 @@ Add a `toolbox` key to your `~/.pi/agent/settings.json`:
     "frameMessages": true,
     "frameUserMessages": false,
     "icons": true,
+    "bashResultLines": 1,
+    "groupTools": true,
+    "alwaysShowTools": ["edit", "write"],
     "toolColors": {
       "bash": "bashMode",
       "read": "toolTitle",
@@ -80,6 +98,9 @@ Add a `toolbox` key to your `~/.pi/agent/settings.json`:
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes |
 | `frameUserMessages` | boolean | `false` | Also frame user messages — off by default because pi-starline already restyles `UserMessageComponent`, and two render patches on one prototype fight over the output. Enable only without pi-starline |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
+| `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, a row for its full box, the box to fold it back, the `▾` header to fold the group. `false` renders every call as its own box |
+| `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep pi's own box (with the diff) and end the group before them, so later calls start a new one. `[]` folds everything |
+| `bashResultLines` | number | `1` | Visual lines of bash *output* shown while collapsed. pi's renderer hard-codes 5 with no setting; raise this for more context, `0` to hide output until you expand |
 | `toolColors` | object | see above | Border color per tool name for successful executions (pending stays grey, errors stay red, unlisted tools take `accent`). When set, the map **replaces** the defaults — `{}` disables per-tool colors |
 | `messageBorderColors` | object | see above | Per-kind message-box border colors; merged over the defaults |
 

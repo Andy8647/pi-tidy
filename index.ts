@@ -12,6 +12,9 @@
  *   frameUserMessages: boolean — also frame user messages (default: false;
  *     pi-starline already restyles them and two render patches would fight)
  *   icons: boolean          — Nerd Font icons on boxes (default: true)
+ *   groupTools: boolean     — fold each segment's tool calls into one summary
+ *     line; click for one row per call, a row for its box (default: true)
+ *   alwaysShowTools: string[] — tools that never fold (default: edit, write)
  *   messageBorderColors: per-kind theme fg colors for message-box borders
  *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
  *      mdCode/accent/warning)
@@ -19,11 +22,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition, keyHint } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted } from "./bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
+import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
 import { loadConfig } from "./config.ts";
+import { toolboxEnabled } from "./live.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
 export { highlightBashCommand, formatBashCallHighlighted } from "./bash-highlight.ts";
@@ -40,7 +45,11 @@ interface BashRenderState {
  * the box (the frame, the transparent background) comes from the component
  * patch, so no other tool needs an override.
  */
-function registerHighlightedBash(pi: ExtensionAPI, cwd: string): void {
+function registerHighlightedBash(
+  pi: ExtensionAPI,
+  cwd: string,
+  resultLines: number,
+): void {
   const definition = createBashToolDefinition(cwd) as any;
 
   pi.registerTool({
@@ -68,43 +77,63 @@ function registerHighlightedBash(pi: ExtensionAPI, cwd: string): void {
       }
       const text = state.callText ?? new Text("", 0, 0);
       state.callText = text;
-      text.setText(formatBashCallHighlighted(args, theme));
+      // 折叠态(默认)只留命令首行 + `+N more lines`,和 pi 其它工具的折叠行为一致;
+      // ctrl+o 展开后恢复整条命令(heredoc 之类)。
+      text.setText(
+        formatBashCallHighlighted(args, theme, {
+          expanded: context.expanded,
+          hint: keyHint("app.tools.expand", "to expand"),
+        }),
+      );
       return text;
     },
 
-    renderResult: definition.renderResult,
+    renderResult(result: any, options: any, theme: any, context: any) {
+      const component = definition.renderResult(result, options, theme, context);
+      // 内置 bash 结果预览固定 5 行(BASH_PREVIEW_LINES),pi 没给配置项。
+      // 折叠态下把它的行数预算改小;展开态和报错时保持内置原样(一行 traceback 没用)。
+      const budget = collapsedResultBudget(resultLines, context.isError);
+      if (!options.expanded && budget !== undefined) shrinkResultPreview(component, budget);
+      return component;
+    },
   } as any);
 }
 
 /** Pi extension entry point. */
 export default function (pi: ExtensionAPI): void {
   const config = loadConfig();
+  // Patches installed by an earlier load (before a /reload) read this live,
+  // so turning the extension off takes effect without a restart.
+  toolboxEnabled.set(config.enabled);
   if (!config.enabled) return;
 
   try {
     patchToolBoxFrames({
       icons: config.icons,
       toolColors: config.toolColors,
+      groupTools: config.groupTools,
+      alwaysShowTools: config.alwaysShowTools,
     });
   } catch (error) {
     console.debug("[pi-toolbox] tool box frame patch failed:", error);
   }
 
-  if (config.frameMessages) {
-    try {
-      patchMessageBoxes(config.messageBorderColors, config.icons);
-      patchContainerBoxes(config.messageBorderColors, {
-        icons: config.icons,
-        includeUser: config.frameUserMessages,
-      });
-    } catch (error) {
-      console.debug("[pi-toolbox] message box frame patch failed:", error);
-    }
+  try {
+    // Called even when off: `enabled: false` turns patches from an earlier
+    // load into pass-throughs.
+    patchMessageBoxes(config.messageBorderColors, config.icons, config.frameMessages);
+    patchContainerBoxes(config.messageBorderColors, {
+      icons: config.icons,
+      includeUser: config.frameUserMessages,
+      enabled: config.frameMessages,
+    });
+  } catch (error) {
+    console.debug("[pi-toolbox] message box frame patch failed:", error);
   }
 
   if (config.highlightBash) {
     try {
-      registerHighlightedBash(pi, process.cwd());
+      registerHighlightedBash(pi, process.cwd(), config.bashResultLines);
     } catch (error) {
       console.debug("[pi-toolbox] bash highlight override failed:", error);
     }

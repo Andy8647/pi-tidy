@@ -184,7 +184,52 @@ export function highlightBashCommand(
  * Format the bash call row: bold `$` prompt + syntax-highlighted command.
  * Falls back to the built-in flat style when there is no command yet.
  */
-export function formatBashCallHighlighted(args: BashCallArgs, theme: ThemeLike): string {
+export interface BashCallFormatOptions {
+  /**
+   * `false` renders the collapsed view pi shows by default: only the first
+   * line of the command plus a `+N more lines` hint. `true` (default) renders
+   * the whole command, which is what `ctrl+o` switches to.
+   */
+  expanded?: boolean;
+  /** Collapsed view: how many characters of the first line to keep. */
+  maxChars?: number;
+  /** Collapsed view: styled hint appended after the `+N more lines` count. */
+  hint?: string;
+}
+
+/** Matches pi's own `COLLAPSED_ARGS_CHARS` so bash collapses like every other tool. */
+export const COLLAPSED_COMMAND_CHARS = 100;
+
+interface CollapsedCommand {
+  head: string;
+  hiddenLines: number;
+  truncatedChars: boolean;
+}
+
+/**
+ * Reduce a possibly multi-line command to the single line shown in the
+ * collapsed view. Heredocs are the reason this exists: `python3 - <<'PY'` plus
+ * 40 lines of body used to fill the whole box before the command even ran.
+ */
+export function collapseBashCommand(command: string, maxChars: number = COLLAPSED_COMMAND_CHARS): CollapsedCommand {
+  const lines = command.split("\n");
+  let head = (lines[0] ?? "").replace(/\s+$/, "");
+  const hiddenLines = lines.length - 1;
+  let truncatedChars = false;
+  if (head.length > maxChars) {
+    head = `${head.slice(0, Math.max(0, maxChars - 1))}…`;
+    truncatedChars = true;
+  }
+  return { head, hiddenLines, truncatedChars };
+}
+
+export function formatBashCallHighlighted(
+  args: BashCallArgs,
+  theme: ThemeLike,
+  options: BashCallFormatOptions | boolean = {},
+): string {
+  const opts = typeof options === "boolean" ? { expanded: options } : options;
+  const expanded = opts.expanded ?? true;
   const command = typeof args?.command === "string" ? args.command : "";
   const timeout = typeof args?.timeout === "number" ? args.timeout : undefined;
   const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
@@ -194,11 +239,27 @@ export function formatBashCallHighlighted(args: BashCallArgs, theme: ThemeLike):
     return prompt + theme.fg("toolOutput", "...") + timeoutSuffix;
   }
 
+  let body = command;
+  let collapsedSuffix = "";
+  if (!expanded) {
+    const { head, hiddenLines, truncatedChars } = collapseBashCommand(command, opts.maxChars);
+    if (hiddenLines > 0 || truncatedChars) {
+      body = head;
+      const parts: string[] = [];
+      if (hiddenLines > 0) parts.push(`+${hiddenLines} more lines`);
+      if (truncatedChars) parts.push("truncated");
+      collapsedSuffix =
+        theme.fg("muted", ` (${parts.join(", ")}, `) +
+        (opts.hint ?? "expand") +
+        theme.fg("muted", ")");
+    }
+  }
+
   let highlighted: string;
   try {
-    highlighted = highlightBashCommand(command, (token, text) => theme.fg(token, text));
+    highlighted = highlightBashCommand(body, (token, text) => theme.fg(token, text));
   } catch {
-    highlighted = command; // never break the tool row on a tokenizer bug
+    highlighted = body; // never break the tool row on a tokenizer bug
   }
-  return prompt + highlighted + timeoutSuffix;
+  return prompt + highlighted + collapsedSuffix + timeoutSuffix;
 }
