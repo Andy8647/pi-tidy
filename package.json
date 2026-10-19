@@ -1,6 +1,6 @@
 {
   "name": "pi-tidy",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "packageManager": "pnpm@11.10.0",
   "description": "Claude Code-style tool folding for pi — a reply's tool calls collapse to one clickable line, edits and background jobs stay visible, every box gets a rounded transparent frame",
@@ -38,7 +38,9 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png",
+    "video": "https://cdn.jsdelivr.net/gh/Andy8647/pi-tidy@v0.4.3/assets/demo.mp4"
   },
   "engines": {
     "node": ">=22"

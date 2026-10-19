@@ -4,6 +4,15 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-10-19
+
+### Changed
+
+**A cover image, a demo video and screenshots.** The README opens with a cover
+and links a 40-second demo; `pi.image` and `pi.video` give the
+[pi package gallery](https://pi.dev/packages) a preview instead of a line of
+text. The media live in `assets/` on GitHub and stay out of the npm tarball.
+
 ## [0.4.2] - 2026-10-19
 
 ### Changed
