@@ -22,7 +22,7 @@ import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { setJobOptions } from "./background-jobs.ts";
-import { liveSlot, toolboxEnabled } from "./live.ts";
+import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { noteSetExpanded } from "./tool-groups.ts";
 import {
@@ -112,7 +112,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   alwaysShow: new Set(["edit", "write"]),
 });
 
-const grouping = () => toolboxEnabled.get() && toolOptions.get().groupTools;
+const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
 
 /** The component pi routes a box's clicks through (its result MouseRegions live inside). */
 function mouseTarget(tool: ToolBoxInternals): MouseTarget | undefined {
@@ -179,7 +179,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   }
 
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
-    if (!toolboxEnabled.get()) return originalHandleMouse?.call(this, event);
+    if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (grouping()) {
       const routed = routeGroupedMouse(this, event, {
         pinned: toolOptions.get().alwaysShow.has(this.toolName),
@@ -310,7 +310,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   proto.render = function (this: ToolBoxInternals, width: number): string[] {
     const theme = getTheme();
-    if (!theme || !toolboxEnabled.get()) {
+    if (!theme || !tidyEnabled.get()) {
       this.__frameGeometry = undefined;
       return originalRender.call(this, width);
     }

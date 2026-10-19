@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../frame.ts";
-import { toolboxEnabled } from "../live.ts";
+import { tidyEnabled } from "../live.ts";
 import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
 
 initTheme("dark");
@@ -285,10 +285,10 @@ test("options are live: a re-patch (what /reload does) and enabled=false take ef
     assert.ok(!lines.some((line) => line.includes("calls")));
     assert.ok(lines.some((line) => line.includes("Thinking...")), "carriers render as pi draws them");
 
-    toolboxEnabled.set(false);
+    tidyEnabled.set(false);
     assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 0, "pi's own unframed boxes");
   } finally {
-    toolboxEnabled.set(true);
+    tidyEnabled.set(true);
     patchToolBoxFrames(OPTIONS);
   }
   assert.ok(frame(chat).includes(" ▸ 3 calls · bash×3 · 0.5s"));

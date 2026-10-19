@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { drawFrame, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
 import { MESSAGE_ICONS } from "./icons.ts";
-import { liveSlot, toolboxEnabled } from "./live.ts";
+import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme } from "./theme-access.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -74,7 +74,7 @@ export function patchMessageBoxes(
     proto.render = function (this: MessageBoxInternals, width: number): string[] {
       const options = messageOptions.get();
       const theme = getTheme();
-      if (!theme || !options?.enabled || !toolboxEnabled.get()) return originalRender.call(this, width);
+      if (!theme || !options?.enabled || !tidyEnabled.get()) return originalRender.call(this, width);
       try {
         const { icons } = options;
         const borderColor = options.borderColors[kind];
@@ -181,7 +181,7 @@ export function patchContainerBoxes(
     proto.render = function (this: ContainerBoxInternals, width: number): string[] {
       const live = containerOptions.get();
       const theme = getTheme();
-      if (!theme || !live?.enabled || !toolboxEnabled.get() || (isUserMessage && !live.includeUser)) {
+      if (!theme || !live?.enabled || !tidyEnabled.get() || (isUserMessage && !live.includeUser)) {
         return originalRender.call(this, width);
       }
       try {

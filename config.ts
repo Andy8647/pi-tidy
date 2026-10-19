@@ -9,7 +9,7 @@ export interface MessageBorderColors {
   custom: string;
 }
 
-export interface ToolboxConfig {
+export interface TidyConfig {
   enabled: boolean;
   highlightBash: boolean;
   /** Give message boxes the same rounded transparent frame as tool boxes. */
@@ -58,7 +58,7 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
   mcp: "customMessageLabel",
 };
 
-const DEFAULTS: ToolboxConfig = {
+const DEFAULTS: TidyConfig = {
   enabled: true,
   highlightBash: true,
   frameMessages: true,
@@ -84,9 +84,11 @@ function readSettings(): any {
   return JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"));
 }
 
-export function loadConfig(): ToolboxConfig {
+export function loadConfig(): TidyConfig {
   try {
-    const toolbox = readSettings()?.toolbox;
+    // `tidy` since the rename from pi-toolbox; the old key keeps working.
+    const settings = readSettings();
+    const toolbox = settings?.tidy ?? settings?.toolbox;
     return {
       enabled: toolbox?.enabled ?? DEFAULTS.enabled,
       highlightBash: toolbox?.highlightBash ?? DEFAULTS.highlightBash,

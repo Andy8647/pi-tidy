@@ -14,6 +14,8 @@ export interface LiveSlot<T> {
 }
 
 export function liveSlot<T>(name: string, initial: T): LiveSlot<T> {
+  // Still `pi-toolbox:`, on purpose: with the old package and pi-tidy both
+  // installed, they share one set of patches instead of framing twice.
   const key = Symbol.for(`pi-toolbox:${name}`);
   const store = globalThis as unknown as Record<symbol, T | undefined>;
   return {
@@ -24,5 +26,5 @@ export function liveSlot<T>(name: string, initial: T): LiveSlot<T> {
   };
 }
 
-/** `toolbox.enabled`: false turns every installed patch into a pass-through. */
-export const toolboxEnabled = liveSlot("enabled", true);
+/** `tidy.enabled`: false turns every installed patch into a pass-through. */
+export const tidyEnabled = liveSlot("enabled", true);

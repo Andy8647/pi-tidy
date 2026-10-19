@@ -1,11 +1,12 @@
 /**
- * pi-toolbox — Rounded transparent tool boxes for pi coding agent.
+ * pi-tidy — a tidy transcript for the pi coding agent: a reply's tool calls
+ * fold into one clickable line, every box gets a rounded transparent frame.
  *
  * - every tool box (built-in, MCP, other extensions) gets a self-drawn rounded
  *   frame with status-aware border colors and no background fill
  * - bash commands are syntax-highlighted
  *
- * Configuration (settings.json → "toolbox"):
+ * Configuration (settings.json → "tidy"; the pre-rename "toolbox" key still works):
  *   enabled: boolean        — enable/disable the extension (default: true)
  *   highlightBash: boolean  — syntax-highlight bash commands (default: true)
  *   frameMessages: boolean  — rounded frame on message boxes (default: true)
@@ -26,13 +27,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createBashToolDefinition, keyHint } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition, keyHint, VERSION } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted } from "./bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
 import { loadConfig } from "./config.ts";
-import { toolboxEnabled } from "./live.ts";
+import { tidyEnabled } from "./live.ts";
 import { connectJobs, type EventBusLike } from "./background-jobs.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
@@ -104,12 +105,32 @@ function registerHighlightedBash(
   } as any);
 }
 
+/**
+ * Oldest pi everything works on: component mouse events (0.86), the bash
+ * preview budget (1.0) and tool durations (1.1). Checked at load rather than
+ * as a peer range — pi asks for `"*"` peers, and a peer conflict blocks every
+ * npm install in pi's package directory, not just this one.
+ */
+const MIN_PI = "1.1.0";
+
+function olderThan(version: string, min: string): boolean {
+  const parse = (v: string) => v.split(/[.-]/).slice(0, 3).map((part) => Number.parseInt(part, 10) || 0);
+  const [a, b] = [parse(version), parse(min)];
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
+
 /** Pi extension entry point. */
 export default function (pi: ExtensionAPI): void {
   const config = loadConfig();
+  if (typeof VERSION === "string" && olderThan(VERSION, MIN_PI)) {
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify(`pi-tidy needs pi ≥ ${MIN_PI} (this is ${VERSION}): clicks and durations won't work.`, "warning");
+    });
+  }
   // Patches installed by an earlier load (before a /reload) read this live,
   // so turning the extension off takes effect without a restart.
-  toolboxEnabled.set(config.enabled);
+  tidyEnabled.set(config.enabled);
   if (!config.enabled) return;
 
   try {
@@ -124,7 +145,7 @@ export default function (pi: ExtensionAPI): void {
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);
   } catch (error) {
-    console.debug("[pi-toolbox] tool box frame patch failed:", error);
+    console.debug("[pi-tidy] tool box frame patch failed:", error);
   }
 
   try {
@@ -137,14 +158,14 @@ export default function (pi: ExtensionAPI): void {
       enabled: config.frameMessages,
     });
   } catch (error) {
-    console.debug("[pi-toolbox] message box frame patch failed:", error);
+    console.debug("[pi-tidy] message box frame patch failed:", error);
   }
 
   if (config.highlightBash) {
     try {
       registerHighlightedBash(pi, process.cwd(), config.bashResultLines);
     } catch (error) {
-      console.debug("[pi-toolbox] bash highlight override failed:", error);
+      console.debug("[pi-tidy] bash highlight override failed:", error);
     }
   }
 
