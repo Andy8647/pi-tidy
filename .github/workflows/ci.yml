@@ -41,6 +41,8 @@ jobs:
           TARBALL=$(ls /tmp/*pi-toolbox-*.tgz | head -1)
           echo "packed: $TARBALL"
           tar -tzf "$TARBALL" | sort
-          for f in package/index.ts package/frame.ts package/bash-highlight.ts package/config.ts package/theme-access.ts package/README.md; do
+          # Every module index.ts imports, directly or not — a missing one only
+          # shows up as an import error when pi loads the extension.
+          for f in $(ls *.ts | sed 's|^|package/|') package/README.md package/LICENSE; do
             tar -tzf "$TARBALL" | grep -qx "$f" || { echo "::error::$f missing from tarball"; exit 1; }
           done

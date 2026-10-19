@@ -1,0 +1,186 @@
+/**
+ * The two one-line views: the group summary (level 0) and a single tool row
+ * (level 1). Pure string building — no component or pi state — so both are
+ * cheap to render every frame and trivial to test.
+ */
+
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import { toolKindIcon } from "./icons.ts";
+import type { ThemeLike } from "./theme-access.ts";
+import type { GroupSummary } from "./tool-groups.ts";
+
+export interface LineOptions {
+  /** Prepend each tool's Nerd Font kind icon. */
+  icons?: boolean;
+  /** Icon cells are dropped when a terminal has no Nerd Font. */
+  maxArgChars?: number;
+  /** Group line only: the group is unfolded (`▾`) rather than folded (`▸`). */
+  open?: boolean;
+}
+
+const DEFAULT_MAX_ARG_CHARS = 60;
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1000) return `${(Math.round(ms / 100) / 10).toFixed(1)}s`;
+  if (ms < 60_000) return `${(Math.round(ms / 100) / 10).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m${seconds.toString().padStart(2, "0")}s`;
+}
+
+/** `▸ 4 calls ·  bash×3  read×1 · 1.2s` (`▾` while the group is open) */
+export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options: LineOptions = {}): string {
+  const { icons = true, open = false } = options;
+  const parts: string[] = [
+    `${theme.fg("accent", open ? "▾" : "▸")} ${theme.fg("toolTitle", `${summary.count} ${summary.count === 1 ? "call" : "calls"}`)}`,
+  ];
+
+  const breakdown = summary.breakdown.map(({ name, count }) => {
+    const icon = icons ? `${toolKindIcon(name)} ` : "";
+    return theme.fg("muted", `${icon}${name}×${count}`);
+  });
+  if (breakdown.length > 0) parts.push(breakdown.join(theme.fg("muted", "  ")));
+
+  if (summary.failed > 0) parts.push(theme.fg("error", `${summary.failed} failed`));
+
+  if (summary.running) {
+    parts.push(theme.fg("warning", `running ${summary.running}`));
+  } else if (summary.durationMs > 0) {
+    parts.push(theme.fg("muted", formatDuration(summary.durationMs)));
+  }
+
+  return ` ${parts.join(theme.fg("muted", " · "))}`;
+}
+
+interface ToolLike {
+  toolName: string;
+  args?: unknown;
+  isPartial: boolean;
+  result?: { isError?: boolean; durationMs?: number; content?: unknown; details?: unknown };
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The text blocks of a tool result, joined. */
+function resultText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: "text"; text: string } => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+/**
+ * Lines of real output: blank lines and pi's own trailing notices
+ * (`[Showing lines 1-200 of 500 …]`, `Command exited with code 1`) don't count.
+ * A truncated result reports the original total instead.
+ */
+function outputLines(text: string, details: unknown): number {
+  const total = (details as { truncation?: { truncated?: unknown; totalLines?: unknown } } | undefined)?.truncation;
+  if (total?.truncated === true && typeof total.totalLines === "number") return total.totalLines;
+  return text
+    .split("\n")
+    .filter((line) => line.trim() && !/^\[Showing /.test(line) && !/^Command (exited with code|terminated)/.test(line))
+    .length;
+}
+
+/**
+ * What a finished call produced, in a few words — the part of Claude Code's
+ * `Read 120 lines` that makes a folded row worth reading. Built-in tools only;
+ * anything else (MCP, extensions) gets no note rather than a wrong one.
+ */
+export function summarizeResult(toolName: string, result: ToolLike["result"]): string {
+  if (!result) return "";
+  const text = resultText(result.content);
+  switch (toolName) {
+    case "bash": {
+      const code = /Command exited with code (\d+)/.exec(text)?.[1];
+      if (result.isError) return code ? `exit ${code}` : "";
+      const lines = outputLines(text, result.details);
+      return lines > 0 ? plural(lines, "line") : "";
+    }
+    case "read":
+      return result.isError ? "" : plural(outputLines(text, result.details), "line");
+    case "grep":
+      if (result.isError) return "";
+      return text.trim() === "No matches found" ? "no matches" : plural(outputLines(text, result.details), "match", "matches");
+    case "find":
+      if (result.isError) return "";
+      return /^No files found/.test(text.trim()) ? "no files" : plural(outputLines(text, result.details), "file");
+    case "ls":
+      if (result.isError) return "";
+      return text.trim() === "(empty directory)" ? "empty" : plural(outputLines(text, result.details), "entry", "entries");
+    default:
+      return "";
+  }
+}
+
+/**
+ * The one-string description of a call's arguments: a shell command's first
+ * line, a file's path, or the first stringish argument it can find.
+ */
+export function summarizeArgs(toolName: string, args: unknown, maxChars = DEFAULT_MAX_ARG_CHARS): string {
+  if (!args || typeof args !== "object") return "";
+  const record = args as Record<string, unknown>;
+
+  const command = typeof record.command === "string" ? record.command : undefined;
+  if (command) {
+    const [first, ...rest] = command.split("\n");
+    const head = first.trim();
+    const truncated = head.length > maxChars ? `${head.slice(0, maxChars - 1)}…` : head;
+    return rest.length > 0 ? `${truncated} (+${rest.length} lines)` : truncated;
+  }
+
+  for (const key of ["path", "file_path", "filePath", "pattern", "url", "query"]) {
+    const value = record[key];
+    if (typeof value === "string" && value) return value;
+  }
+
+  for (const value of Object.values(record)) {
+    if (typeof value === "string" && value) {
+      return value.length > maxChars ? `${value.slice(0, maxChars - 1)}…` : value;
+    }
+  }
+  return "";
+}
+
+/** ` ✓ bash cd ~ && python3 - <<'PY' (+26 lines)  3 lines · 0.1s` */
+export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string {
+  const { icons = true } = options;
+  const { isPartial } = tool;
+  const isError = !isPartial && tool.result?.isError === true;
+
+  const status = isPartial
+    ? theme.fg("muted", "⋯")
+    : isError
+      ? theme.fg("error", "✗")
+      : theme.fg("success", "✓");
+
+  const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
+  const name = theme.fg("toolTitle", `${icon}${tool.toolName}`);
+  const detail = summarizeArgs(tool.toolName, tool.args, options.maxArgChars);
+  const detailText = detail ? theme.fg("toolOutput", ` ${detail}`) : "";
+
+  // `  12 lines · 0.3s` — what it produced, then how long it took.
+  const tail: string[] = [];
+  if (!isPartial) {
+    const note = summarizeResult(tool.toolName, tool.result);
+    if (note) tail.push(isError ? theme.fg("error", note) : theme.fg("muted", note));
+    const durationMs = tool.result?.durationMs;
+    if (typeof durationMs === "number" && durationMs > 0) tail.push(theme.fg("muted", formatDuration(durationMs)));
+  }
+  const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
+
+  return ` ${status} ${name}${detailText}${tailText}`;
+}
+
+/** The `│` that runs down the left of an open group, under its `▾`. */
+export function groupGutter(theme: ThemeLike): string {
+  return ` ${theme.fg("borderMuted", "│")}`;
+}
+
+/** Cells `groupGutter` takes. */
+export const GUTTER_CELLS = 2;
+
+export { formatDuration };

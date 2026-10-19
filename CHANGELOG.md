@@ -3,6 +3,92 @@
 What changed in each released version of pi-toolbox. Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-19
+
+### Added
+
+**Grouped tool calls: one line per assistant segment, three levels deep.** A reply
+that ran six tools used to cost six boxes; it now costs one line —
+`▸ 6 calls ·  bash×4  read×2 · 1.2s` — with the per-tool icons toolbox already
+uses for call rows. Clicking the line turns it into a `▾` header with exactly one
+row per call under a `│` gutter
+(`│ ✓ bash  cd ~ && python3 - <<'PY' (+26 lines)  0.1s`); clicking a row opens that
+call's full box (still on the gutter, so it's clear which group it belongs to),
+clicking the box folds it back into its row, and clicking the `▾` header folds the
+whole group — boxes included — back to its summary line.
+
+Edits and writes never fold. Their diff is the thing you want to see, so they keep
+pi's own box and end the group before them; the calls after an edit start a new
+group, which keeps the transcript in order. New `alwaysShowTools` option (default
+`["edit", "write"]`, `[]` folds everything).
+
+A group is everything between two boundaries: a user message, or an assistant
+message with visible text. The text always renders, so a reply that drifts is
+still visible, and each segment keeps its own summary. pi gives every model step
+its own assistant message, and a step that only calls a tool has no text — those
+steps don't split the group, and their `Thinking...` label folds away with it,
+reappearing next to that call's box when you open it. The running tool keeps its
+own row under the summary so a long command doesn't look frozen.
+
+Running and failed calls keep their own row under a folded summary — a failure
+should never hide inside `▸ 6 calls` — and the summary counts them
+(`▸ 6 calls · … · 1 failed · 1.2s`). Clicking any row opens that call's box,
+including those two under a folded summary. Every row also says what the call
+produced, Claude Code style: `12 lines`, `3 matches`, `no files`, `exit 1` for the
+built-in tools (truncated output reports the original total); other tools get no
+note rather than a guessed one.
+
+`ctrl+o` expands every box (thinking included, like pi's native transcript), and
+pressing it again folds every group back to its summary line; pi's own click on a
+full box folds just that box. Membership is derived at render time from transcript
+order, so groups survive a session reload without persisting anything. New
+`groupTools` option (default `true`).
+
+### Changed
+
+**Requires pi ≥ 1.1.0** (peer dependencies were `*`). Component mouse events
+arrived in 0.86 and tool durations in 1.1.0; on anything older the groups can't
+be opened and the summary has no times. The dev dependencies moved from 0.82 to
+1.3, so the tests now run pi's real click dispatch instead of a stand-in — the
+stand-in is how a `button: "left"` vs `0` mismatch went unnoticed.
+
+**Settings apply on `/reload`.** The prototype patches are installed once per
+process, and used to keep the options of the first load; a reload's new settings
+(including `enabled: false` and `frameMessages: false`) were silently dropped.
+The patches now read their options from a global slot each load updates.
+
+**Bash call rows collapse to one line by default.** The call row rendered the
+command verbatim, so a heredoc (`python3 - <<'PY'` plus forty lines of body) or a
+long `&&` chain filled the box before the command had even run, pushing every
+previous tool call off screen. The collapsed row now shows the first line only,
+cut at 100 characters (pi's own `COLLAPSED_ARGS_CHARS`, so bash folds like every
+other tool), followed by `(+N more lines, ctrl+o to expand)`. `ctrl+o` still
+gives the whole command back.
+
+**Collapsed result previews shrank to one line too.** pi's bash renderer caps the
+collapsed output at a hard-coded `BASH_PREVIEW_LINES = 5` with no setting, so even
+a one-line command cost five output rows. The collapsed view now keeps a single
+row and `ctrl+o` still brings back all of it. New `bashResultLines` option (default
+`1`, `0` hides output until expanded) — applied by lowering the budget on the
+`VisualLinePreview` pi built, so timers, truncation warnings and image fallbacks
+stay pi's own.
+
+`frame.ts` is split by job (`frame-draw.ts`, `tool-frame.ts`, `tool-group-view.ts`,
+`message-frame.ts`); it keeps re-exporting the same API.
+
+### Fixed
+
+**Clicking a framed box toggled the wrong row — or nothing at all.** pi maps a
+click on a box through its own unframed layout, and for `renderShell: "self"`
+tools (edit, and MCP tools via pi-mcp-adapter) through a height that only pi's
+own render records; toolbox replaces that render, so those clicks were always
+dropped. Clicks are now translated through the frame's geometry into the source
+component's coordinates and reach pi's own toggle.
+
+`formatBashCallHighlighted(args, theme, options?)` takes the new third argument
+(`{ expanded, maxChars, hint }`); omitting it renders the full command, so
+existing callers are unaffected. `collapseBashCommand` is exported for tests.
+
 ## [0.3.3] - 2026-10-05
 
 ### Fixed

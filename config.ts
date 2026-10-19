@@ -18,6 +18,21 @@ export interface ToolboxConfig {
   frameUserMessages: boolean;
   /** Prepend Nerd Font icons (tool kind / file type / message kind). */
   icons: boolean;
+  /**
+   * Collapsed bash result preview height, in visual lines (default 1). pi's own
+   * bash renderer hard-codes 5 and has no setting; `ctrl+o` still shows everything.
+   */
+  bashResultLines: number;
+  /**
+   * Collapse one assistant segment's tool calls into a single summary line.
+   * Click the line for one row per call, click a row for the full box.
+   */
+  groupTools: boolean;
+  /**
+   * Tools that never fold into a group and keep pi's own box (edit/write by
+   * default: the diff is the point). They also end the group before them.
+   */
+  alwaysShowTools: string[];
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -45,6 +60,9 @@ const DEFAULTS: ToolboxConfig = {
   frameMessages: true,
   frameUserMessages: false,
   icons: true,
+  bashResultLines: 1,
+  groupTools: true,
+  alwaysShowTools: ["edit", "write"],
   messageBorderColors: {
     user: "toolTitle",
     compaction: "customMessageLabel",
@@ -69,6 +87,11 @@ export function loadConfig(): ToolboxConfig {
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
       frameUserMessages: toolbox?.frameUserMessages ?? DEFAULTS.frameUserMessages,
       icons: toolbox?.icons ?? DEFAULTS.icons,
+      bashResultLines: typeof toolbox?.bashResultLines === "number" ? toolbox.bashResultLines : DEFAULTS.bashResultLines,
+      groupTools: typeof toolbox?.groupTools === "boolean" ? toolbox.groupTools : DEFAULTS.groupTools,
+      alwaysShowTools: Array.isArray(toolbox?.alwaysShowTools)
+        ? toolbox.alwaysShowTools.filter((name: unknown): name is string => typeof name === "string")
+        : DEFAULTS.alwaysShowTools,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
         ...toolbox?.messageBorderColors,
