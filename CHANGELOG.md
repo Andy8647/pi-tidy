@@ -4,6 +4,33 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - 2026-10-20
+
+### Fixed
+
+**Tidy no longer registers any tools, so sandbox extensions can load alongside it.** Registering a
+tool under a built-in name is a hard failure in pi (`Tool "write" conflicts with
+…/pi-tidy/index.ts`), and Tidy did it for `bash` (to highlight the command row) and, since 0.4.4, for
+`write` (to make the preview height a setting). Any extension that legitimately owns those tools — a
+sandbox such as pi-playpen, which must wrap execution or lose its enforcement — could therefore not
+be installed at the same time. Both now travel as a `pi.registerToolRenderer()` resolver: the
+installed tool keeps execution, schema, shell and result renderer, and `next()` hands Tidy the
+downstream renderers so the call row can be replaced and the collapsed preview budget lowered on top
+of whatever it returned.
+
+- `bash`: the command row is still syntax highlighted and still folds to one line while collapsed,
+  and `bashResultLines` still caps the output preview. The `startedAt`/`endedAt` state pi's own
+  result renderer reads for its `Took 1.2s` footer is still maintained (we own the call renderer, so
+  nobody else would). `highlightBash: false` leaves bash completely untouched.
+- `write`: unchanged behaviour, now on top of whichever result renderer is downstream instead of
+  pi's built-in one.
+- `pi ≥ 1.3` is required for those two features. On an older pi they are skipped and a single warning
+  names what is unavailable, and only when the setting was actually changed away from pi's own
+  default — someone who never touched `writeLines` is not lectured.
+
+Thanks to @s5unty for the diagnosis, the constraint that made the alternative (asking a sandbox
+extension to stand down) unacceptable, and the write half in #8.
+
 ## [0.4.5] - 2026-10-20
 
 ### Added

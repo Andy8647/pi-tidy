@@ -73,9 +73,10 @@ pi install npm:pi-tidy
 ```
 
 Requires pi ≥ 1.1.0 (component mouse events, tool durations); on an older pi it
-says so at session start. Custom write previews also require `registerToolRenderer`
-(available in Pi 1.3.0). Without that API, Tidy warns at session start and keeps the
-existing write renderer instead of overriding the tool.
+says so at session start. Bash highlighting and the custom write preview also need
+`pi.registerToolRenderer()` (pi 1.3.0). Without that API they are skipped and Tidy
+says so once, rather than falling back to a tool override that would stop another
+extension from loading.
 
 Or straight from the repo:
 
@@ -180,15 +181,17 @@ component; their own prototypes get the same treatment, with two exceptions
 that keep their native styling: custom messages rendered by an
 extension-provided renderer, and `!` bash-mode executions, which already draw
 their own border. User messages are skipped by default because pi-starline
-patches the same prototype. Only `bash` is re-registered, purely to add syntax
-highlighting to the command row.
+patches the same prototype.
 
-The configurable `write` preview uses `pi.registerToolRenderer()`, not a replacement
-tool. The registered tool keeps its execution, schema and metadata; downstream
-shell and result renderers are preserved through `next()`. This avoids `write`
-registration conflicts with sandbox extensions such as pi-playpen, regardless of
-which extension loads first. When using an extension that also overrides `bash`,
-set `"tidy": { "highlightBash": false }` to avoid the separate bash conflict.
+Tidy registers **no tools at all**. Everything it changes about `bash` and `write`
+(the highlighted command row, the collapsed output budgets, the write preview)
+travels as a `pi.registerToolRenderer()` resolver, so the tool that is actually
+installed keeps its execution, schema, shell and result renderer, and `next()`
+hands Tidy whatever is downstream — pi's built-in renderers when an extension
+defines none. Registering a tool under a built-in name is a hard failure in pi
+(`Tool "write" conflicts with …`), which is why an extension that sandboxes
+`bash`/`write` used to be mutually exclusive with Tidy no matter which loaded
+first. It no longer is (issue #7, PR #8 and the bash follow-up).
 
 An unchanged box returns its cached line array outright: pi re-renders the
 whole transcript on every frame, including every mouse packet while scrolling.

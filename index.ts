@@ -34,16 +34,12 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  createBashToolDefinition,
-  keyHint,
-  VERSION,
-} from "@earendil-works/pi-coding-agent";
+import { keyHint, VERSION } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted } from "./bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
-import { loadConfig } from "./config.ts";
+import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { tidyEnabled } from "./live.ts";
 import { formatWriteCallText } from "./write-preview.ts";
 import { connectJobs, type EventBusLike } from "./background-jobs.ts";
@@ -55,46 +51,37 @@ export { stripBackgroundFills, patchContainerBoxes, patchMessageBoxes, patchTool
 interface BashRenderState {
   startedAt?: number;
   endedAt?: number;
-  callText?: Text;
+  /** Our own slot: the execution extension may be using `callText` itself. */
+  tidyCallText?: Text;
 }
 
 /**
- * Re-register bash with a syntax-highlighted call row. Everything else about
- * the box (the frame, the transparent background) comes from the component
- * patch, so no other tool needs an override.
+ * Decorate bash's rows without registering a replacement tool.
+ *
+ * Both changes are presentation only: a syntax-highlighted command row, and a
+ * smaller budget for the collapsed result preview. Registering `bash` to get
+ * them meant any extension that also owns it (a sandbox, for instance) failed
+ * to load with "Tool \"bash\" conflicts with …". As a renderer it composes: the
+ * active tool keeps execution, schema, shell and result renderer, and `next()`
+ * hands us whatever it has (pi's built-in renderers when it defines none).
  */
-function registerHighlightedBash(
-  pi: ExtensionAPI,
-  cwd: string,
-  resultLines: number,
-): void {
-  const definition = createBashToolDefinition(cwd) as any;
+function registerBashRenderers(pi: ExtensionAPI, resultLines: number): void {
+  if (!hasRendererApi(pi)) return;
 
-  pi.registerTool({
-    name: "bash",
-    label: "bash",
-    description: definition.description,
-    // Not inherited from the built-in on override — copy them explicitly
-    ...(definition.promptSnippet ? { promptSnippet: definition.promptSnippet } : {}),
-    ...(definition.promptGuidelines ? { promptGuidelines: definition.promptGuidelines } : {}),
-    parameters: definition.parameters,
-    ...(definition.prepareArguments ? { prepareArguments: definition.prepareArguments } : {}),
-    ...(definition.executionMode ? { executionMode: definition.executionMode } : {}),
+  pi.registerToolRenderer((toolName, next) => {
+    const renderers = next();
+    if (toolName !== "bash" || !renderers) return renderers;
 
-    async execute(toolCallId: any, params: any, signal: any, onUpdate: any, ctx: any) {
-      return definition.execute(toolCallId, params, signal, onUpdate, ctx);
-    },
-
-    renderCall(args: any, theme: ThemeLike, context: any) {
+    const renderCall = (args: any, theme: ThemeLike, context: any) => {
       const state = context.state as BashRenderState;
-      // Replicate the built-in renderCall's timing state — its renderResult
-      // reads startedAt/endedAt for the "Took Xs" footer.
+      // The built-in renderResult reads these for the "Took Xs" footer. We
+      // replaced the call renderer that normally sets them.
       if (context.executionStarted && state.startedAt === undefined) {
         state.startedAt = Date.now();
         state.endedAt = undefined;
       }
-      const text = state.callText ?? new Text("", 0, 0);
-      state.callText = text;
+      const text = state.tidyCallText ?? new Text("", 0, 0);
+      state.tidyCallText = text;
       // 折叠态(默认)只留命令首行 + `+N more lines`,和 pi 其它工具的折叠行为一致;
       // ctrl+o 展开后恢复整条命令(heredoc 之类)。
       text.setText(
@@ -104,17 +91,28 @@ function registerHighlightedBash(
         }),
       );
       return text;
-    },
+    };
 
-    renderResult(result: any, options: any, theme: any, context: any) {
-      const component = definition.renderResult(result, options, theme, context);
-      // 内置 bash 结果预览固定 5 行(BASH_PREVIEW_LINES),pi 没给配置项。
-      // 折叠态下把它的行数预算改小;展开态和报错时保持内置原样(一行 traceback 没用)。
-      const budget = collapsedResultBudget(resultLines, context.isError);
-      if (!options.expanded && budget !== undefined) shrinkResultPreview(component, budget);
-      return component;
-    },
-  } as any);
+    // No result renderer downstream means nothing to budget; leave it absent
+    // rather than inventing a bare component.
+    const downstream = renderers.renderResult;
+    if (!downstream) return { ...renderers, renderCall };
+
+    return {
+      ...renderers,
+      renderCall,
+      renderResult(result: any, options: any, theme: any, context: any) {
+        // Whatever the execution extension draws stays: we only lower the
+        // preview budget inside it.
+        const component = downstream(result, options, theme, context);
+        // 内置 bash 结果预览固定 5 行(BASH_PREVIEW_LINES),pi 没给配置项。
+        // 折叠态下把它的行数预算改小;展开态和报错时保持原样(一行 traceback 没用)。
+        const budget = collapsedResultBudget(resultLines, context.isError);
+        if (!options.expanded && budget !== undefined) shrinkResultPreview(component, budget);
+        return component;
+      },
+    };
+  });
 }
 
 /**
@@ -137,17 +135,9 @@ function olderThan(version: string, min: string): boolean {
  * and next() preserves its shell and result renderer, including error output.
  */
 function registerWritePreview(pi: ExtensionAPI, lines: number): void {
-  // Older supported Pi versions may lack this API. Keep their native preview
-  // rather than falling back to a tool override that could conflict with a sandbox.
-  if (typeof pi.registerToolRenderer !== "function") {
-    pi.on("session_start", (_event, ctx) => {
-      ctx.ui.notify(
-        "pi-tidy: custom write preview requires pi.registerToolRenderer (available in Pi 1.3.0). Keeping the existing write renderer; upgrade Pi to use writeLines.",
-        "warning",
-      );
-    });
-    return;
-  }
+  // No fallback to a tool override: a duplicate registration takes down
+  // whoever else owns `write`. The caller has already warned (see entry point).
+  if (!hasRendererApi(pi)) return;
 
   pi.registerToolRenderer((toolName, next) => {
     const renderers = next();
@@ -169,6 +159,27 @@ function registerWritePreview(pi: ExtensionAPI, lines: number): void {
   });
 }
 
+/** `registerToolRenderer` arrived in pi 1.3; peer ranges stay `*` (see MIN_PI). */
+function hasRendererApi(pi: ExtensionAPI): boolean {
+  return typeof (pi as { registerToolRenderer?: unknown }).registerToolRenderer === "function";
+}
+
+/**
+ * Say once, at session start, which renderer-backed features this pi cannot
+ * have. Only features the user actually asked for — warning someone who left
+ * `writeLines` at pi's own default would be pure noise.
+ */
+function warnUnavailableRenderers(pi: ExtensionAPI, features: string[]): void {
+  if (features.length === 0) return;
+  pi.on("session_start", (_event, ctx) => {
+    const list = features.join(" and ");
+    ctx.ui.notify(
+      `pi-tidy: ${list} need pi.registerToolRenderer (pi 1.3 or newer). Upgrade pi to turn ${features.length === 1 ? "it" : "them"} on.`,
+      "warning",
+    );
+  });
+}
+
 /** Pi extension entry point. */
 export default function (pi: ExtensionAPI): void {
   const config = loadConfig();
@@ -181,6 +192,13 @@ export default function (pi: ExtensionAPI): void {
   // so turning the extension off takes effect without a restart.
   tidyEnabled.set(config.enabled);
   if (!config.enabled) return;
+
+  const unavailable: string[] = [];
+  if (!hasRendererApi(pi)) {
+    if (config.highlightBash) unavailable.push("bash highlighting and the `bashResultLines` budget");
+    if (config.writeLines !== PI_WRITE_PREVIEW_LINES) unavailable.push("the custom write preview (`writeLines`)");
+  }
+  warnUnavailableRenderers(pi, unavailable);
 
   try {
     patchToolBoxFrames({
@@ -215,9 +233,9 @@ export default function (pi: ExtensionAPI): void {
 
   if (config.highlightBash) {
     try {
-      registerHighlightedBash(pi, process.cwd(), config.bashResultLines);
+      registerBashRenderers(pi, config.bashResultLines);
     } catch (error) {
-      console.debug("[pi-tidy] bash highlight override failed:", error);
+      console.debug("[pi-tidy] bash renderer failed:", error);
     }
   }
 
