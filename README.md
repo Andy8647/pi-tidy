@@ -73,7 +73,9 @@ pi install npm:pi-tidy
 ```
 
 Requires pi ≥ 1.1.0 (component mouse events, tool durations); on an older pi it
-says so at session start.
+says so at session start. Custom write previews also require `registerToolRenderer`
+(available in Pi 1.3.0). Without that API, Tidy warns at session start and keeps the
+existing write renderer instead of overriding the tool.
 
 Or straight from the repo:
 
@@ -157,7 +159,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `splitDiffMinWidth` | number | `72` | Box width below which the split is dropped for pi's unified diff — two panes need room to stay readable |
 | `diffLines` | number | `20` | Diff rows drawn while an edit box is collapsed. The window is anchored at the first changed line (a third of the budget of context above it), with `… (N more lines, M total, ctrl+o to expand)` under it — pi's own edit renderer has no budget at all, so this is the only thing keeping a long diff from owning the screen. `ctrl+o` draws all of it, `0` keeps just the summary row |
 | `bashResultLines` | number | `1` | Visual lines of bash *output* shown while collapsed. pi's renderer hard-codes 5 with no setting; raise this for more context, `0` to hide output until you expand |
-| `writeLines` | number | `10` | Visual lines of a written file shown while the box is collapsed (pi's own number, now adjustable). `0` keeps just the header until you expand |
+| `writeLines` | number | `10` | Visual lines of a written file shown while the box is collapsed (pi's own number, now adjustable). `0` keeps just the header until you expand. Requires Pi's `registerToolRenderer` API |
 | `toolColors` | object | see above | Border color per tool name for successful executions (pending stays grey, errors stay red, unlisted tools take `accent`). When set, the map **replaces** the defaults — `{}` disables per-tool colors |
 | `messageBorderColors` | object | see above | Per-kind message-box border colors; merged over the defaults |
 
@@ -171,9 +173,8 @@ invocations, `warning` (yellow) for extension notices.
 ## How it works
 
 pi builds one `ToolExecutionComponent` per tool call, no matter which extension
-registered the tool. The extension API cannot wrap another extension's
-renderers, so pi-tidy patches that component's `render` instead — which is
-why MCP and subagent boxes are framed too. Message boxes (compaction, branch
+registered the tool. pi-tidy patches that component's `render` to frame the whole
+box — which is why MCP and subagent boxes are framed too. Message boxes (compaction, branch
 summary, skill invocation, extension custom message) never go through that
 component; their own prototypes get the same treatment, with two exceptions
 that keep their native styling: custom messages rendered by an
@@ -181,6 +182,13 @@ extension-provided renderer, and `!` bash-mode executions, which already draw
 their own border. User messages are skipped by default because pi-starline
 patches the same prototype. Only `bash` is re-registered, purely to add syntax
 highlighting to the command row.
+
+The configurable `write` preview uses `pi.registerToolRenderer()`, not a replacement
+tool. The registered tool keeps its execution, schema and metadata; downstream
+shell and result renderers are preserved through `next()`. This avoids `write`
+registration conflicts with sandbox extensions such as pi-playpen, regardless of
+which extension loads first. When using an extension that also overrides `bash`,
+set `"tidy": { "highlightBash": false }` to avoid the separate bash conflict.
 
 An unchanged box returns its cached line array outright: pi re-renders the
 whole transcript on every frame, including every mouse packet while scrolling.

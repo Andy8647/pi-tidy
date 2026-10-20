@@ -36,7 +36,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createBashToolDefinition,
-  createWriteToolDefinition,
   keyHint,
   VERSION,
 } from "@earendil-works/pi-coding-agent";
@@ -133,38 +132,41 @@ function olderThan(version: string, min: string): boolean {
 }
 
 /**
- * Re-register write with a configurable content preview. pi hard-codes ten
- * lines while collapsed; everything else (highlighting, the footer, the error
- * rendering) is handed back to the built-in definition.
+ * Decorate write's call preview without registering a replacement tool. The
+ * active tool (e.g. pi-playpen's sandboxed write) keeps ownership of execution,
+ * and next() preserves its shell and result renderer, including error output.
  */
-function registerWritePreview(pi: ExtensionAPI, cwd: string, lines: number): void {
-  const definition = createWriteToolDefinition(cwd) as any;
+function registerWritePreview(pi: ExtensionAPI, lines: number): void {
+  // Older supported Pi versions may lack this API. Keep their native preview
+  // rather than falling back to a tool override that could conflict with a sandbox.
+  if (typeof pi.registerToolRenderer !== "function") {
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify(
+        "pi-tidy: custom write preview requires pi.registerToolRenderer (available in Pi 1.3.0). Keeping the existing write renderer; upgrade Pi to use writeLines.",
+        "warning",
+      );
+    });
+    return;
+  }
 
-  pi.registerTool({
-    name: "write",
-    label: "write",
-    description: definition.description,
-    ...(definition.promptSnippet ? { promptSnippet: definition.promptSnippet } : {}),
-    ...(definition.promptGuidelines ? { promptGuidelines: definition.promptGuidelines } : {}),
-    parameters: definition.parameters,
-    ...(definition.executionMode ? { executionMode: definition.executionMode } : {}),
+  pi.registerToolRenderer((toolName, next) => {
+    const renderers = next();
+    if (toolName !== "write") return renderers;
 
-    async execute(toolCallId: any, params: any, signal: any, onUpdate: any, ctx: any) {
-      return definition.execute(toolCallId, params, signal, onUpdate, ctx);
-    },
-
-    renderCall(args: any, theme: ThemeLike, context: any) {
-      const state = context.state as { callText?: Text };
-      const text = state.callText ?? new Text("", 0, 0);
-      state.callText = text;
-      text.setText(formatWriteCallText(args, theme, { expanded: context.expanded, lines }));
-      return text;
-    },
-
-    renderResult(result: any, options: any, theme: any, context: any) {
-      return definition.renderResult(result, options, theme, context);
-    },
-  } as any);
+    return {
+      ...renderers,
+      renderCall(args, theme, context) {
+        // Rendering state is shared with the execution extension's renderers.
+        // Use our own key so its cached components are not overwritten.
+        const state = context.state as { tidyWriteCallText?: Text };
+        const text = state.tidyWriteCallText ?? new Text("", 0, 0);
+        state.tidyWriteCallText = text;
+        const writeArgs = args as Parameters<typeof formatWriteCallText>[0];
+        text.setText(formatWriteCallText(writeArgs, theme, { expanded: context.expanded, lines }));
+        return text;
+      },
+    };
+  });
 }
 
 /** Pi extension entry point. */
@@ -220,8 +222,8 @@ export default function (pi: ExtensionAPI): void {
   }
 
   try {
-    registerWritePreview(pi, process.cwd(), config.writeLines);
+    registerWritePreview(pi, config.writeLines);
   } catch (error) {
-    console.debug("[pi-tidy] write preview override failed:", error);
+    console.debug("[pi-tidy] write preview renderer failed:", error);
   }
 }
