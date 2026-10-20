@@ -24,6 +24,11 @@ export interface TidyConfig {
    */
   bashResultLines: number;
   /**
+   * Collapsed write preview height, in visual lines (default 10, pi's own
+   * number). `0` hides the preview until the box is expanded.
+   */
+  writeLines: number;
+  /**
    * Collapse one assistant segment's tool calls into a single summary line.
    * Click the line for one row per call, click a row for the full box.
    */
@@ -37,6 +42,14 @@ export interface TidyConfig {
   backgroundJobs: boolean;
   /** Hide a job's notification messages when its row already shows them. */
   hideJobNotifications: boolean;
+  /**
+   * Render an edit's diff as two panes (old | new) with line numbers, a
+   * coloured bar and a tinted row per changed line. Falls back to pi's
+   * unified diff when the box is too narrow (see `splitDiffMinWidth`).
+   */
+  splitDiff: boolean;
+  /** Box width below which the split becomes unreadable; pi's diff is used. */
+  splitDiffMinWidth: number;
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -65,10 +78,13 @@ const DEFAULTS: TidyConfig = {
   frameUserMessages: false,
   icons: true,
   bashResultLines: 1,
+  writeLines: 10,
   groupTools: true,
   alwaysShowTools: ["edit", "write"],
   backgroundJobs: true,
   hideJobNotifications: true,
+  splitDiff: true,
+  splitDiffMinWidth: 72,
   messageBorderColors: {
     user: "toolTitle",
     compaction: "customMessageLabel",
@@ -96,6 +112,7 @@ export function loadConfig(): TidyConfig {
       frameUserMessages: toolbox?.frameUserMessages ?? DEFAULTS.frameUserMessages,
       icons: toolbox?.icons ?? DEFAULTS.icons,
       bashResultLines: typeof toolbox?.bashResultLines === "number" ? toolbox.bashResultLines : DEFAULTS.bashResultLines,
+      writeLines: typeof toolbox?.writeLines === "number" ? toolbox.writeLines : DEFAULTS.writeLines,
       groupTools: typeof toolbox?.groupTools === "boolean" ? toolbox.groupTools : DEFAULTS.groupTools,
       alwaysShowTools: Array.isArray(toolbox?.alwaysShowTools)
         ? toolbox.alwaysShowTools.filter((name: unknown): name is string => typeof name === "string")
@@ -103,6 +120,9 @@ export function loadConfig(): TidyConfig {
       backgroundJobs: typeof toolbox?.backgroundJobs === "boolean" ? toolbox.backgroundJobs : DEFAULTS.backgroundJobs,
       hideJobNotifications:
         typeof toolbox?.hideJobNotifications === "boolean" ? toolbox.hideJobNotifications : DEFAULTS.hideJobNotifications,
+      splitDiff: typeof toolbox?.splitDiff === "boolean" ? toolbox.splitDiff : DEFAULTS.splitDiff,
+      splitDiffMinWidth:
+        typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
         ...toolbox?.messageBorderColors,

@@ -134,12 +134,24 @@ export function trimBlankEdges(lines: string[]): string[] {
  *   success                      → success (green)
  *   error                        → error (red)
  */
-export function drawFrame(lines: string[], width: number, theme: ThemeLike, color: string): string[] {
+export function drawFrame(
+  lines: string[],
+  width: number,
+  theme: ThemeLike,
+  color: string,
+  /**
+   * Rows whose background fill belongs to the content (the split diff's tinted
+   * rows). Every other row is stripped — the frame is transparent by design.
+   */
+  keepBg?: ReadonlySet<number>,
+): string[] {
   const inner = Math.max(2, width - 2);
   const bc = (s: string) => theme.fg(color, s);
   const out: string[] = [bc(`╭${"─".repeat(inner)}╮`)];
-  for (const line of lines) {
-    out.push(`${bc("│")}${padToWidth(stripBackgroundFills(line), inner)}${bc("│")}`);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string;
+    const kept = keepBg?.has(i) ? line : stripBackgroundFills(line);
+    out.push(`${bc("│")}${padToWidth(kept, inner)}${bc("│")}`);
   }
   out.push(bc(`╰${"─".repeat(inner)}╯`));
   return out;

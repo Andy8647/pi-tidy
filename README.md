@@ -17,6 +17,11 @@ view — and every box gets a rounded transparent frame.
 - **Every message box** — compaction and branch summaries, skill invocations, and extension custom messages get the same frame, each kind in its own border color (user messages are left to pi-starline by default)
 - **Per-tool border colors** — successful boxes take their tool's color (bash/read/edit/write/… configurable); pending stays grey, errors stay red
 - **Nerd Font icons** — every box gets a kind icon; file tools show the target file's nvim-web-devicons glyph right in front of the path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
+- **Side-by-side edit diffs** — an edit's diff renders as two panes (`old │ new`) with line numbers
+  on both sides, a coloured bar and tinted row per changed line, and the changed word emphasised
+  inside the line. Removed and added blocks pair up row by row, so a replaced block reads as
+  before/after instead of two stacked runs. Below `splitDiffMinWidth` (or while the preview is still
+  being computed) it falls back to pi's unified diff
 - **Transparent background** — no solid background fill, works with terminal transparency
 - **Grouped tool calls** — every tool call between two pieces of assistant text collapses to one line
   (`▸ 4 calls ·  bash×3  read×1 · 1.2s`). Click it and it turns into a `▾` header with one row per call
@@ -109,6 +114,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "frameUserMessages": false,
     "icons": true,
     "bashResultLines": 1,
+    "writeLines": 10,
     "groupTools": true,
     "alwaysShowTools": ["edit", "write"],
     "backgroundJobs": true,
@@ -144,8 +150,11 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, a row for its full box, the box to fold it back, the `▾` header to fold the group. `false` renders every call as its own box |
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. Running or failed jobs keep their row while folded. The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
 | `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
-| `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep pi's own box (with the diff) and end the group before them, so later calls start a new one. `[]` folds everything |
+| `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep their own box (with the diff) and end the group before them, so later calls start a new one. Set `[]` to fold edits and writes into the group like everything else — click their row for the box |
+| `splitDiff` | boolean | `true` | Render an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff |
+| `splitDiffMinWidth` | number | `72` | Box width below which the split is dropped for pi's unified diff — two panes need room to stay readable |
 | `bashResultLines` | number | `1` | Visual lines of bash *output* shown while collapsed. pi's renderer hard-codes 5 with no setting; raise this for more context, `0` to hide output until you expand |
+| `writeLines` | number | `10` | Visual lines of a written file shown while the box is collapsed (pi's own number, now adjustable). `0` keeps just the header until you expand |
 | `toolColors` | object | see above | Border color per tool name for successful executions (pending stays grey, errors stay red, unlisted tools take `accent`). When set, the map **replaces** the defaults — `{}` disables per-tool colors |
 | `messageBorderColors` | object | see above | Per-kind message-box border colors; merged over the defaults |
 

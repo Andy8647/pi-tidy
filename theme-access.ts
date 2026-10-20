@@ -12,6 +12,8 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 export interface ThemeLike {
   fg(color: string, text: string): string;
   bold(text: string): string;
+  /** Present on the live theme; every built-in theme implements it. */
+  bg?(color: string, text: string): string;
 }
 
 export function getTheme(): ThemeLike | undefined {
