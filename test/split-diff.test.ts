@@ -158,3 +158,89 @@ test("pi's edit box keeps pi's unified diff when the box is narrow", async () =>
   assert.ok(!text.includes("│ new"), text);
   assert.match(text, /après café|\+1 /, text);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// diffLines: the collapsed body is a window anchored at the first change
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A 60-line file where most of the lines changed — a diff with many rows. */
+function longSample(budget?: number) {
+  const before = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join("\n");
+  const after = before
+    .split("\n")
+    .map((line, i) => (i >= 20 ? `${line} CHANGED` : line))
+    .join("\n");
+  const { diff } = generateDiffString(before, after);
+  const out = renderSplitDiff({ diff, width: WIDTH, theme: t, filePath: "long.ts", maxLines: budget });
+  assert.ok(out);
+  return out.lines.map(plain);
+}
+
+test("the body is clipped to the budget, and says what it left out", () => {
+  const all = longSample();
+  const clipped = longSample(10);
+  assert.ok(clipped.length < all.length, "the collapsed body is shorter");
+  // A third of the budget of context above the first change: it is still there.
+  assert.ok(clipped.some((line) => line.includes("line 21 CHANGED")), "the first change survives the window");
+  const footer = clipped.at(-1) ?? "";
+  assert.match(footer, /… \(\d+ more lines, \d+ total,/);
+  assert.match(footer, /to expand/);
+  assert.match(clipped[2] ?? "", /old\s+│\s+new/, "the panes header stays put");
+});
+
+test("a window that starts below the top says how many lines it skipped", () => {
+  const clipped = longSample(6);
+  const above = clipped.find((line) => /… \d+ lines above/.test(line));
+  assert.ok(above, `expected an "above" marker, got:\n${clipped.join("\n")}`);
+});
+
+test("budget 0 is the summary and the totals — no column header over nothing", () => {
+  const none = longSample(0);
+  assert.match(none[0] ?? "", /↳ diff \+40 -40/);
+  assert.equal(none.filter((line) => line.includes("old")).length, 0, "no old/new header");
+  assert.equal(none.filter((line) => /field|line \d/.test(line)).length, 0, "no diff rows");
+  assert.match(none.at(-1) ?? "", /… \(\d+ more lines/);
+});
+
+test("no budget draws every row — that is what ctrl+o does", () => {
+  const all = longSample();
+  assert.doesNotMatch(all.join("\n"), /more lines, \d+ total/);
+  assert.ok(all.some((line) => line.includes("line 60 CHANGED")));
+});
+
+test("a collapsed edit box is clipped to diffLines; ctrl+o draws all of it", async () => {
+  const before = Array.from({ length: 40 }, (_, i) => `const k${i} = ${i};`).join("\n");
+  const after = before.replaceAll("const k", "let  k");
+  const file = join(dir, "big.ts");
+  writeFileSync(file, before);
+  const component = new ToolExecutionComponent(
+    "edit",
+    "call-big",
+    { path: file, edits: [{ oldText: before, newText: after }] },
+    {},
+    editDef as any,
+    ui as any,
+    cwd,
+  );
+  component.setArgsComplete();
+  const settle = async () => {
+    let out = component.render(100);
+    for (let attempt = 0; attempt < 40; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      out = component.render(100);
+      if (plain(out.join("\n")).includes("old")) return out;
+    }
+    return out;
+  };
+
+  const clipped = (await settle()).map(plain);
+  const clippedText = clipped.join("\n");
+  assert.match(clippedText, /more lines, \d+ total,/, clippedText);
+  assert.ok(clipped.length < 40, `collapsed box stays small (${clipped.length} rows)`);
+
+  component.setExpanded(true);
+  const full = (await settle()).map(plain);
+  assert.doesNotMatch(full.join("\n"), /more lines, \d+ total,/);
+  assert.ok(full.length > clipped.length, "expanded draws the rest");
+  assert.match(full.join("\n"), /let  k39/, "the change at the bottom is there");
+});

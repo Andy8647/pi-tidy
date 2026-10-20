@@ -17,6 +17,8 @@ export interface LineOptions {
   maxArgChars?: number;
   /** Group line only: the group is unfolded (`▾`) rather than folded (`▸`). */
   open?: boolean;
+  /** The pointer is on this row: the glyph turns solid, a tool row gains a `›`. */
+  hovered?: boolean;
   /** Group line: the glyph for running background jobs. Tool line: this job's. */
   spinner?: string;
   /** Tool line only: the background job this call started. */
@@ -36,9 +38,10 @@ function formatDuration(ms: number): string {
 
 /** `▸ 4 calls ·  bash×3  read×1 · 1.2s` (`▾` while the group is open) */
 export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options: LineOptions = {}): string {
-  const { icons = true, open = false } = options;
+  const { icons = true, open = false, hovered = false } = options;
+  const glyph = open ? "▾" : hovered ? "▶" : "▸";
   const parts: string[] = [
-    `${theme.fg("accent", open ? "▾" : "▸")} ${theme.fg("toolTitle", `${summary.count} ${summary.count === 1 ? "call" : "calls"}`)}`,
+    `${theme.fg("accent", glyph)} ${theme.fg("toolTitle", `${summary.count} ${summary.count === 1 ? "call" : "calls"}`)}`,
   ];
 
   const breakdown = summary.breakdown.map(({ name, count }) => {
@@ -47,7 +50,11 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
   });
   if (breakdown.length > 0) parts.push(breakdown.join(theme.fg("muted", "  ")));
 
-  if (summary.failed > 0) parts.push(theme.fg("error", `${summary.failed} failed`));
+  // Folded, this is the *only* report that anything failed — no row hangs
+  // below it — so it takes the red. Open, the rows below each carry their own
+  // `✗` and the count goes quiet. No glyph of its own either way: `32 calls`
+  // needs no cross beside it, the colour is the signal.
+  if (summary.failed > 0) parts.push(theme.fg(open ? "muted" : "error", `${summary.failed} failed`));
   if (summary.jobsRunning > 0) {
     parts.push(theme.fg("accent", `${options.spinner ?? "◐"} ${summary.jobsRunning} running`));
   }
@@ -79,18 +86,35 @@ function resultText(content: unknown): string {
     .join("\n");
 }
 
-/**
- * Lines of real output: blank lines and pi's own trailing notices
- * (`[Showing lines 1-200 of 500 …]`, `Command exited with code 1`) don't count.
- * A truncated result reports the original total instead.
- */
+/** Lines of real output, pi's own notices excluded. */
+function realLines(text: string): string[] {
+  return text
+    .split("\n")
+    .filter(
+      (line) =>
+        line.trim() &&
+        line.trim() !== "(no output)" &&
+        !/^\[Showing /.test(line) &&
+        !/^Command (exited with code|terminated)/.test(line),
+    );
+}
+
 function outputLines(text: string, details: unknown): number {
   const total = (details as { truncation?: { truncated?: unknown; totalLines?: unknown } } | undefined)?.truncation;
   if (total?.truncated === true && typeof total.totalLines === "number") return total.totalLines;
-  return text
-    .split("\n")
-    .filter((line) => line.trim() && !/^\[Showing /.test(line) && !/^Command (exited with code|terminated)/.test(line))
-    .length;
+  return realLines(text).length;
+}
+
+/**
+ * A failure with nothing to read: the call exited non-zero and said nothing —
+ * `sed` on a path that moved, a `test`, a probe. Those are mundane; a failure
+ * whose output has actual text is where the red belongs. pi's own trailing
+ * notices (`Command exited with code 1`, `(no output)`, the truncation line)
+ * do not count as text, but a timeout or an abort does.
+ */
+export function isSilentFailure(result: ToolLike["result"]): boolean {
+  if (!result || result.isError !== true) return false;
+  return realLines(resultText(result.content)).length === 0;
 }
 
 /**
@@ -194,6 +218,10 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
   if (job) return formatJobLine(tool, job, theme, icons, options.spinner);
   const { isPartial } = tool;
   const isError = !isPartial && tool.result?.isError === true;
+  // A silent failure keeps its red glyph and drops the rest to `dim`: it is
+  // still visibly a failure, but it stops competing with the reply's text.
+  const silent = isSilentFailure(tool.result);
+  const body = silent ? "dim" : undefined;
 
   const status = isPartial
     ? theme.fg("muted", "⋯")
@@ -202,21 +230,23 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
       : theme.fg("success", "✓");
 
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
-  const name = theme.fg("toolTitle", `${icon}${tool.toolName}`);
+  const name = theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`);
   const detail = summarizeArgs(tool.toolName, tool.args, options.maxArgChars);
-  const detailText = detail ? theme.fg("toolOutput", ` ${detail}`) : "";
+  const detailText = detail ? theme.fg(body ?? "toolOutput", ` ${detail}`) : "";
 
   // `  12 lines · 0.3s` — what it produced, then how long it took.
   const tail: string[] = [];
   if (!isPartial) {
     const note = summarizeResult(tool.toolName, tool.result);
-    if (note) tail.push(isError ? theme.fg("error", note) : theme.fg("muted", note));
+    // Not red: the glyph already says it failed, and `exit 1` is data.
+    if (note) tail.push(theme.fg(body ?? "muted", note));
     const durationMs = tool.result?.durationMs;
-    if (typeof durationMs === "number" && durationMs > 0) tail.push(theme.fg("muted", formatDuration(durationMs)));
+    if (typeof durationMs === "number" && durationMs > 0) tail.push(theme.fg(body ?? "muted", formatDuration(durationMs)));
   }
   const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
+  const hint = options.hovered ? theme.fg("muted", "  ›") : "";
 
-  return ` ${status} ${name}${detailText}${tailText}`;
+  return ` ${status} ${name}${detailText}${tailText}${hint}`;
 }
 
 /** The `│` that runs down the left of an open group, under its `▾`. */

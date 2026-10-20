@@ -104,3 +104,83 @@ test("tool line puts the result note before the duration", () => {
   );
   assert.equal(line, " ✓ grep TODO  2 matches · 0.3s");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Failure emphasis: one red, and only where there is something to read
+// ─────────────────────────────────────────────────────────────────────────────
+
+const named = { fg: (token: string, text: string) => `<${token}>${text}</${token}>`, bold: (text: string) => text } as any;
+
+test("a folded group's failed count is the only red left", () => {
+  const line = formatGroupLine(
+    buildGroupSummary([
+      { toolName: "bash", isPartial: false, durationMs: 100 },
+      { toolName: "bash", isPartial: false, durationMs: 100, isError: true },
+    ]),
+    named,
+    { icons: false },
+  );
+  // Folded: no row hangs below, so this line has to say it — in red.
+  assert.match(line, /<error>1 failed<\/error>/);
+  // Open: every failed row carries its own ✗, so the count goes quiet.
+  const open = formatGroupLine(
+    buildGroupSummary([
+      { toolName: "bash", isPartial: false, durationMs: 100 },
+      { toolName: "bash", isPartial: false, durationMs: 100, isError: true },
+    ]),
+    named,
+    { icons: false, open: true },
+  );
+  assert.match(open, /<muted>1 failed<\/muted>/);
+  assert.doesNotMatch(open, /<error>/);
+});
+
+test("a failure's note is data, not an alarm: `exit 1` goes muted", () => {
+  const line = formatToolLine(
+    { toolName: "bash", args: { command: "sed -n 1,3p app.css" }, isPartial: false, result: textResult("sed: Is a directory\n\nCommand exited with code 1", { isError: true }) },
+    named,
+    { icons: false },
+  );
+  assert.match(line, /<error>✗<\/error>/);
+  assert.match(line, /<toolTitle>bash<\/toolTitle>/, "an error with output keeps full contrast");
+  assert.match(line, /<muted>exit 1<\/muted>/);
+});
+
+test("a failure that printed nothing is dimmed, its glyph stays red", () => {
+  const line = formatToolLine(
+    { toolName: "bash", args: { command: "test -d apps" }, isPartial: false, result: textResult("(no output)\n\nCommand exited with code 1", { isError: true }) },
+    named,
+    { icons: false },
+  );
+  assert.match(line, /<error>✗<\/error>/);
+  assert.match(line, /<dim>bash<\/dim>/);
+  assert.match(line, /<dim> test -d apps<\/dim>/);
+  assert.match(line, /<dim>exit 1<\/dim>/);
+  assert.doesNotMatch(line, /<toolTitle>/);
+});
+
+test("silence is pi's notices only — a timeout or an abort is worth reading", () => {
+  const timeout = formatToolLine(
+    { toolName: "bash", args: { command: "sleep 30" }, isPartial: false, result: textResult("Command timed out after 30 seconds", { isError: true }) },
+    named,
+    { icons: false },
+  );
+  assert.doesNotMatch(timeout, /<dim>/);
+  assert.match(timeout, /<toolTitle>bash<\/toolTitle>/);
+});
+
+test("hover adds a › hint to a tool row and turns ▸ into ▶ on the summary", () => {
+  const row = formatToolLine(
+    { toolName: "read", args: { path: "src/app.ts" }, isPartial: false, result: textResult("a\nb") },
+    named,
+    { icons: false, hovered: true },
+  );
+  assert.match(row, /›<\/muted>$/);
+  const summary = buildGroupSummary([{ toolName: "bash", isPartial: false, durationMs: 100 }]);
+  assert.match(formatGroupLine(summary, named, { icons: false, hovered: true }), /<accent>▶<\/accent>/);
+  assert.doesNotMatch(formatToolLine(
+    { toolName: "read", args: { path: "src/app.ts" }, isPartial: false, result: textResult("a\nb") },
+    named,
+    { icons: false },
+  ), /›/);
+});

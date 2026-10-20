@@ -174,9 +174,6 @@ interface ToolLike {
   result?: { durationMs?: number; isError?: boolean };
 }
 
-/** Finished with an error: keeps its row visible even while folded. */
-const failed = (tool: ToolLike) => !tool.isPartial && tool.result?.isError === true;
-
 interface Group {
   level: 0 | 1;
   /** The tool components themselves, so the summary always reads live state. */
@@ -291,8 +288,9 @@ export function planFor(tool: ToolLike, pinned = false, job?: JobTiming, now = D
   const header = group.members[0] === tool ? (group.level === 0 ? "closed" : "open") : null;
   if (group.level === 0) {
     // 运行中的那个露一行 B,否则长命令跑三十秒时 C 行一动不动(跑满一秒才露,
-    // 免得几十毫秒的调用闪一下);失败的也露,报错不该藏在 C 行里。后台任务同理
-    if (failed(tool) || job?.status === "failed") return { header, line: true, full: false, gutter: true };
+    // 免得几十毫秒的调用闪一下)。失败的不再挂行:一个五十来个调用的折叠组,
+    // 每条失败都在下面吊一行红色,折叠就白折了——摘要行带着 `✗ N failed`,
+    // 要看是哪一条就点开。后台任务同理,只有还在跑的才露。
     const age = runningFor(tool, job, now);
     if (age === undefined) return { header, line: false, full: false, gutter: true };
     if (age >= RUNNING_ROW_DELAY_MS) return { header, line: true, full: false, gutter: true };

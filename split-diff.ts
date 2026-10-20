@@ -12,7 +12,7 @@
  * background), so it follows whatever theme pi is running.
  */
 
-import { getLanguageFromPath, highlightCode } from "@earendil-works/pi-coding-agent";
+import { getLanguageFromPath, highlightCode, keyHint } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "./theme-access.ts";
 
@@ -31,6 +31,12 @@ export interface SplitDiffInput {
   theme: ThemeLike;
   /** Used only to pick a highlighter language. */
   filePath?: string;
+  /**
+   * Rows of diff body to draw (`diffLines` while collapsed). Undefined draws
+   * all of them. The window is anchored at the first changed row — cutting at
+   * the top of a diff on a large file would hide the change itself.
+   */
+  maxLines?: number;
 }
 
 export interface SplitDiffOutput {
@@ -455,8 +461,8 @@ function renderSummary(add: number, remove: number, width: number, palette: Pale
 }
 
 export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
-  const { diff, width, theme, filePath } = input;
-  const key = `${width}\u0000${filePath ?? ""}\u0000${theme.fg("toolDiffAdded", "x")}\u0000${diff}`;
+  const { diff, width, theme, filePath, maxLines } = input;
+  const key = `${width}\u0000${maxLines ?? "all"}\u0000${filePath ?? ""}\u0000${theme.fg("toolDiffAdded", "x")}\u0000${diff}`;
   if (memo && memo.key === key) return memo.value;
   const value = build(input);
   memo = { key, value };
@@ -495,9 +501,16 @@ function build(input: SplitDiffInput): SplitDiffOutput | null {
   const label = (text: string) => `${palette.contextFg}${text}\x1b[39m`;
   const separator = `${palette.separator}${SEPARATOR}\x1b[39m`;
   const header = `  ${label("old".padStart(lay.numWidth))} ${" ".repeat(lay.content)}${separator}  ${label("new".padStart(lay.numWidth))} ${" ".repeat(lay.content)}`;
-  lines.push(pad(" ".repeat(PAD) + header + " ".repeat(PAD), width));
+  const window = clip(rows, input.maxLines);
+  // A zero budget is "just the summary": column headers over nothing read as a
+  // rendering bug rather than a setting.
+  if (window.rows.length > 0) lines.push(pad(" ".repeat(PAD) + header + " ".repeat(PAD), width));
 
-  for (const row of rows) {
+  if (window.above > 0) {
+    lines.push(pad(`${" ".repeat(PAD)}${label(`… ${window.above} line${window.above === 1 ? "" : "s"} above`)}`, width));
+  }
+
+  for (const row of window.rows) {
     if (row.kind === "skip") {
       lines.push(pad(`${" ".repeat(PAD)}${label("…")}`, width));
       continue;
@@ -539,5 +552,37 @@ function build(input: SplitDiffInput): SplitDiffOutput | null {
     lines.push(pad(line, width));
   }
 
+  if (window.below > 0) {
+    const hint = keyHint("app.tools.expand", "to expand");
+    const total = rows.length;
+    lines.push(
+      pad(
+        `${" ".repeat(PAD)}${label(`… (${window.below} more line${window.below === 1 ? "" : "s"}, ${total} total,`)} ${hint}${label(")")}`,
+        width,
+      ),
+    );
+  }
+
   return { lines, bgRows };
+}
+
+/**
+ * The slice of rows to draw. Without a budget that is all of them; with one,
+ * the window is anchored at the first changed row with a third of the budget
+ * of context above it, so a one-line change in a 200-line file still shows the
+ * line. Rows the window skips are reported on either side.
+ */
+function clip(
+  rows: readonly Row[],
+  maxLines: number | undefined,
+): { rows: readonly Row[]; above: number; below: number } {
+  const budget = maxLines === undefined ? rows.length : Math.max(0, Math.floor(maxLines));
+  if (budget >= rows.length) return { rows, above: 0, below: 0 };
+  if (budget === 0) return { rows: [], above: 0, below: rows.length };
+  const first = rows.findIndex((row) => row.left?.changed || row.right?.changed);
+  const anchor = first < 0 ? 0 : first;
+  const lead = Math.min(Math.floor(budget / 3), budget);
+  const start = Math.max(0, Math.min(anchor - lead, rows.length - budget));
+  const end = start + budget;
+  return { rows: rows.slice(start, end), above: start, below: rows.length - end };
 }
