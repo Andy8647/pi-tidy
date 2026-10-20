@@ -24,6 +24,9 @@
  *     numbers, coloured bars and a tint per changed row (default: true)
  *   splitDiffMinWidth: number — box width below which the split falls back to
  *     pi's unified diff (default: 72)
+ *   diffLines: number       — diff rows drawn while an edit box is collapsed
+ *     (default: 20, windowed at the first change; `ctrl+o` draws all of it,
+ *     0 hides the body). pi's own edit renderer has no budget at all.
  *   messageBorderColors: per-kind theme fg colors for message-box borders
  *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
  *      mdCode/accent/warning)
@@ -187,6 +190,7 @@ export default function (pi: ExtensionAPI): void {
       hideJobNotifications: config.hideJobNotifications,
       splitDiff: config.splitDiff,
       splitDiffMinWidth: config.splitDiffMinWidth,
+      diffLines: config.diffLines,
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);

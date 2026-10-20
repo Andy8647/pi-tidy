@@ -284,19 +284,23 @@ test("a background job gets its row after its first second, and only while runni
   assert.equal(planFor(start, false, job(now - 200), now).line, false, "just started");
   assert.equal(planFor(start, false, job(now - 1200), now).line, true);
   assert.equal(planFor(start, false, job(now - 600, "killed"), now).line, false, "stopped within the second: never shown");
-  assert.equal(planFor(start, false, job(now - 600, "failed"), now).line, true, "failures always show");
+  assert.equal(planFor(start, false, job(now - 600, "failed"), now).line, false, "a stopped job folds; the count keeps it");
   assert.equal(summaryFor(a, () => job(now - 200), now)?.jobsRunning, 0);
   assert.equal(summaryFor(a, () => job(now - 1200), now)?.jobsRunning, 2);
 });
 
-test("a failed call keeps its row while folded, and its row opens its box", () => {
+test("a failed call folds like any other: the count carries it, the row waits in level 1", () => {
   resetGroups();
   const a = tool("bash", { durationMs: 100 });
   const b = tool("bash", { durationMs: 50 });
   (b.result as { isError?: boolean }).isError = true;
   const transcript: Entry[] = [boundary(), a, carrier(b), b];
-  assert.deepEqual(frame(transcript), ["text", "C2", "|B:bash"]);
-  assert.equal(summaryFor(a)?.failed, 1);
+  // 折叠态就是一行:一条失败的调用不再吊在摘要下面(56 个调用里两条失败,
+  // 挂在下面的代价是每次折叠都看不见"折叠")。
+  assert.deepEqual(frame(transcript), ["text", "C2"]);
+  assert.equal(summaryFor(a)?.failed, 1, "the count is where it shows");
+  clickHeader(a);
+  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|B:bash"]);
   clickRow(b);
   assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|thinking", "|box:bash"]);
 });

@@ -4,6 +4,36 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-10-20
+
+### Added
+
+**`diffLines`: the edit box's height is a setting.** pi's edit renderer draws the entire diff, collapsed
+or not — a large edit owns the screen no matter what `alwaysShowTools` says. The collapsed box now
+draws at most `diffLines` rows (default 20), windowed at the *first changed line* with a third of the
+budget of context above it, and closes with `… (N more lines, M total, ctrl+o to expand)`. Cutting at
+the top of the diff would hide the change itself on a large file, which is why the window follows the
+first change instead. `ctrl+o` draws all of it; `0` keeps just the `↳ diff +N -M` summary.
+
+**Hover on folded rows.** Pointing at a group summary line turns `▸` into `▶` and tints the row;
+pointing at a call row in an open group lights that row and shows a `›` at its end. The whole row is
+the click target, so the whole row lights up. Nothing is consumed — pi still receives the packet and
+drag-selection across rows behaves exactly as before — and the band is dropped the moment the pointer
+leaves, via a wrapper over the alt screen's mouse handler. Only available with 1003 all-motion
+tracking, which pi enables outside tmux/screen; inside a multiplexer the rows simply never light up.
+
+### Changed
+
+**Failures stopped shouting, and stopped taking up room.** A folded group used to hang one red row
+per failed call under its summary. In a 50-call reply with two failures that is a three-line "folded"
+group — the fold accomplishes nothing — and three reds (`1 failed`, `✗`, `exit 1`) described one probe.
+Now level 0 is one line again: the summary carries `2 failed` in red — the colour is the signal, no
+cross beside it — and the failed rows wait in level 1 with the rest. Open the group and each failed row shows its own `✗` (the count goes `muted`,
+so red appears once at either level), its note in `muted` (`exit 1` is data, not an alarm), and — for a
+failure that printed nothing at all (`sed` on a directory, a `test`, anything that only exits
+non-zero) — a whole row dropped to `dim` while keeping the red glyph. A timeout or an abort counts as
+something to read and keeps full contrast. The expanded box's red border is unchanged.
+
 ## [0.4.4] - 2026-10-20
 
 ### Added

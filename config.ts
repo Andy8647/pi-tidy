@@ -50,6 +50,12 @@ export interface TidyConfig {
   splitDiff: boolean;
   /** Box width below which the split becomes unreadable; pi's diff is used. */
   splitDiffMinWidth: number;
+  /**
+   * Diff body rows shown while the box is collapsed (default 20). The window
+   * follows the first changed line, not the top of the file; `ctrl+o` shows all.
+   * edit has no such budget of its own — pi draws the whole diff.
+   */
+  diffLines: number;
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -85,6 +91,7 @@ const DEFAULTS: TidyConfig = {
   hideJobNotifications: true,
   splitDiff: true,
   splitDiffMinWidth: 72,
+  diffLines: 20,
   messageBorderColors: {
     user: "toolTitle",
     compaction: "customMessageLabel",
@@ -123,6 +130,7 @@ export function loadConfig(): TidyConfig {
       splitDiff: typeof toolbox?.splitDiff === "boolean" ? toolbox.splitDiff : DEFAULTS.splitDiff,
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
+      diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
         ...toolbox?.messageBorderColors,

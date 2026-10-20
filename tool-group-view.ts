@@ -3,16 +3,17 @@
  * owns the state; this file turns a `ViewPlan` into lines and clicks):
  *
  *    ▸ 3 calls ·  bash×3 · 1 failed · 0.5s     header, carried by the first member
- *    │ ✗ bash  pnpm test  exit 1 · 0.4s       a row (running/failed rows show while folded)
+ *    │ ⋯ bash  pnpm test                      a row (only a running call shows while folded)
  *    │ ╭──────────────╮                       a full box, three cells in
  *
  * Also installs the boundary hooks on the message components, which is where
  * the groups get cut.
  */
 
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, TuiAltScreen } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { ANIMATE_MS, jobForTool, noteJobMessage, spinnerFrame, type JobState } from "./background-jobs.ts";
+import { padToWidth } from "./frame-draw.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { formatGroupLine, formatToolLine, GUTTER_CELLS, groupGutter } from "./tool-lines.ts";
 import {
@@ -52,6 +53,91 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
   return plan.gutter && !(tool.imageComponents?.length ?? 0) ? GUTTER_CELLS + 1 : 0;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Hover
+//
+// `move` packets (1003 all-motion tracking, which pi enables outside tmux) are
+// routed to the component under the pointer even with no button down, so a
+// folded row can react to the pointer without a click. The row handler never
+// consumes the event: pi still gets it for text selection, and the repaint is
+// requested directly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type HoverRow = "header" | "row";
+
+/**
+ * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
+ * an extracted method would lose `this`.
+ */
+type Renderer = { requestRender?(): void };
+let hoverState: { tool: object | null; row: HoverRow | null; ui?: Renderer } = { tool: null, row: null };
+/** Set by a row that wants this packet; the alt-screen wrapper clears otherwise. */
+let hoverClaimed = false;
+/** Only tracked once the clear hook is in place — a stale band is worse than none. */
+let hoverTracking = false;
+
+/** Next render pass: which row of which tool the pointer is on, if any. */
+function setHover(tool: object | null, row: HoverRow | null, ui?: Renderer): boolean {
+  if (hoverState.tool === tool && hoverState.row === row) {
+    if (ui) hoverState.ui = ui;
+    return false;
+  }
+  hoverState = { tool, row, ui: ui ?? hoverState.ui };
+  return true;
+}
+
+/** The pointer left our rows (or the app): drop the band and repaint it away. */
+function clearHover(): void {
+  if (!hoverState.tool) return;
+  hoverState = { tool: null, row: null, ui: hoverState.ui };
+  hoverState.ui?.requestRender?.();
+}
+
+/** A full-width band behind the row: the whole row is the click target. */
+function hoverBand(line: string, width: number, theme: ThemeLike): string {
+  const padded = padToWidth(line, width);
+  return theme.bg ? theme.bg("selectedBg", padded) : padded;
+}
+
+const HOVER_HOOK = Symbol.for("pi-toolbox:hover-hook");
+
+/**
+ * Every mouse packet goes through the alt screen. Watching it is what makes
+ * hover honest: a pointer that moves off our rows — onto the editor, a message,
+ * the scrollbar — produces no event for us at all, so without this hook the
+ * last row would stay lit forever. No hook, no hover.
+ */
+export function installHoverTracking(): void {
+  const proto = (TuiAltScreen as unknown as { prototype?: Record<PropertyKey, any> })?.prototype;
+  if (!proto || proto[HOVER_HOOK]) return;
+  const original = proto.handleMouseEvent;
+  if (typeof original !== "function") return;
+  proto.handleMouseEvent = function (this: unknown, raw: unknown) {
+    hoverClaimed = false;
+    const result = original.call(this, raw);
+    if (!hoverClaimed) clearHover();
+    return result;
+  };
+  proto[HOVER_HOOK] = true;
+  hoverTracking = true;
+}
+
+/** Test seam: pretend the packets are being watched. */
+export function enableHoverForTests(): void {
+  hoverTracking = true;
+}
+
+/** Test seam: pretend nothing is watching the packets. */
+export function disableHoverForTests(): void {
+  hoverTracking = false;
+}
+
+/** Test seam: forget what is hovered. */
+export function resetHover(): void {
+  hoverState = { tool: null, row: null };
+  hoverClaimed = false;
+}
+
 /**
  * The tool's lines while grouping is on, or `undefined` when it is an
  * always-shown tool and should render as a plain box.
@@ -75,6 +161,7 @@ export function renderGroupedTool(
 
   const { icons } = options;
   const lines: string[] = [];
+  const hovered = hoverState.tool === tool ? hoverState.row : null;
   if (plan.header) {
     const jobs: JobState[] = [];
     const summary = summaryFor(
@@ -87,14 +174,22 @@ export function renderGroupedTool(
       now,
     );
     if (summary) {
-      const line = formatGroupLine(summary, theme, { icons, open: plan.header === "open", spinner: groupSpinner(jobs) });
-      lines.push(truncateToWidth(line, width, "…"));
+      const line = formatGroupLine(summary, theme, {
+        icons,
+        open: plan.header === "open",
+        spinner: groupSpinner(jobs),
+        hovered: hovered === "header",
+      });
+      lines.push(
+        hovered === "header" ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"),
+      );
     }
   }
   const gutter = groupGutter(theme);
   if (plan.line) {
     const spinner = job ? spinnerFrame(job) : undefined;
-    lines.push(truncateToWidth(gutter + formatToolLine(tool, theme, { icons, job, spinner }), width, "…"));
+    const line = gutter + formatToolLine(tool, theme, { icons, job, spinner, hovered: hovered === "row" });
+    lines.push(hovered === "row" ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
   }
   if (plan.full) {
     const indent = boxIndent(tool, plan);
@@ -129,6 +224,14 @@ function groupSpinner(jobs: JobState[]): string {
   return young ? spinnerFrame({ id: "", name: "", status: "running", startTime: now }, now) : "●";
 }
 
+/** Which of this tool's clickable rows sits at `y`, if any. */
+function hoverRowAt(plan: ViewPlan, y: number | undefined): HoverRow | null {
+  if (typeof y !== "number") return null;
+  if (plan.header && y === 0) return "header";
+  const row = plan.header ? y - 1 : y;
+  return plan.line && row === 0 ? "row" : null;
+}
+
 /** `routeGroupedMouse` result meaning "not grouped: handle it as a plain box". */
 export const NOT_GROUPED = Symbol("not grouped");
 
@@ -152,11 +255,24 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   // pi-tui names buttons ("left"); accept the raw SGR code too.
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
+
+  // Pointer motion: light up the row under it, but never consume the packet —
+  // pi still needs it for drag-selection. Repaint only when the row changes.
+  if (event?.type === "move") {
+    if (!hoverTracking) return undefined;
+    hoverClaimed = true;
+    const row = hoverRowAt(plan, y);
+    const changed = setHover(row ? tool : null, row, tool.ui);
+    if (changed) tool.ui?.requestRender?.();
+    return undefined;
+  }
   if (plan.header) {
     if (y === 0) {
       if (!click) return undefined;
       if (plan.header === "closed") openGroup(tool);
       else for (const member of closeGroup(tool)) routing.asPointer(() => (member as GroupedTool).setExpanded(false));
+      // 行几何变了，上一帧的高亮不再对应原来那一行
+      setHover(null, null);
       // 层级是跨组件的状态;pi 每帧都重渲染整个 transcript,请求一帧即可
       tool.ui?.requestRender?.();
       return { handled: true };
@@ -168,6 +284,7 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
     // A row always means "this call's box" — also the running/failed row
     // under a folded header, which opens the group on the way.
     openGroup(tool);
+    setHover(null, null);
     // 走 setExpanded 而不是直接改字段:pi 的 updateDisplay 才会重建盒子
     routing.asPointer(() => tool.setExpanded(true));
     tool.ui?.requestRender?.();

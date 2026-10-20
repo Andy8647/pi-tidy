@@ -171,7 +171,7 @@ test("folding from ▾ folds the open boxes too, so reopening shows plain rows",
   assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 0);
 });
 
-test("a failed call keeps its row under the folded header and opens on click", () => {
+test("a failed call folds away: the header carries it, the row waits in level 1", () => {
   const chat = new Container();
   const a = bash("ls", "a");
   const b = bash("pnpm test", "boom\n\nCommand exited with code 1", { isError: true });
@@ -179,13 +179,13 @@ test("a failed call keeps its row under the folded header and opens on click", (
   chat.addChild(a.component);
   chat.addChild(step(b.id));
   chat.addChild(b.component);
-  assert.deepEqual(visible(frame(chat)), [
-    " Testing.",
-    " ▸ 2 calls · bash×2 · 1 failed · 0.3s",
-    " │ ✗ bash pnpm test  exit 1 · 0.2s",
-  ]);
+  // One line, folded: two failures hanging under a 56-call group is the thing
+  // that made folding pointless.
+  assert.deepEqual(visible(frame(chat)), [" Testing.", " ▸ 2 calls · bash×2 · 1 failed · 0.3s"]);
+  assert.ok(click(chat, "2 calls"), "the header opens the group");
+  assert.ok(frame(chat).some((line) => line.includes("✗ bash pnpm test")), "the row is there now");
   assert.ok(click(chat, "pnpm test"));
-  assert.equal(b.component.expanded, true, "straight to the failed call's box");
+  assert.equal(b.component.expanded, true);
   assert.ok(frame(chat).some((line) => line.includes("boom")));
 });
 

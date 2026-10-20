@@ -28,6 +28,7 @@ import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { noteSetExpanded } from "./tool-groups.ts";
 import {
   installGroupBoundaries,
+  installHoverTracking,
   NOT_GROUPED,
   renderGroupedTool,
   routeGroupedMouse,
@@ -106,6 +107,8 @@ export interface ToolFrameOptions {
   splitDiff?: boolean;
   /** Box width below which the split falls back to pi's unified diff (default 72). */
   splitDiffMinWidth?: number;
+  /** Diff rows shown while the box is collapsed (default 20; `0` shows none). */
+  diffLines?: number;
 }
 
 interface ResolvedToolFrameOptions {
@@ -115,6 +118,7 @@ interface ResolvedToolFrameOptions {
   alwaysShow: Set<string>;
   splitDiff: boolean;
   splitDiffMinWidth: number;
+  diffLines: number;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -124,6 +128,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   alwaysShow: new Set(["edit", "write"]),
   splitDiff: true,
   splitDiffMinWidth: 72,
+  diffLines: 20,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
@@ -144,6 +149,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     hideJobNotifications = true,
     splitDiff = true,
     splitDiffMinWidth = 72,
+    diffLines = 20,
   } = options;
   toolOptions.set({
     icons,
@@ -152,6 +158,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     alwaysShow: new Set(alwaysShowTools),
     splitDiff,
     splitDiffMinWidth,
+    diffLines,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
 
@@ -169,6 +176,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   setGroupingActive(grouping);
   installGroupBoundaries();
+  installHoverTracking();
 
   // >0 while pi's own mouse handling runs: its box click reaches setExpanded
   // from in here, ctrl+o's expand/collapse-all from anywhere else.
@@ -241,7 +249,7 @@ function splitEditBody(
   callWidth: number,
   theme: ThemeLike,
 ): { raw: string[]; bgRows: ReadonlySet<number> } | undefined {
-  const { splitDiff, splitDiffMinWidth } = toolOptions.get();
+  const { splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
   if (!splitDiff || !SPLIT_DIFF_TOOLS.has(tool.toolName) || innerWidth < splitDiffMinWidth) return undefined;
   const component = tool.callRendererComponent;
   const preview = component?.preview;
@@ -254,6 +262,8 @@ function splitEditBody(
     width: innerWidth,
     theme,
     filePath: typeof path === "string" ? path : undefined,
+    // Collapsed, the body is a window on the diff; `ctrl+o` draws all of it.
+    maxLines: tool.expanded ? undefined : diffLines,
   });
   if (!body) return undefined;
   // Row 0 is the call row (`edit ~/x.ts`), which keeps pi's rendering so the
