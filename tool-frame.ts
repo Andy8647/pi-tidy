@@ -23,6 +23,7 @@ import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, 
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
+import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { noteSetExpanded } from "./tool-groups.ts";
 import {
@@ -62,6 +63,11 @@ interface ToolBoxInternals extends GroupedTool {
   contentTextRegion?: MouseTarget;
   imageComponents: Array<{ render(width: number): string[] }>;
   imageSpacers: Array<{ render(width: number): string[] }>;
+  /** The component pi wrapped around the call renderer's output (the edit Box). */
+  callRendererComponent?: {
+    preview?: { diff?: unknown; error?: unknown };
+    children?: ReadonlyArray<{ render(width: number): string[] }>;
+  };
   hasRendererDefinition(): boolean;
   getRenderShell(): "default" | "self";
   __frameCache?: {
@@ -96,6 +102,10 @@ export interface ToolFrameOptions {
   backgroundJobs?: boolean;
   /** Skip drawing a job's notification messages when its row shows the same. */
   hideJobNotifications?: boolean;
+  /** Render the edit diff as two panes (old | new) when the box is wide enough. */
+  splitDiff?: boolean;
+  /** Box width below which the split falls back to pi's unified diff (default 72). */
+  splitDiffMinWidth?: number;
 }
 
 interface ResolvedToolFrameOptions {
@@ -103,6 +113,8 @@ interface ResolvedToolFrameOptions {
   toolColors: Record<string, string>;
   groupTools: boolean;
   alwaysShow: Set<string>;
+  splitDiff: boolean;
+  splitDiffMinWidth: number;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -110,6 +122,8 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   toolColors: {},
   groupTools: true,
   alwaysShow: new Set(["edit", "write"]),
+  splitDiff: true,
+  splitDiffMinWidth: 72,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
@@ -128,8 +142,17 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     alwaysShowTools = ["edit", "write"],
     backgroundJobs = true,
     hideJobNotifications = true,
+    splitDiff = true,
+    splitDiffMinWidth = 72,
   } = options;
-  toolOptions.set({ icons, toolColors, groupTools, alwaysShow: new Set(alwaysShowTools) });
+  toolOptions.set({
+    icons,
+    toolColors,
+    groupTools,
+    alwaysShow: new Set(alwaysShowTools),
+    splitDiff,
+    splitDiffMinWidth,
+  });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
 
   const proto = ToolExecutionComponent.prototype as unknown as ToolBoxInternals & {
@@ -197,7 +220,54 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     return originalSetExpanded.call(this, expanded);
   };
 
-  /** The rounded box at width `w` (what pi would draw, reframed). */
+  /**
+ * Tools whose body is a diff worth splitting. pi's write box previews the new
+ * file as highlighted source, not a diff, so it is not one of them.
+ */
+const SPLIT_DIFF_TOOLS = new Set(["edit"]);
+
+/**
+ * Rebuild an edit box's rows as two panes.
+ *
+ * pi's edit renderer keeps the unified diff string on its call component
+ * (`preview.diff`) and renders it with `renderDiff`; the coloured lines are not
+ * reversible, so the panes are built from that string instead. Undefined means
+ * "keep what pi drew": no preview yet (streaming), a preview error, a narrow
+ * box, or a diff that cannot be laid out.
+ */
+function splitEditBody(
+  tool: ToolBoxInternals,
+  innerWidth: number,
+  callWidth: number,
+  theme: ThemeLike,
+): { raw: string[]; bgRows: ReadonlySet<number> } | undefined {
+  const { splitDiff, splitDiffMinWidth } = toolOptions.get();
+  if (!splitDiff || !SPLIT_DIFF_TOOLS.has(tool.toolName) || innerWidth < splitDiffMinWidth) return undefined;
+  const component = tool.callRendererComponent;
+  const preview = component?.preview;
+  if (!preview || "error" in preview) return undefined;
+  const diff = typeof preview.diff === "string" ? preview.diff : undefined;
+  if (!diff) return undefined;
+  const path = (tool.args as { path?: unknown } | undefined)?.path;
+  const body = renderSplitDiff({
+    diff,
+    width: innerWidth,
+    theme,
+    filePath: typeof path === "string" ? path : undefined,
+  });
+  if (!body) return undefined;
+  // Row 0 is the call row (`edit ~/x.ts`), which keeps pi's rendering so the
+  // icon prefix and path shortening still apply; the body starts with its own
+  // summary row (`↳ diff +1 -1 [...]`).
+  const call = component?.children?.[0]?.render(callWidth) ?? [];
+  const offset = call.length;
+  return {
+    raw: [...call, ...body.lines],
+    bgRows: new Set(body.bgRows.map((row) => row + offset)),
+  };
+}
+
+/** The rounded box at width `w` (what pi would draw, reframed). */
   function frameBox(this: ToolBoxInternals, w: number, theme: ThemeLike): string[] {
     const { icons, toolColors } = toolOptions.get();
     const source = !this.hasRendererDefinition()
@@ -226,7 +296,8 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     }
     const iconCells = (kindPrefix ? visibleWidth(kindPrefix) : 0) + (fileGlyph ? visibleWidth(fileGlyph) + 1 : 0);
     const sourceWidth = w - 2 - iconCells;
-    const raw = source.render(sourceWidth);
+    const split = splitEditBody(this, w - 2, sourceWidth, theme);
+    const raw = split ? split.raw : source.render(sourceWidth);
 
     // The whole returned array is cached, not just the framed body.
     // pi-powerline-footer's compositor re-renders the entire root on every
@@ -288,7 +359,11 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     }
     const out: string[] = [""];
     if (content.length > 0) {
-      for (const line of drawFrame(content, w, theme, color)) out.push(line);
+      // Split-diff rows carry their own tint; everything else stays transparent.
+      const bgRows = split && edges.start > 0
+        ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
+        : split?.bgRows;
+      for (const line of drawFrame(content, w, theme, color, bgRows)) out.push(line);
     }
     // Output: [spacer, top border, content…, bottom border] — content row 0
     // is source row `edges.start`.

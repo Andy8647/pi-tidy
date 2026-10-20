@@ -20,6 +20,10 @@
  *     job's live state on its row (default: true)
  *   hideJobNotifications: boolean — skip drawing that job's notification
  *     messages; the model still gets them (default: true)
+ *   splitDiff: boolean      — edit diffs as two panes (old | new) with line
+ *     numbers, coloured bars and a tint per changed row (default: true)
+ *   splitDiffMinWidth: number — box width below which the split falls back to
+ *     pi's unified diff (default: 72)
  *   messageBorderColors: per-kind theme fg colors for message-box borders
  *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
  *      mdCode/accent/warning)
@@ -27,13 +31,19 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createBashToolDefinition, keyHint, VERSION } from "@earendil-works/pi-coding-agent";
+import {
+  createBashToolDefinition,
+  createWriteToolDefinition,
+  keyHint,
+  VERSION,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted } from "./bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
 import { loadConfig } from "./config.ts";
 import { tidyEnabled } from "./live.ts";
+import { formatWriteCallText } from "./write-preview.ts";
 import { connectJobs, type EventBusLike } from "./background-jobs.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
@@ -110,14 +120,48 @@ function registerHighlightedBash(
  * preview budget (1.0) and tool durations (1.1). Checked at load rather than
  * as a peer range — pi asks for `"*"` peers, and a peer conflict blocks every
  * npm install in pi's package directory, not just this one.
- */
-const MIN_PI = "1.1.0";
+ */const MIN_PI = "1.1.0";
 
 function olderThan(version: string, min: string): boolean {
   const parse = (v: string) => v.split(/[.-]/).slice(0, 3).map((part) => Number.parseInt(part, 10) || 0);
   const [a, b] = [parse(version), parse(min)];
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
   return false;
+}
+
+/**
+ * Re-register write with a configurable content preview. pi hard-codes ten
+ * lines while collapsed; everything else (highlighting, the footer, the error
+ * rendering) is handed back to the built-in definition.
+ */
+function registerWritePreview(pi: ExtensionAPI, cwd: string, lines: number): void {
+  const definition = createWriteToolDefinition(cwd) as any;
+
+  pi.registerTool({
+    name: "write",
+    label: "write",
+    description: definition.description,
+    ...(definition.promptSnippet ? { promptSnippet: definition.promptSnippet } : {}),
+    ...(definition.promptGuidelines ? { promptGuidelines: definition.promptGuidelines } : {}),
+    parameters: definition.parameters,
+    ...(definition.executionMode ? { executionMode: definition.executionMode } : {}),
+
+    async execute(toolCallId: any, params: any, signal: any, onUpdate: any, ctx: any) {
+      return definition.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+
+    renderCall(args: any, theme: ThemeLike, context: any) {
+      const state = context.state as { callText?: Text };
+      const text = state.callText ?? new Text("", 0, 0);
+      state.callText = text;
+      text.setText(formatWriteCallText(args, theme, { expanded: context.expanded, lines }));
+      return text;
+    },
+
+    renderResult(result: any, options: any, theme: any, context: any) {
+      return definition.renderResult(result, options, theme, context);
+    },
+  } as any);
 }
 
 /** Pi extension entry point. */
@@ -141,6 +185,8 @@ export default function (pi: ExtensionAPI): void {
       alwaysShowTools: config.alwaysShowTools,
       backgroundJobs: config.backgroundJobs,
       hideJobNotifications: config.hideJobNotifications,
+      splitDiff: config.splitDiff,
+      splitDiffMinWidth: config.splitDiffMinWidth,
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);
@@ -169,4 +215,9 @@ export default function (pi: ExtensionAPI): void {
     }
   }
 
+  try {
+    registerWritePreview(pi, process.cwd(), config.writeLines);
+  } catch (error) {
+    console.debug("[pi-tidy] write preview override failed:", error);
+  }
 }

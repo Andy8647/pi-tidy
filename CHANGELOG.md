@@ -4,6 +4,27 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-10-20
+
+### Added
+
+**Side-by-side edit diffs.** An edit's diff is now two panes, `old │ new`, with line numbers on both
+sides, a coloured bar and a tinted row for every changed line, and the changed words emphasised
+inside the line. pi hands its edit renderer a unified diff string, so the panes are re-derived from
+that string (the rendered lines are not reversible) and the row tint is mixed from the theme's diff
+colours — it follows whatever theme is active. Removed and added blocks pair row by row, so a
+replaced block reads as before/after instead of two stacked runs. Below `splitDiffMinWidth` (72 by
+default) the box keeps pi's unified diff; `splitDiff: false` turns it off entirely.
+
+The frame keeps the tinted rows' background fill and strips every other one, so the box stays
+transparent everywhere else.
+
+**`writeLines`: the write preview's height is a setting.** pi's write box hard-codes ten lines of the
+written file while collapsed. The tool is re-registered (the same way bash already was) with a
+configurable budget: `"writeLines": 10` is pi's number, `0` keeps just the header until `ctrl+o`.
+`alwaysShowTools` remains the switch for whether edits and writes show their own box or fold into
+the group — `[]` folds both.
+
 ## [0.4.3] - 2026-10-19
 
 ### Changed
