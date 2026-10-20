@@ -1,9 +1,9 @@
 /**
  * The write box's call row: `write ~/path` plus the file's first lines.
  *
- * pi's own renderer hard-codes 10 lines and has no setting, so the tool is
- * re-registered here with the same output and a configurable budget (the
- * `writeLines` option). Everything below the path mirrors pi: the whole content
+ * pi's own renderer hard-codes 10 lines and has no setting, so index.ts
+ * registers a call renderer with a configurable budget (`writeLines`) without
+ * replacing the tool's execution. Everything below the path mirrors pi: the whole content
  * highlighted once (so multi-line constructs colour correctly), tabs expanded,
  * trailing blank lines dropped, and a `... (N more lines, M total, ctrl+o to
  * expand)` footer while collapsed.
