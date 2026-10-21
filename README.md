@@ -1,12 +1,12 @@
 # pi-tidy
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — Claude Code-style tool folding for the pi agent" width="840">
+  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — a reply's tool calls fold into one line" width="840">
 </p>
 
-Claude Code-style tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a reply's
-tool calls fold into one line you can click open, while edits, failures and background jobs stay in
-view — and every box gets a rounded transparent frame.
+Tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a reply's tool calls
+fold into one line you can click open, while edits, failures and background jobs stay in view — and
+every box gets a rounded transparent frame.
 
 **▶ [Watch the 40-second demo](https://cdn.jsdelivr.net/gh/Andy8647/pi-tidy@v0.4.3/assets/demo.mp4)**
 

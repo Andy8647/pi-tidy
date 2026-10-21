@@ -4,6 +4,19 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] - 2026-10-21
+
+### Changed
+
+**The copy no longer says "Claude Code-style".** The comparison set the wrong expectations and invited
+the wrong argument: the parts that carry this extension — split diffs with word-level emphasis,
+failures pinned at level 1 while the rest of the group is folded, live background-job rows, the
+per-tool never-fold list — do not exist there. The README, the npm description and the cover now say
+what the extension does instead of what it resembles. `claude-code` stays a search keyword, because
+that is what people type when they want this interaction.
+
+The cover also shows the split edit diff (`old │ new`) rather than the old stacked one, at 16:9.
+
 ## [0.4.6] - 2026-10-20
 
 ### Fixed
