@@ -12,11 +12,11 @@
     <text x="72" y="250" font-size="78" font-weight="700" fill="#cdd6f4">pi-tidy</text>
     <rect x="74" y="274" width="64" height="5" rx="2.5" fill="#89dceb"/>
 
-    <text x="72" y="330" font-size="25" fill="#cdd6f4">Claude Code-style tool</text>
-    <text x="72" y="364" font-size="25" fill="#cdd6f4">folding for the pi agent</text>
+    <text x="72" y="330" font-size="25" fill="#cdd6f4">A reply's tool calls</text>
+    <text x="72" y="364" font-size="25" fill="#cdd6f4">fold into one line</text>
 
     <g font-size="18" fill="#a6adc8">
-      <text x="72" y="430"><tspan fill="#89dceb">▸</tspan>  tool calls fold into one line</text>
+      <text x="72" y="430"><tspan fill="#89dceb">▸</tspan>  one summary row per reply</text>
       <text x="72" y="462"><tspan fill="#a6e3a1">✓</tspan>  click it open, row by row</text>
       <text x="72" y="494"><tspan fill="#f38ba8">✗</tspan>  failures and edits stay visible</text>
       <text x="72" y="526"><tspan fill="#89dceb">◐</tspan>  background jobs tracked live</text>
