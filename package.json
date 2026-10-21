@@ -1,6 +1,6 @@
 {
   "name": "pi-tidy",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "type": "module",
   "packageManager": "pnpm@11.10.0",
   "description": "Claude Code-style tool folding for pi — a reply's tool calls collapse to one clickable line, edits and background jobs stay visible, every box gets a rounded transparent frame",

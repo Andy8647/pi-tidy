@@ -66,6 +66,9 @@ export interface TidyConfig {
   toolColors: Record<string, string>;
 }
 
+/** pi's own collapsed write preview height; `writeLines` defaults to it. */
+export const PI_WRITE_PREVIEW_LINES = 10;
+
 const DEFAULT_TOOL_COLORS: Record<string, string> = {
   bash: "bashMode",
   read: "toolTitle",
@@ -84,7 +87,7 @@ const DEFAULTS: TidyConfig = {
   frameUserMessages: false,
   icons: true,
   bashResultLines: 1,
-  writeLines: 10,
+  writeLines: PI_WRITE_PREVIEW_LINES,
   groupTools: true,
   alwaysShowTools: ["edit", "write"],
   backgroundJobs: true,

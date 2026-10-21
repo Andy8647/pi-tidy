@@ -1,69 +1,20 @@
 /** The write preview must decorate rendering without taking ownership of execution. */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
-import {
-  createWriteToolDefinition,
-  initTheme,
-  type ExtensionAPI,
-  type ToolDefinition,
-  type ToolRendererResolver,
-  type ToolRenderers,
-} from "@earendil-works/pi-coding-agent";
+import { createWriteToolDefinition, initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import tidy from "../index.ts";
+import { collectWarnings, harness, loadTidy as load } from "./renderer-harness.ts";
+
+/** Tidy's own defaults for the parts these tests do not exercise. */
+const loadTidy = (pi: Parameters<typeof load>[1], config: Record<string, unknown> = {}) =>
+  load(tidy, pi, { highlightBash: false, backgroundJobs: false, ...config });
 
 initTheme("dark");
 const theme = (globalThis as unknown as Record<symbol, any>)[
   Symbol.for("@earendil-works/pi-coding-agent:theme")
 ];
 const plain = (text: string) => text.replace(/\x1b\[[0-9;:]*[a-zA-Z]/g, "").replace(/ +$/gm, "");
-
-function harness() {
-  const tools = new Map<string, ToolDefinition>();
-  const resolvers: ToolRendererResolver[] = [];
-  const handlers = new Map<string, ((...args: any[]) => any)[]>();
-  const conflicts: string[] = [];
-  const pi = {
-    registerTool(tool: ToolDefinition) {
-      if (tools.has(tool.name)) {
-        conflicts.push(tool.name);
-        throw new Error(`Tool "${tool.name}" conflicts with another extension`);
-      }
-      tools.set(tool.name, tool);
-    },
-    registerToolRenderer(resolver: ToolRendererResolver) { resolvers.push(resolver); },
-    on(event: string, handler: (...args: any[]) => any) {
-      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
-    },
-  } as unknown as ExtensionAPI;
-
-  function resolve(name: string, base?: ToolRenderers): ToolRenderers | undefined {
-    const visit = (index: number): ToolRenderers | undefined => index < resolvers.length
-      ? resolvers[index](name, () => visit(index + 1))
-      : base ?? tools.get(name);
-    return visit(0);
-  }
-  return { pi, tools, resolvers, handlers, conflicts, resolve };
-}
-
-function loadTidy(pi: ExtensionAPI, config: Record<string, unknown> = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "pi-tidy-renderer-"));
-  const previous = process.env.PI_CODING_AGENT_DIR;
-  try {
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({
-      tidy: { highlightBash: false, backgroundJobs: false, ...config },
-    }));
-    process.env.PI_CODING_AGENT_DIR = dir;
-    tidy(pi);
-  } finally {
-    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previous;
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 
 for (const tidyFirst of [true, false]) {
   test(`write execution stays sandboxed when Tidy loads ${tidyFirst ? "first" : "last"}`, async () => {
@@ -161,13 +112,20 @@ test("the registered write renderer respects preview limits, expansion and strea
 test("older Pi without the renderer API skips the preview rather than overriding write", async () => {
   const h = harness();
   Reflect.deleteProperty(h.pi, "registerToolRenderer");
-  loadTidy(h.pi);
+  // A non-default writeLines is the only reason to speak up: nothing was lost
+  // for someone who left it at pi's own ten lines.
+  loadTidy(h.pi, { writeLines: 2 });
   assert.equal(h.tools.size, 0, "no unsafe registerTool fallback");
-  const warnings: string[] = [];
-  for (const handler of h.handlers.get("session_start") ?? []) {
-    await handler({}, { ui: { notify: (message: string) => warnings.push(message) } });
-  }
+  assert.equal(h.resolvers.length, 0);
+  const warnings = await collectWarnings(h.handlers);
   assert.ok(warnings.some((message) => /write.*preview/i.test(message) && /registerToolRenderer/.test(message)));
+});
+
+test("older Pi is not lectured about a setting it never changed", async () => {
+  const h = harness();
+  Reflect.deleteProperty(h.pi, "registerToolRenderer");
+  loadTidy(h.pi);
+  assert.deepEqual(await collectWarnings(h.handlers), []);
 });
 
 test("disabled Tidy registers neither tools nor renderers", () => {
