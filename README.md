@@ -98,6 +98,13 @@ pi install npm:pi-tidy
 
 Your `"toolbox"` settings keep working; rename the key to `"tidy"` when convenient.
 
+The old package re-registered `bash` and `write` as its own tools so it could draw
+the highlighted command row and the write preview. pi treats a second registration
+under a built-in name as a hard failure, so Tidy could not be loaded alongside an
+extension that sandboxes or gates those tools, in either load order. Since 0.4.5
+both previews travel as `pi.registerToolRenderer()` resolvers instead, which is why
+there is nothing left to conflict with (see [How it works](#how-it-works)).
+
 ## Releasing
 
 `.github/workflows/publish.yml` publishes to npm on a published GitHub Release,
