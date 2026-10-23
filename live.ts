@@ -28,3 +28,13 @@ export function liveSlot<T>(name: string, initial: T): LiveSlot<T> {
 
 /** `tidy.enabled`: false turns every installed patch into a pass-through. */
 export const tidyEnabled = liveSlot("enabled", true);
+
+/**
+ * An agent run is in flight: `agent_start` … `agent_end`/`agent_settled`. This
+ * is the only signal about pi's work that cannot go stale, so the thinking rows
+ * use it to stop animating the moment the run is over.
+ *
+ * A slot rather than a module variable: `/reload` builds a new module while the
+ * patches from the old one keep rendering, and both have to see the same value.
+ */
+export const agentRunning = liveSlot("agent-running", false);

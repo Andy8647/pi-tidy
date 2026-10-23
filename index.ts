@@ -27,6 +27,8 @@
  *   diffLines: number       — diff rows drawn while an edit box is collapsed
  *     (default: 20, windowed at the first change; `ctrl+o` draws all of it,
  *     0 hides the body). pi's own edit renderer has no budget at all.
+ *   thinkingColor: string   — color for thinking rows and the thinking box
+ *     (default: warning, a yellow)
  *   messageBorderColors: per-kind theme fg colors for message-box borders
  *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
  *      mdCode/accent/warning)
@@ -40,7 +42,7 @@ import { formatBashCallHighlighted } from "./bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
 import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
-import { tidyEnabled } from "./live.ts";
+import { agentRunning, tidyEnabled } from "./live.ts";
 import { formatWriteCallText } from "./write-preview.ts";
 import { connectJobs, type EventBusLike } from "./background-jobs.ts";
 import type { ThemeLike } from "./theme-access.ts";
@@ -191,7 +193,16 @@ export default function (pi: ExtensionAPI): void {
   // Patches installed by an earlier load (before a /reload) read this live,
   // so turning the extension off takes effect without a restart.
   tidyEnabled.set(config.enabled);
+  agentRunning.set(false);
   if (!config.enabled) return;
+
+  // The thinking row's "is this still arriving" cannot trust pi's private
+  // `isStreaming` flag (it is not always settled), and a text-growth window
+  // alone would keep spinning for a moment after the turn. The run's own
+  // boundaries are the authority: set on start, cleared when the loop ends.
+  pi.on("agent_start", () => agentRunning.set(true));
+  pi.on("agent_end", () => agentRunning.set(false));
+  pi.on("agent_settled", () => agentRunning.set(false));
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {
@@ -211,6 +222,7 @@ export default function (pi: ExtensionAPI): void {
       splitDiff: config.splitDiff,
       splitDiffMinWidth: config.splitDiffMinWidth,
       diffLines: config.diffLines,
+      thinkingColor: config.thinkingColor,
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);

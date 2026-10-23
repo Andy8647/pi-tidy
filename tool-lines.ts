@@ -4,7 +4,7 @@
  * cheap to render every frame and trivial to test.
  */
 
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
@@ -13,19 +13,33 @@ import type { GroupSummary } from "./tool-groups.ts";
 export interface LineOptions {
   /** Prepend each tool's Nerd Font kind icon. */
   icons?: boolean;
-  /** Icon cells are dropped when a terminal has no Nerd Font. */
-  maxArgChars?: number;
+  /** Cells the row may occupy, gutter excluded. Absent: a fixed argument budget. */
+  width?: number;
   /** Group line only: the group is unfolded (`▾`) rather than folded (`▸`). */
   open?: boolean;
+  /** Theme color for a thinking row (default `warning`). */
+  thinkingColor?: string;
   /** The pointer is on this row: the glyph turns solid, a tool row gains a `›`. */
   hovered?: boolean;
-  /** Group line: the glyph for running background jobs. Tool line: this job's. */
+  /** Group line: the glyph for running background jobs. Tool line: this job's.
+   *  Thought line: replaces the brain while the run is still arriving. */
   spinner?: string;
   /** Tool line only: the background job this call started. */
   job?: JobState;
+  /**
+   * Tool line only: pad the metrics into columns so a group's rows line up
+   * (`1 line` under `12 lines`, both durations ending at the same cell) and
+   * the whole tail sits against the row's right edge.
+   */
+  align?: { note?: number; duration?: number };
 }
 
 const DEFAULT_MAX_ARG_CHARS = 60;
+/**
+ * Cells a row keeps for the command before the metrics give way. Below this the
+ * numbers win nothing: `cd /tmp && gi…` says less than `51 lines · 1.6s` does.
+ */
+const MIN_ARG_CELLS = 12;
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -55,6 +69,22 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
   // `✗` and the count goes quiet. No glyph of its own either way: `32 calls`
   // needs no cross beside it, the colour is the signal.
   if (summary.failed > 0) parts.push(theme.fg(open ? "muted" : "error", `${summary.failed} failed`));
+  if (summary.thinking || summary.thoughts > 0) {
+    // Folded, this is the only sign the reply did any thinking at all: the
+    // carrier messages that hold it draw nothing until the group opens. While a
+    // run is still arriving the entry says so — the frame set the job row spins
+    // with, then the word, the way a running call reads — and the count comes
+    // back once it stops. The spinner is the "still arriving" signal, so it does
+    // not depend on Nerd Font icons; the static brain does.
+    const live = summary.thinking;
+    const glyph = live ? (options.spinner ?? "◐") : icons ? THOUGHT_ICON : "";
+    const icon = glyph ? `${glyph} ` : "";
+    parts.splice(
+      parts.length - (summary.failed > 0 ? 1 : 0),
+      0,
+      theme.fg(options.thinkingColor ?? "warning", `${icon}${live ? "thinking" : plural(summary.thoughts, "thought")}`),
+    );
+  }
   if (summary.jobsRunning > 0) {
     parts.push(theme.fg("accent", `${options.spinner ?? "◐"} ${summary.jobsRunning} running`));
   }
@@ -76,7 +106,6 @@ interface ToolLike {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
 /** The text blocks of a tool result, joined. */
 function resultText(content: unknown): string {
   if (!Array.isArray(content)) return "";
@@ -149,32 +178,39 @@ export function summarizeResult(toolName: string, result: ToolLike["result"]): s
 }
 
 /**
- * The one-string description of a call's arguments: a shell command's first
- * line, a file's path, or the first stringish argument it can find.
+ * The one-string description of a call's arguments, split: the first line of a
+ * shell command (or a path / pattern / first stringish argument), and the
+ * ` (+12 lines)` marker that rides behind it. Kept apart because a narrow row
+ * has to decide what to spend cells on — the marker is the first thing to go.
  */
-export function summarizeArgs(toolName: string, args: unknown, maxChars = DEFAULT_MAX_ARG_CHARS): string {
-  if (!args || typeof args !== "object") return "";
+function argParts(args: unknown): { text: string; suffix: string } {
+  if (!args || typeof args !== "object") return { text: "", suffix: "" };
   const record = args as Record<string, unknown>;
 
   const command = typeof record.command === "string" ? record.command : undefined;
   if (command) {
     const [first, ...rest] = command.split("\n");
-    const head = first.trim();
-    const truncated = head.length > maxChars ? `${head.slice(0, maxChars - 1)}…` : head;
-    return rest.length > 0 ? `${truncated} (+${rest.length} lines)` : truncated;
+    return { text: first.trim(), suffix: rest.length > 0 ? ` (+${rest.length} lines)` : "" };
   }
 
   for (const key of ["path", "file_path", "filePath", "pattern", "url", "query"]) {
     const value = record[key];
-    if (typeof value === "string" && value) return value;
+    if (typeof value === "string" && value) return { text: value, suffix: "" };
   }
 
   for (const value of Object.values(record)) {
-    if (typeof value === "string" && value) {
-      return value.length > maxChars ? `${value.slice(0, maxChars - 1)}…` : value;
-    }
+    if (typeof value === "string" && value) return { text: value, suffix: "" };
   }
-  return "";
+  return { text: "", suffix: "" };
+}
+
+/**
+ * The one-string description of a call's arguments: a shell command's first
+ * line, a file's path, or the first stringish argument it can find.
+ */
+export function summarizeArgs(toolName: string, args: unknown, maxWidth = DEFAULT_MAX_ARG_CHARS): string {
+  const { text, suffix } = argParts(args);
+  return text ? `${truncateToWidth(text, maxWidth, "…")}${suffix}` : "";
 }
 
 /** `running 12s · READY matched` / `exited 0 · 20s` / `killed SIGTERM · 3s` */
@@ -214,7 +250,7 @@ function formatElapsed(ms: number): string {
 
 /** ` ✓ bash cd ~ && python3 - <<'PY' (+26 lines)  3 lines · 0.1s` */
 export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string {
-  const { icons = true, job } = options;
+  const { icons = true, job, width } = options;
   if (job) return formatJobLine(tool, job, theme, icons, options.spinner);
   const { isPartial } = tool;
   const isError = !isPartial && tool.result?.isError === true;
@@ -230,28 +266,125 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
       : theme.fg("success", "✓");
 
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
-  const name = theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`);
-  const detail = summarizeArgs(tool.toolName, tool.args, options.maxArgChars);
-  const detailText = detail ? theme.fg(body ?? "toolOutput", ` ${detail}`) : "";
+  const head = ` ${status} ${theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`)}`;
+  const { text, suffix } = argParts(tool.args);
 
   // `  12 lines · 0.3s` — what it produced, then how long it took.
-  const tail: string[] = [];
-  if (!isPartial) {
-    const note = summarizeResult(tool.toolName, tool.result);
-    // Not red: the glyph already says it failed, and `exit 1` is data.
-    if (note) tail.push(theme.fg(body ?? "muted", note));
-    const durationMs = tool.result?.durationMs;
-    if (typeof durationMs === "number" && durationMs > 0) tail.push(theme.fg(body ?? "muted", formatDuration(durationMs)));
-  }
-  const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
+  const note = isPartial ? "" : summarizeResult(tool.toolName, tool.result);
+  const durationMs = tool.result?.durationMs;
+  const duration = !isPartial && typeof durationMs === "number" && durationMs > 0 ? formatDuration(durationMs) : "";
+  const paint = (value: string) => theme.fg(body ?? "muted", value);
+  // Padding is outside the colour, so the columns line up whatever the theme
+  // does to the text.
+  const notePad = Math.max(0, (options.align?.note ?? 0) - visibleWidth(note));
+  const durationPad = Math.max(0, (options.align?.duration ?? 0) - visibleWidth(duration));
+  const tail = [
+    note ? " ".repeat(notePad) + paint(note) : "",
+    duration ? " ".repeat(durationPad) + paint(duration) : "",
+  ].filter(Boolean);
   const hint = options.hovered ? theme.fg("muted", "  ›") : "";
 
-  return ` ${status} ${name}${detailText}${tailText}${hint}`;
+  // Before the width was known the row took a fixed 60 cells of arguments and
+  // let `truncateToWidth` cut the end off afterwards — which on a narrow
+  // terminal meant the metrics went first and the command kept a ragged stub.
+  if (typeof width !== "number") {
+    const detail = text ? theme.fg(body ?? "toolOutput", ` ${summarizeArgs(tool.toolName, tool.args)}`) : "";
+    const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
+    return `${head}${detail}${tailText}${hint}`;
+  }
+
+  const fixed = visibleWidth(head) + 1 /* the space before the arguments */ + visibleWidth(hint);
+  const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
+  // The metrics only take what is left over, and step aside entirely when
+  // paying for them would leave nothing readable of the command.
+  const keepTail = tailText !== "" && width - fixed - visibleWidth(tailText) >= MIN_ARG_CELLS;
+  let budget = width - fixed - (keepTail ? visibleWidth(tailText) : 0);
+  let shownSuffix = suffix;
+  if (budget - visibleWidth(suffix) < MIN_ARG_CELLS) {
+    // `(+12 lines)` is a nicety; the command is not.
+    shownSuffix = "";
+    budget += visibleWidth(suffix);
+  }
+  const shown = text && budget > 1 ? truncateToWidth(text, budget - visibleWidth(shownSuffix), "…") : "";
+  const detail = shown ? theme.fg(body ?? "toolOutput", ` ${shown}${shownSuffix}`) : "";
+  if (!keepTail) return `${head}${detail}${hint}`;
+  // Only a caller that asked for columns gets the right edge; a row rendered on
+  // its own keeps the metrics where they belong, right after the arguments.
+  const gap = options.align
+    ? width - visibleWidth(head) - visibleWidth(detail) - visibleWidth(hint) - visibleWidth(tailText)
+    : 0;
+  return `${head}${detail}${gap > 0 ? " ".repeat(gap) : ""}${tailText}${hint}`;
 }
 
 /** The `│` that runs down the left of an open group, under its `▾`. */
 export function groupGutter(theme: ThemeLike): string {
   return ` ${theme.fg("borderMuted", "│")}`;
+}
+
+/**
+ * A thinking run as one line: the brain in the thinking colour, the label, then
+ * as much of the text as fits. `previewText` does the measuring so the row
+ * itself stays a pure string.
+ */
+export function formatThoughtLine(text: string, theme: ThemeLike, options: LineOptions = {}): string {
+  const color = options.thinkingColor ?? "warning";
+  // A thought row outside a group has no summary line above it to spin, so the
+  // row carries the frame set itself: "still arriving" has to be visible
+  // without opening anything. The spinner needs no Nerd Font; the brain does.
+  const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
+  const icon = glyph ? `${glyph} ` : "";
+  const label = theme.fg(color, `${icon}thinking`);
+  const body = theme.fg("thinkingText", text);
+  const row = ` ${label}  ${body}`;
+  return theme.italic ? theme.italic(row) : row;
+}
+
+/**
+ * `nf-md-brain`. Not the emoji 🧠: it is absent from every monospace Nerd Font
+ * and falls back to a two-cell colour glyph, which breaks the row's alignment.
+ */
+export const THOUGHT_ICON = "\u{f09d1}";
+
+/** Cells the `🧠 thinking` label takes on a row: brain + space + the word + two spaces. */
+export const THOUGHT_LABEL_CELLS = 2 + "thinking".length + 2;
+
+/**
+ * A thinking preview is a glance, not a paragraph. Past this many cells the row
+ * stops being one item among the calls and starts reading as prose wedged into
+ * the list — the whole row for a line of text the reader has to decide to skip.
+ */
+export const THOUGHT_PREVIEW_CELLS = 56;
+
+/**
+ * How often a live thinking row is allowed to change. pi repaints ~30x/s while
+ * streaming, so a window recomputed every frame slides one cell per token and
+ * the line never holds still; this turns it into a tick.
+ */
+export const THOUGHT_TICK_MS = 300;
+
+/**
+ * A thinking run squeezed onto one row. Measured in cells (`truncateToWidth`),
+ * not in characters: a CJK run is two cells a glyph.
+ */
+export function previewText(text: string, maxWidth: number, tail = false): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  // A run that is still arriving owns the row — it is the live feed. A settled
+  // one is a glance and stays short.
+  const budget = tail ? maxWidth : Math.min(maxWidth, THOUGHT_PREVIEW_CELLS);
+  if (budget <= 1) return "";
+  if (!tail) return truncateToWidth(flat, budget, "…");
+  // A run that is still arriving reads as a sliding window over its tail: the
+  // newest words are the interesting ones, and the row stays one line. The cut
+  // lands on a word break, so the window does not shave half a word off — that
+  // shaving is what made the line look like it was shaking.
+  let out = flat;
+  for (let i = 0; i < flat.length && visibleWidth(out) > budget - 1; i++) {
+    out = out.slice(Math.max(1, Math.ceil(out.length / 8)));
+  }
+  if (out.length >= flat.length) return flat;
+  const breakAt = out.indexOf(" ");
+  if (breakAt > 0 && breakAt < out.length - 1) out = out.slice(breakAt + 1);
+  return `…${truncateToWidth(out, budget - 1)}`;
 }
 
 /** Cells `groupGutter` takes. */

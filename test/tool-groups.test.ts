@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildGroupSummary,
-  carrierView,
+  carrierPlan,
   classifyAssistant,
   closeGroup,
   noteBoundary,
@@ -24,7 +24,9 @@ import {
   RUNNING_ROW_DELAY_MS,
   summaryFor,
   takeLateJoin,
+  THOUGHT_LIVE_MS,
 } from "../tool-groups.ts";
+import { agentRunning } from "../live.ts";
 
 interface FakeTool {
   kind: "tool";
@@ -57,8 +59,14 @@ function tool(
 const pinned = (toolName: string) => tool(toolName, { pinned: true });
 
 const boundary = () => ({ kind: "boundary" as const });
-/** A tool-only model step; it carries the call that follows it. */
-const carrier = (carries?: FakeTool) => ({ kind: "carrier" as const, ids: carries ? [carries.toolCallId] : [] });
+/** A tool-only model step; it carries the call that follows it and its thinking. */
+const carrier = (carries?: FakeTool, thoughts = 1) => ({
+  kind: "carrier" as const,
+  ids: carries ? [carries.toolCallId] : [],
+  // One run per row; the text only has to differ when a test grows it.
+  runs: Array.from({ length: thoughts }, (_unused, i) => `thought ${i}`),
+  isStreaming: true,
+});
 type Entry = FakeTool | ReturnType<typeof boundary> | ReturnType<typeof carrier>;
 
 /**
@@ -79,8 +87,11 @@ function renderPass(entries: Entry[]): string[] {
       noteBoundary(entry);
       out.push("text");
     } else if (entry.kind === "carrier") {
-      const view = carrierView(entry, entry.ids);
-      if (view !== "hidden") out.push(view === "gutter" ? "|thinking" : "thinking");
+      const plan = carrierPlan(entry, { ids: entry.ids, runs: entry.runs });
+      // `plain` is the always-shown-tool interop: pi draws the step itself.
+      if (plan.plain) out.push("thinking");
+      if (plan.header) out.push(`${plan.header === "open" ? "V" : "C"}${summaryFor(entry)!.count}`);
+      if (plan.rows) for (let i = 0; i < entry.runs.length; i++) out.push("|thinking");
     } else {
       const plan = planFor(entry, entry.pinned);
       const bar = plan.gutter ? "|" : "";
@@ -144,6 +155,8 @@ test("summary counts tools, orders by frequency then name, sums durations", () =
       running: "bash",
       failed: 0,
       jobsRunning: 0,
+      thoughts: 0,
+      thinking: false,
     },
   );
 });
@@ -198,8 +211,7 @@ test("re-rendering the transcript every frame keeps the groups and their levels"
   const transcript: Entry[] = [boundary(), a, carrier(b), b, boundary(), c];
   frame(transcript);
   clickHeader(a);
-  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|B:read", "text", "C1"]);
-  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|B:read", "text", "C1"]);
+  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|thinking", "|B:read", "text", "C1"]);
 });
 
 test("C line → header + one row per call → one full box → back to its row → back to C", () => {
@@ -209,13 +221,25 @@ test("C line → header + one row per call → one full box → back to its row 
   assert.deepEqual(frame(transcript), ["text", "C3"]);
 
   clickHeader(a); // the C line lives on the group's first member
-  assert.deepEqual(frame(transcript), ["text", "V3", "|B:bash", "|B:bash", "|B:bash"], "N rows under a ▾ header");
+  assert.deepEqual(
+    frame(transcript),
+    ["text", "V3", "|B:bash", "|thinking", "|B:bash", "|thinking", "|B:bash"],
+    "N rows under a ▾ header, each step's thinking above its call",
+  );
 
-  clickRow(b); // b's own thinking comes back with its box; c's stays folded
-  assert.deepEqual(frame(transcript), ["text", "V3", "|B:bash", "|thinking", "|box:bash", "|B:bash"]);
+  clickRow(b); // b's box opens; every carrier keeps its row
+  assert.deepEqual(frame(transcript), [
+    "text",
+    "V3",
+    "|B:bash",
+    "|thinking",
+    "|box:bash",
+    "|thinking",
+    "|B:bash",
+  ]);
 
   clickBox(b);
-  assert.deepEqual(frame(transcript), ["text", "V3", "|B:bash", "|B:bash", "|B:bash"]);
+  assert.deepEqual(frame(transcript), ["text", "V3", "|B:bash", "|thinking", "|B:bash", "|thinking", "|B:bash"]);
 
   clickHeader(a);
   assert.deepEqual(frame(transcript), ["text", "C3"]);
@@ -233,7 +257,7 @@ test("folding from the header also folds the boxes inside", () => {
   clickHeader(a);
   assert.deepEqual(frame(transcript), ["text", "C2"]);
   clickHeader(a);
-  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|B:read"], "reopens as plain rows");
+  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|thinking", "|B:read"], "reopens as plain rows");
 });
 
 test("a call running past a second gets its row under the folded header", (t) => {
@@ -300,7 +324,7 @@ test("a failed call folds like any other: the count carries it, the row waits in
   assert.deepEqual(frame(transcript), ["text", "C2"]);
   assert.equal(summaryFor(a)?.failed, 1, "the count is where it shows");
   clickHeader(a);
-  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|B:bash"]);
+  assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|thinking", "|B:bash"]);
   clickRow(b);
   assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|thinking", "|box:bash"]);
 });
@@ -323,8 +347,15 @@ test("an edit's thinking follows the edit's own expand state", () => {
   const [r, e] = [tool("read"), pinned("edit")];
   const transcript: Entry[] = [boundary(), r, carrier(e), e];
   assert.deepEqual(frame(transcript), ["text", "C1", "box:edit"]);
+  assert.equal(summaryFor(r)?.thoughts, 1, "the step is folded in, and level 1 lists its run");
   ctrlO(transcript, true);
   assert.deepEqual(frame(transcript), ["text", "V1", "|box:read", "thinking", "box:edit"]);
+  // pi draws that step itself now (its box, and its thinking with it): the run is
+  // no longer a row of this group, so the count must not keep it.
+  assert.equal(summaryFor(r)?.thoughts, 0);
+  ctrlO(transcript, false);
+  frame(transcript);
+  assert.equal(summaryFor(r)?.thoughts, 1, "folded back in, it is listed again");
 });
 
 test("ctrl+o expands every box, ctrl+o again folds back to the C line", () => {
@@ -337,9 +368,9 @@ test("ctrl+o expands every box, ctrl+o again folds back to the C line", () => {
   // Everything back, thinking included: what pi's own transcript looks like.
   assert.deepEqual(frame(transcript), ["text", "V2", "|box:bash", "|thinking", "|box:read", "text", "V1", "|box:grep"]);
 
-  // Clicking one full box folds only that box (and its thinking) into its row.
+  // Clicking one full box folds only that box into its row.
   clickBox(b);
-  assert.deepEqual(frame(transcript), ["text", "V2", "|box:bash", "|B:read", "text", "V1", "|box:grep"]);
+  assert.deepEqual(frame(transcript), ["text", "V2", "|box:bash", "|thinking", "|B:read", "text", "V1", "|box:grep"]);
 
   ctrlO(transcript, false);
   assert.deepEqual(frame(transcript), ["text", "C2", "text", "C1"]);
@@ -383,6 +414,8 @@ test("the summary reads live state: a member finishing updates the C line at onc
     running: undefined,
     failed: 0,
     jobsRunning: 0,
+    thoughts: 1,
+    thinking: false,
   });
 });
 
@@ -390,4 +423,79 @@ test("tools before any boundary still group", () => {
   resetGroups();
   const [a, b] = [tool("bash"), tool("read")];
   assert.deepEqual(frame([a, b]), ["C2"]);
+});
+
+test("a live thinking run is driven by growth, the open run and the stream flag", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  resetGroups();
+  // A restored session: the component already carries its runs, but they never
+  // arrived in front of us.
+  const restored = { ids: [] as string[], runs: ["旧想法"], isStreaming: true };
+  // pi's own steps start empty (`message_start` creates the component with no
+  // content) and gain text as the tokens land.
+  const step = { ids: [] as string[], runs: [] as string[], isStreaming: true };
+  try {
+    assert.equal(carrierPlan(restored, { runs: restored.runs }).live, false, "no run: nothing animates");
+    agentRunning.set(true);
+    assert.equal(
+      carrierPlan(restored, { runs: restored.runs }).live,
+      false,
+      "a new turn must not resurrect old thinking",
+    );
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, false, "no token yet");
+    step.runs = ["先想"];
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, true, "the first token starts it");
+
+    // No new token: the run settles on its own, whatever pi's flag says.
+    t.mock.timers.tick(THOUGHT_LIVE_MS);
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, false);
+    // The next token brings it back.
+    step.runs = ["先想多一点"];
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, true);
+    // A settled message stops immediately, even inside the window.
+    step.isStreaming = false;
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, false);
+
+    // pi leaves `isStreaming` true after a run: the run's end is what stops it.
+    step.isStreaming = true;
+    step.runs = ["先想多一点，再想一点"];
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, true);
+    agentRunning.set(false);
+    assert.equal(carrierPlan(step, { runs: step.runs }).live, false, "the turn is over");
+  } finally {
+    agentRunning.set(false);
+  }
+});
+
+test("a run that stops leaves no row under a folded summary, and the count takes over", (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  resetGroups();
+  const a = tool("bash", { durationMs: 100 });
+  const b = tool("bash", { durationMs: 50 });
+  const step = carrier(b, 1);
+  const transcript: Entry[] = [boundary(), a, step, b];
+  try {
+    agentRunning.set(true);
+    const live = frame(transcript);
+    assert.deepEqual(live, ["text", "C2", "|thinking"], "still arriving: one row under the summary");
+    assert.equal(summaryFor(a)?.thinking, true, "and the summary spins");
+    t.mock.timers.tick(THOUGHT_LIVE_MS);
+    const settled = frame(transcript);
+    assert.deepEqual(settled, ["text", "C2"], "quiet: the row goes, the count is what is left");
+    assert.equal(summaryFor(a)?.thinking, false);
+    assert.equal(summaryFor(a)?.thoughts, 1);
+  } finally {
+    agentRunning.set(false);
+  }
+});
+
+test("a boundary's own thinking is not part of the group's count", () => {
+  resetGroups();
+  const a = tool("bash");
+  // The boundary draws its thinking itself, above the text: the group lists
+  // nothing for it, so counting it would promise a row that cannot appear.
+  noteBoundary(boundary());
+  const group = planFor(a);
+  assert.equal(group.header, "closed");
+  assert.equal(summaryFor(a)?.thoughts, 0);
 });

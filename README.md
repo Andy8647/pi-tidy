@@ -24,15 +24,30 @@ every box gets a rounded transparent frame.
   being computed) it falls back to pi's unified diff
 - **Transparent background** — no solid background fill, works with terminal transparency
 - **Grouped tool calls** — every tool call between two pieces of assistant text collapses to one line
-  (`▸ 4 calls ·  bash×3  read×1 · 1.2s`). Click it and it turns into a `▾` header with one row per call
-  under a `│` gutter; click a row for that call's full box, the box to fold it back, the `▾` header to
-  fold the whole group. The assistant's text always shows and is what separates groups, so you can
-  still see a reply drifting; tool-only model steps don't split a group. Edits and writes never fold —
-  their diff shows like any normal box (`alwaysShowTools`), clipped to `diffLines` while collapsed.
+  (`▸ 4 calls ·  bash×3  read×1 · 🧠 5 thoughts · 1.2s`). Click it and it turns into a `▾` header with one
+  row per call under a `│` gutter; click a row to open that call's output underneath it — the row stays
+  put and takes a `├─` tick off the rail, because inside a group the rail already frames it and a box
+  there was a frame inside a frame. The `▾` header folds the whole group. The assistant's text always
+  shows and is what separates groups, so you can still see a reply drifting; tool-only model steps
+  don't split a group. Edits and writes never fold — their diff shows like any normal box
+  (`alwaysShowTools`), clipped to `diffLines` while collapsed.
+  Steps are separated by one blank rail row, so a long group reads as blocks rather than a wall.
   A folded group is one line: only a *running* call keeps a row, and a failure is reported once, as
   `3 failed` in red (`✗` per row once you open it). Every row says what the call produced
   (`12 lines`, `3 matches`, `exit 1`), and `ctrl+o` still expands everything (and collapses back to
   the summary)
+- **Thinking, folded in** — a model step that only thinks and calls a tool used to leave a bare
+  `Thinking...` behind; now it is a `thinking` row inside the group: a brain, the word, then one line of
+  what the model actually thought, in order above the call it belongs to. The summary counts the runs
+  and carries the same brain (`🧠 5 thoughts`), and a click opens that step's thinking full length — the
+  same rounded box a tool result gets, in the new `thinkingColor` (yellow by default). While a run is
+  still arriving the summary's marker spins (outside a group, the row's own glyph does, since there is
+  no summary to carry it) and the preview slides over the newest words; once it stops, the row settles
+  to a short head preview capped at 56 cells — a glance, not a paragraph. pi's `hideThinkingBlock`
+  setting is ignored on purpose: the row is the same whether thinking is configured on or off, and the
+  click is the one way to read it. A message that both thinks and writes gets the same row for its
+  label (clicking it opens the same box), and its run stays out of the group's count — it renders above
+  the text, not as a row in the list
 - **Background jobs** — a call that starts a long-running process (pi-processes' `process start`) shows
   the *process's* state on its row: `◐ process ticker  running 12s · READY matched`, then
   `✓ … exited 0 · 20s` / `✗ … exit 1` / `⊘ … killed SIGTERM`. The summary spins while one runs
@@ -56,14 +71,16 @@ A background process (pi-processes), tracked on the row that started it:
 
 <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/process.png" alt="A background process row with its live state" width="560">
 
-Click `▸ 5 calls` and it becomes a `▾` header with one row per call:
+Click `▸ 5 calls` and it becomes a `▾` header with one row per call, each step's thinking above it:
 
 ```
- ▾ 5 calls ·  bash×3  read×2 · 1 failed · 2.4s
+ ▾ 5 calls ·  bash×3  read×2 · 4 thoughts · 1 failed · 2.4s
+ │ 🧠 thinking  测试挂了，先确认是哪一个断言炸的，再看是不是我们这边的问题
  │ ✓  bash git status --short  4 lines · 0.1s
+ │ 🧠 thinking  看一眼改了什么
  │ ✓  read src/app.ts  120 lines · 0.0s
  │ ✗  bash pnpm test  exit 1 · 1.8s
- │ …
+ │ 🧠 thinking  …
 ```
 
 ## Installation
@@ -127,6 +144,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "bashResultLines": 1,
     "writeLines": 10,
     "diffLines": 20,
+    "thinkingColor": "warning",
     "groupTools": true,
     "alwaysShowTools": ["edit", "write"],
     "backgroundJobs": true,
@@ -159,12 +177,13 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes |
 | `frameUserMessages` | boolean | `false` | Also frame user messages — off by default because pi-starline already restyles `UserMessageComponent`, and two render patches on one prototype fight over the output. Enable only without pi-starline |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
-| `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, a row for its full box, the box to fold it back, the `▾` header to fold the group. `false` renders every call as its own box |
+| `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box |
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
 | `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
 | `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep their own box (with the diff) and end the group before them, so later calls start a new one. Set `[]` to fold edits and writes into the group like everything else — click their row for the box |
 | `splitDiff` | boolean | `true` | Render an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff |
 | `splitDiffMinWidth` | number | `72` | Box width below which the split is dropped for pi's unified diff — two panes need room to stay readable |
+| `thinkingColor` | theme color | `warning` | Colour of the brain, the `N thoughts` count and an expanded thinking box. Any theme color name or `#rrggbb` |
 | `diffLines` | number | `20` | Diff rows drawn while an edit box is collapsed. The window is anchored at the first changed line (a third of the budget of context above it), with `… (N more lines, M total, ctrl+o to expand)` under it — pi's own edit renderer has no budget at all, so this is the only thing keeping a long diff from owning the screen. `ctrl+o` draws all of it, `0` keeps just the summary row |
 | `bashResultLines` | number | `1` | Visual lines of bash *output* shown while collapsed. pi's renderer hard-codes 5 with no setting; raise this for more context, `0` to hide output until you expand |
 | `writeLines` | number | `10` | Visual lines of a written file shown while the box is collapsed (pi's own number, now adjustable). `0` keeps just the header until you expand. Requires Pi's `registerToolRenderer` API |

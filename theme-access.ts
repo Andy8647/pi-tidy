@@ -14,6 +14,7 @@ export interface ThemeLike {
   bold(text: string): string;
   /** Present on the live theme; every built-in theme implements it. */
   bg?(color: string, text: string): string;
+  italic?(text: string): string;
 }
 
 export function getTheme(): ThemeLike | undefined {
