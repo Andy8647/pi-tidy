@@ -10,24 +10,39 @@
  * the groups get cut.
  */
 
-import { truncateToWidth, TuiAltScreen } from "@earendil-works/pi-tui";
+import { MouseRegion, truncateToWidth, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { ANIMATE_MS, jobForTool, noteJobMessage, spinnerFrame, type JobState } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { formatGroupLine, formatToolLine, GUTTER_CELLS, groupGutter } from "./tool-lines.ts";
+import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
 import {
-  carrierView,
+  formatGroupLine,
+  formatThoughtLine,
+  formatToolLine,
+  GUTTER_CELLS,
+  groupGutter,
+  formatDuration,
+  previewText,
+  summarizeResult,
+  THOUGHT_LABEL_CELLS,
+  THOUGHT_TICK_MS,
+} from "./tool-lines.ts";
+import {
+  carrierPlan,
   classifyAssistant,
   closeGroup,
   currentGroupHasMembers,
+  groupMembers,
   noteBoundary,
+  noteThinking,
+  thinkingState,
   openGroup,
   planFor,
   summaryFor,
   takeLateJoin,
+  thinkingRuns,
   toolCallIds,
-  type CarrierView,
   type ViewPlan,
 } from "./tool-groups.ts";
 
@@ -147,12 +162,13 @@ export function renderGroupedTool(
   width: number,
   theme: ThemeLike,
   options: { icons: boolean; pinned: boolean },
-  frameBox: (width: number) => string[],
+  frameBox: (width: number, unframed?: boolean) => string[],
 ): string[] | undefined {
   // Another extension may have patched a boundary render on top of ours
   // since; re-wrap so the boundaries keep being seen.
   installGroupBoundaries();
   const job = options.pinned ? undefined : jobForTool(tool);
+  if (tool.ui) lastUi = tool.ui;
   const now = Date.now();
   const plan = planFor(tool, options.pinned, job, now);
   if (takeLateJoin()) tool.ui?.requestRender?.();
@@ -163,41 +179,103 @@ export function renderGroupedTool(
   const lines: string[] = [];
   const hovered = hoverState.tool === tool ? hoverState.row : null;
   if (plan.header) {
-    const jobs: JobState[] = [];
-    const summary = summaryFor(
-      tool,
-      (member) => {
-        const memberJob = jobForTool(member as GroupedTool);
-        if (memberJob) jobs.push(memberJob);
-        return memberJob;
-      },
-      now,
-    );
-    if (summary) {
-      const line = formatGroupLine(summary, theme, {
-        icons,
-        open: plan.header === "open",
-        spinner: groupSpinner(jobs),
-        hovered: hovered === "header",
-      });
-      lines.push(
-        hovered === "header" ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"),
-      );
-    }
+    const line = groupHeaderLine(tool, plan.header, theme, width, icons, hovered === "header", now);
+    if (line !== undefined) lines.push(line);
   }
   const gutter = groupGutter(theme);
-  if (plan.line) {
+  if (plan.line || plan.full) {
     const spinner = job ? spinnerFrame(job) : undefined;
-    const line = gutter + formatToolLine(tool, theme, { icons, job, spinner, hovered: hovered === "row" });
+    // The tick costs two cells more than the rail does.
+    const rowWidth = width - GUTTER_CELLS - (plan.full ? 2 : 0);
+    const row = formatToolLine(tool, theme, { icons, job, spinner, hovered: hovered === "row", width: rowWidth, align: groupAlign(tool) });
+    // An opened call keeps its row — it does not turn into something else — and
+    // takes a tick off the rail to show what hangs below it.
+    const line = plan.full ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
     lines.push(hovered === "row" ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
   }
   if (plan.full) {
-    const indent = boxIndent(tool, plan);
-    for (const line of frameBox(Math.max(4, width - indent))) {
-      lines.push(indent ? (line ? `${gutter} ${line}` : gutter) : line);
-    }
+    // Inside the group the rail already says what belongs to what, so a box
+    // would be a frame inside a frame. Only the body is drawn, hanging under
+    // the row that opened it.
+    const body = frameBox(Math.max(4, width - BODY_INDENT), true);
+    for (const line of body) lines.push(`${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`);
   }
   return lines;
+}
+
+/**
+ * The note and duration columns for a group: the widest of each, so every row
+ * pads to the same width and the metrics line up down the block. Recomputed
+ * when the group's membership changes, not per row — `summarizeResult` walks a
+ * result's whole output, and doing that once per row would be quadratic.
+ */
+const alignCache = new WeakMap<readonly object[], { count: number; note: number; duration: number }>();
+
+function groupAlign(anchor: object): { note: number; duration: number } {
+  const members = groupMembers(anchor);
+  const cached = alignCache.get(members);
+  if (cached && cached.count === members.length) return cached;
+  let note = 0;
+  let duration = 0;
+  for (const member of members) {
+    note = Math.max(note, visibleWidth(summarizeResult(member.toolName, member.result)));
+    duration = Math.max(duration, visibleWidth(formatDuration(member.result?.durationMs ?? 0)));
+  }
+  const entry = { count: members.length, note, duration };
+  alignCache.set(members, entry);
+  return entry;
+}
+
+/**
+ * The rail with a tick: `├─`. Used by an opened call's row, whose output hangs
+ * below it — the horizontal line is what points at the row the block belongs to.
+ */
+function tickGutter(theme: ThemeLike): string {
+  return ` ${theme.fg("borderMuted", "├─")}`;
+}
+
+/** Cells an opened call's body is pushed in by, under its row: the rail plus three. */
+const BODY_INDENT = GUTTER_CELLS + 3;
+const BODY_PAD = "   ";
+
+/**
+ * The group's summary line. Carried by the first member — or by a leading
+ * carrier, which renders before that member does (see `carrierPlan`).
+ */
+function groupHeaderLine(
+  anchor: object,
+  header: "closed" | "open",
+  theme: ThemeLike,
+  width: number,
+  icons: boolean,
+  hovered: boolean,
+  now: number,
+): string | undefined {
+  const jobs: JobState[] = [];
+  const summary = summaryFor(
+    anchor,
+    (member) => {
+      const job = jobForTool(member as GroupedTool);
+      if (job) jobs.push(job);
+      return job;
+    },
+    now,
+  );
+  if (!summary) return undefined;
+  const line = formatGroupLine(summary, theme, {
+    icons,
+    open: header === "open",
+    // One spinner for the row: a running job, or a thought still arriving.
+    spinner: summary.thinking ? thinkingSpinner(now) : groupSpinner(jobs),
+    thinkingColor: thinkingColorFor(),
+    hovered,
+  });
+  return hovered ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…");
+}
+
+/** A quarter-turn frame that follows the wall clock, so any repaint advances it. */
+function thinkingSpinner(now: number): string {
+  return spinnerFrame({ id: "", name: "", status: "running", startTime: now }, now);
 }
 
 const revealScheduled = new WeakSet<object>();
@@ -212,6 +290,22 @@ function scheduleReveal(tool: GroupedTool, ms: number): void {
   const timer = setTimeout(() => {
     revealScheduled.delete(tool);
     tool.ui?.requestRender?.();
+  }, Math.max(0, ms) + 20);
+  timer.unref?.();
+}
+
+/**
+ * The repaint that takes a stalled thinking row (and its spinner) off screen.
+ * Nothing else will ask for it: the run is quiet and pi is idle by then.
+ */
+const settleScheduled = new WeakSet<object>();
+
+function scheduleSettle(component: object, ms: number): void {
+  if (settleScheduled.has(component)) return;
+  settleScheduled.add(component);
+  const timer = setTimeout(() => {
+    settleScheduled.delete(component);
+    lastUi?.requestRender?.();
   }, Math.max(0, ms) + 20);
   timer.unref?.();
 }
@@ -290,7 +384,9 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
     tool.ui?.requestRender?.();
     return { handled: true };
   }
-  if (plan.full) return routing.boxMouse(event, boxIndent(tool, plan), plan.header ? 1 : 0);
+  // dy is one less than the row above the border: the box's own leading blank
+  // row is dropped when it is drawn under the gutter.
+  if (plan.full) return routing.boxMouse(event, boxIndent(tool, plan), (plan.header ? 1 : 0) - 1);
   return undefined;
 }
 
@@ -299,33 +395,375 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BOUNDARY_WRAPPER = Symbol.for("pi-toolbox:group-boundary");
+/** This carrier's thinking was expanded by a click on its `🧠` row. */
+const THOUGHT_OPEN = Symbol.for("pi-toolbox:thought-open");
+const CARRIER_MOUSE = Symbol.for("pi-toolbox:carrier-mouse");
+
+/**
+ * Last renderer a tool handed us. Carrier components have no `ui` of their own,
+ * and a hovered row needs a repaint, so we borrow the neighbouring tool's.
+ */
+let lastUi: Renderer | undefined;
+
+/**
+ * A carrier message inside an open group: one `🧠` row per thinking run. The
+ * collapsed row is the whole point — the group header counts the runs, and the
+ * rows are where the model's reasoning actually shows up in the transcript.
+ *
+ * Clicking a row expands *that message's* thinking: pi draws it (markdown, its
+ * own colour) from `thinkingVisibilityOverrides`, the same switch pi's own
+ * click uses, so the two can never disagree. pi's `hideThinkingBlock` setting
+ * is deliberately ignored here: the row is the one behaviour, open or shut.
+ */
+function renderCarrier(component: any, width: number): BoundaryDraw {
+  const message = component.lastMessage;
+  const runs = thinkingRuns(message);
+  const plan = carrierPlan(component, { ids: toolCallIds(message), runs });
+  // The run count just changed and the summary line is drawn by someone else:
+  // ask for the frame that catches it up.
+  if (plan.counted) lastUi?.requestRender?.();
+  // A live run goes quiet on its own after its last token. By then pi may be
+  // painting nothing at all, so the frame that drops the row is ours.
+  if (plan.settlesIn !== undefined) scheduleSettle(component, plan.settlesIn);
+  if (plan.plain) return "plain";
+  const theme = getTheme();
+  if (!theme || width <= GUTTER_CELLS + 8) return "plain";
+  const icons = iconsEnabled();
+  const thinkingColor = thinkingColorFor();
+  installCarrierMouse(component);
+  const lines: string[] = [];
+  if (plan.header) {
+    const line = groupHeaderLine(
+      component,
+      plan.header,
+      theme,
+      width,
+      icons,
+      hoverState.tool === component && hoverState.row === "header",
+      Date.now(),
+    );
+    if (line !== undefined) lines.push(line);
+  }
+  if (!plan.rows) return { lines };
+  const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS;
+  const gutter = groupGutter(theme);
+  const hovered = hoverState.tool === component && hoverState.row === "row";
+  // `thinkingVisibilityOverrides` is pi's own per-run switch: false = shown, and
+  // pi renders the markdown itself. We flip the same map, so its click and
+  // ours can never disagree about what is open.
+  const open = component[THOUGHT_OPEN] === true && component.thinkingVisibilityOverrides?.get?.(0) === false;
+  if (component[THOUGHT_OPEN] && !open) {
+    // pi's own click on the expanded text folded it again; follow it.
+    component[THOUGHT_OPEN] = false;
+  }
+  // Folded, a live run is a sliding window: one row, newest words, so the group
+  // says what it is working on without being opened. The animation lives on the
+  // summary line, not here — and the window moves on a tick, not per frame.
+  const now = Date.now();
+  const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
+  for (const [index, run] of runs.entries()) {
+    const text = liveTexts?.[index] ?? previewText(run, width - context);
+    const row = formatThoughtLine(text, theme, { icons, thinkingColor });
+    // Open: the row keeps its place and takes a tick, exactly like an opened
+    // call — the reasoning hangs under it instead of replacing it.
+    const line = open ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
+    lines.push(hovered ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
+  }
+  if (open) {
+    const body = trimBlankEdges(renderThinkingBody(component, iconBodyWidth(width)));
+    for (const line of body) lines.push(`${gutter}${BODY_PAD}${theme.fg("thinkingText", line)}`);
+  }
+  return { lines };
+}
+
+/** The width an opened thinking run's text is laid out at, inside its indent. */
+function iconBodyWidth(width: number): number {
+  return Math.max(8, width - BODY_INDENT);
+}
+
+/**
+ * pi's own rendering of the expanded run (markdown, its colours, code blocks) —
+ * pulled through the message's thinking child rather than re-implemented.
+ */function renderThinkingBody(component: any, width: number): string[] {
+  const kids = component.contentContainer?.children;
+  if (Array.isArray(kids)) {
+    for (const kid of kids) if (kid instanceof MouseRegion) return kid.render(width) as string[];
+  }
+  return [];
+}
+
+/**
+ * Clicks on a `🧠` row unfold that message's thinking; motion lights the row.
+ * Both are ours to route — the component draws the rows itself, so nothing
+ * below it is listening.
+ */
+function installCarrierMouse(component: any): void {
+  if (component[CARRIER_MOUSE]) return;
+  component[CARRIER_MOUSE] = true;
+  /** Where `y` sits, given the plan this frame draws. */
+  const rowAt = (y: unknown): HoverRow | null => {
+    if (typeof y !== "number" || y < 0) return null;
+    const plan = carrierPlan(component);
+    return plan.header && y === 0 ? "header" : "row";
+  };
+  component.handleMouse = (event: any) => {
+    if (event?.type === "move") {
+      if (!hoverTracking) return undefined;
+      hoverClaimed = true;
+      const row = rowAt(event.y);
+      if (setHover(row ? component : null, row, lastUi)) lastUi?.requestRender?.();
+      return undefined;
+    }
+    if (event?.type !== "click" || (event.button !== "left" && event.button !== 0)) return undefined;
+    const theme = getTheme();
+    if (!theme) return undefined;
+    // Expanded: our own rows are gone (pi's box is drawn in their place), so
+    // the click that folds it back has to be ours too. pi's inner regions sit
+    // one row lower than ours (the summary line), so its own click cannot be
+    // relied on here.
+    const expanded = component[THOUGHT_OPEN] && component.thinkingVisibilityOverrides?.get?.(0) === false;
+    if (expanded) {
+      const overrides = component.thinkingVisibilityOverrides;
+      for (let i = 0; i < Math.max(1, thinkingRuns(component.lastMessage).length); i++) overrides?.set?.(i, true);
+      component[THOUGHT_OPEN] = false;
+      component.updateContent?.(component.lastMessage);
+      component.invalidate?.();
+      setHover(null, null);
+      lastUi?.requestRender?.();
+      return { handled: true };
+    }
+    if (rowAt(event.y) === "header") {
+      // Same toggle the first member's header does: shut folds every box inside.
+      const { header } = carrierPlan(component);
+      if (header === "closed") openGroup(component);
+      else for (const member of closeGroup(component)) (member as GroupedTool).setExpanded(false);
+      setHover(null, null);
+      lastUi?.requestRender?.();
+      return { handled: true };
+    }
+    const overrides = component.thinkingVisibilityOverrides;
+    for (let i = 0; i < Math.max(1, thinkingRuns(component.lastMessage).length); i++) overrides?.set?.(i, false);
+    component[THOUGHT_OPEN] = true;
+    component.updateContent?.(component.lastMessage);
+    component.invalidate?.();
+    setHover(null, null);
+    lastUi?.requestRender?.();
+    return { handled: true };
+  };
+}
 
 type RenderFn = ((this: any, ...args: any[]) => string[]) & { [BOUNDARY_WRAPPER]?: true };
 
 /** Whether grouping is on right now (the tool patch keeps this current). */
 let groupingActive: () => boolean = () => true;
 
+/** Whether Nerd Font icons are on (`icons: false` on a terminal without one). */
+let iconsEnabled: () => boolean = () => true;
+/** `tidy.thinkingColor`: the brain, the count and an expanded box border. */
+let thinkingColorFor: () => string = () => "warning";
+
 export function setGroupingActive(active: () => boolean): void {
   groupingActive = active;
 }
 
+export function setIconsEnabled(icons: () => boolean): void {
+  iconsEnabled = icons;
+}
+
+export function setThinkingColor(color: () => string): void {
+  thinkingColorFor = color;
+}
+
+/**
+ * A live thinking row changes on a tick, not on every frame: pi repaints while
+ * streaming, and a window recomputed per paint slides one cell per token, which
+ * reads as flicker. The row keeps its last string until the tick expires.
+ */
+const liveRows = new Map<object, { at: number; texts: string[] }>();
+
+/**
+ * The preview for one live run, held steady between ticks. Text short enough to
+ * fit is shown whole and never moves; only an overflowing run slides.
+ */
+function liveRowText(component: object, runs: string[], budgets: number[], now: number): string[] {
+  const cached = liveRows.get(component);
+  if (cached && now - cached.at < THOUGHT_TICK_MS && cached.texts.length === runs.length) return cached.texts;
+  const texts = runs.map((run, i) => previewText(run, budgets[i] ?? 0, true));
+  liveRows.set(component, { at: now, texts });
+  return texts;
+}
+
+/**
+ * What a boundary component draws this frame: `plain` hands back pi's own
+ * render untouched, `rethink` keeps pi's render but restyles its `Thinking...`
+ * labels (see `restyleThinking`), `lines` are drawn verbatim, `hidden` draws
+ * nothing.
+ */
+type BoundaryDraw = "hidden" | "plain" | "rethink" | { lines: string[] };
+
+/** A box border costs two cells of its width. */
+const BOX_CELLS = 2;
+
+/**
+ * pi draws thinking as a child component of the message: a one-line label while
+ * it is hidden, the full markdown once it is shown, wrapped in a `MouseRegion`
+ * so a click toggles it. That child is where our rows belong, so the message is
+ * reassembled child by child: every other child keeps pi's own lines verbatim
+ * (they carry the OSC 133 prompt markers), and each thinking child becomes a
+ * `thinking` row — or, expanded, the same rounded box a tool result gets.
+ *
+ * A `MouseRegion` sits around the body, so a click on our row still reaches pi's
+ * toggle: collapsed → expanded → collapsed. `hideThinkingBlock` is ignored: the
+ * run starts hidden here no matter what pi's setting says, so the first click is
+ * always "open it".
+ */
+/** Rows an expanded run occupies (title + box) on its message component. */
+const THOUGHT_SPANS = Symbol.for("pi-toolbox:thought-spans");
+const RETHINK_MOUSE = Symbol.for("pi-toolbox:rethink-mouse");
+
+/**
+ * pi's own click region covers a thinking child by its *rendered height*, and we
+ * changed that height: a one-line label became a title plus a box, and the
+ * padding rows around the message were trimmed away. So the toggle is ours: a
+ * click on a run's row (or its open box) folds that run, and a click on a
+ * collapsed row opens it.
+ */
+function installRethinkMouse(component: any): void {
+  if (component[RETHINK_MOUSE]) return;
+  component[RETHINK_MOUSE] = true;
+  const previous = component.handleMouse;
+  component.handleMouse = (event: any) => {
+    const click = event?.type === "click" && (event.button === "left" || event.button === 0);
+    const spans = (component[THOUGHT_SPANS] ?? []) as Array<{ from: number; to: number; run: number }>;
+    const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
+    const toggle = (run: number) => {
+      // The map is "hidden": toggle whatever it says.
+      const shown = overrides?.get?.(run) === false;
+      overrides?.set?.(run, shown);
+      component.updateContent?.(component.lastMessage);
+      component.invalidate?.();
+      lastUi?.requestRender?.();
+      return { handled: true };
+    };
+    const hit = click ? spans.find((span) => event.y >= span.from && event.y <= span.to) : undefined;
+    if (hit) return toggle(hit.run);
+    // A message that is nothing but thinking has no other content to click: the
+    // whole block belongs to the run, whatever the row arithmetic says.
+    if (click) {
+      const runs = thinkingRuns(component.lastMessage);
+      const content = Array.isArray(component.lastMessage?.content) ? component.lastMessage.content : [];
+      const hasText = content.some((block: any) => block?.type === "text" && typeof block.text === "string" && block.text.trim());
+      if (!hasText && runs.length === 1) return toggle(0);
+    }
+    return previous?.call(component, event);
+  };
+}
+
+function restyleThinking(component: any, lines: string[], width: number): string[] {
+  const theme = getTheme();
+  const runs = thinkingRuns(component.lastMessage);
+  const kids = component.contentContainer?.children;
+  if (!theme || runs.length === 0 || !Array.isArray(kids) || kids.length === 0) return lines;
+  const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
+  for (let i = 0; i < runs.length; i++) if (!overrides?.has?.(i)) overrides?.set?.(i, true);
+
+  const icons = iconsEnabled();
+  const color = thinkingColorFor();
+  // This row is drawn outside a group, so nothing else on screen can say "still
+  // arriving": the row slides over the tail and wears the spinner itself, the
+  // way the summary does inside a group. It settles on the same three signals.
+  noteThinking(component, runs);
+  const thought = thinkingState(component);
+  if (thought.settlesIn !== undefined) scheduleSettle(component, thought.settlesIn);
+  const budget = Math.max(1, width - THOUGHT_LABEL_CELLS - 1);
+  const liveTexts = thought.live ? liveRowText(component, runs, runs.map(() => budget), Date.now()) : undefined;
+  const spinner = thought.live ? thinkingSpinner(Date.now()) : undefined;
+  const out: string[] = [];
+  /** Rows of every run row plus its box: the click target for toggling it. */
+  const spans: Array<{ from: number; to: number; run: number }> = [];
+  let cursor = 0;
+  let run = 0;
+  for (const kid of kids) {
+    const own = kid.render(width) as string[];
+    const taken = lines.slice(cursor, cursor + own.length);
+    cursor += own.length;
+    if (!(kid instanceof MouseRegion)) {
+      out.push(...(taken.length === own.length ? taken : own));
+      continue;
+    }
+    const text = liveTexts?.[run] ?? previewText(runs[run] ?? "", budget);
+    const shown = overrides?.get?.(run) === false;
+    run++;
+    // The label stays in both states: outside a group the box is the only frame,
+    // so it needs the title above it to say what it is.
+    out.push(formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner }));
+    const from = out.length - 1;
+    if (!shown) {
+      spans.push({ from, to: from, run: run - 1 });
+      continue;
+    }
+    const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
+    out.push(...(body.length > 0 ? drawFrame(body, width, theme, color) : []));
+    spans.push({ from, to: out.length - 1, run: run - 1 });
+  }
+  out.push(...lines.slice(cursor));
+  // The wrapper trims pi's padding rows off the edges; the recorded spans have
+  // to move with them, or a click lands on the row above the box.
+  // Escape-aware: the row pi pads with carries the OSC 133 marker, so a plain
+  // `trim()` check thinks it is content and the spans never move.
+  const lead = out.findIndex((line) => line.replace(WITHOUT_ESCAPES, "").trim() !== "");
+  const shift = lead > 0 ? lead : 0;
+  component[THOUGHT_SPANS] = spans.map((span) => ({ ...span, from: span.from - shift, to: span.to - shift }));
+  installRethinkMouse(component);
+  return trimMessageEdges(out);
+}
+
+/** A rendered row with every escape sequence gone: what the reader sees. */
+const WITHOUT_ESCAPES = /\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)/g;
+/** pi's shell-integration zone markers, which ride on the rows we trim. */
+const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
+
+/**
+ * Trim pi's padding rows off a message block, without dropping the OSC 133 zone
+ * markers that sit on them: the terminal uses those to place prompts, so they
+ * move onto the rows that survive.
+ */
+function trimMessageEdges(lines: string[]): string[] {
+  const blank = (line: string | undefined) => (line ?? "").replace(WITHOUT_ESCAPES, "").trim() === "";
+  let start = 0;
+  let end = lines.length;
+  while (start < end && blank(lines[start])) start++;
+  while (end > start && blank(lines[end - 1])) end--;
+  if (start === 0 && end === lines.length) return lines;
+  if (start === end) return [];
+  const kept = lines.slice(start, end);
+  const head = lines.slice(0, start).join("").match(ZONE_MARKERS) ?? [];
+  const tail = lines.slice(end).join("").match(ZONE_MARKERS) ?? [];
+  if (head.length > 0) kept[0] = head.join("") + kept[0];
+  if (tail.length > 0) kept[kept.length - 1] = kept[kept.length - 1] + tail.join("");
+  return kept;
+}
+
 /**
  * Wrap `proto.render` unless the outermost wrapper is already ours. `view`
- * decides per render: draw as usual, draw nothing, or draw under the group
- * gutter (two cells narrower, `│` in front).
+ * decides per render: draw as usual, draw nothing, draw under the group
+ * gutter (two cells narrower, `│` in front), or draw its own rows.
  */
-function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (component: any) => CarrierView): void {
+function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (component: any, width: number) => BoundaryDraw): void {
   const render = proto?.render;
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
     if (!groupingActive()) return render.apply(this, args);
-    const how = view(this);
-    if (how === "hidden") return [];
     const [width, ...rest] = args;
-    const theme = how === "gutter" ? getTheme() : undefined;
-    if (!theme || typeof width !== "number" || width <= GUTTER_CELLS + 4) return render.apply(this, args);
-    const gutter = groupGutter(theme);
-    return render.call(this, width - GUTTER_CELLS, ...rest).map((line) => gutter + line);
+    const how = view(this, typeof width === "number" ? width : 80);
+    if (how === "hidden") return [];
+    // pi pads every message with a blank row above (and sometimes below). Those
+    // are the gaps that show up around a group line; the transcript reads as one
+    // block here, so the edges are trimmed wherever the message is pi's own.
+    const trim = (lines: string[]) => trimMessageEdges(lines);
+    if (how === "rethink") return trim(restyleThinking(this, render.apply(this, args), typeof width === "number" ? width : 80));
+    if (typeof how === "object") return how.lines;
+    return trim(render.apply(this, args));
   };
   wrapped[BOUNDARY_WRAPPER] = true;
   proto!.render = wrapped;
@@ -340,17 +778,23 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
  * every extension has installed its patches.
  */
 export function installGroupBoundaries(): void {
-  wrapBoundaryRender((AssistantMessageComponent as any)?.prototype, (component) => {
+  wrapBoundaryRender((AssistantMessageComponent as any)?.prototype, (component, width) => {
     const role = classifyAssistant(component.lastMessage);
     if (role === "boundary") noteBoundary(component);
-    else if (role === "carrier") return carrierView(component, toolCallIds(component.lastMessage));
+    else if (role === "carrier") return renderCarrier(component, width);
     // A step still streaming its thinking mid-segment is, almost always, a
     // carrier whose tool call hasn't arrived yet. Fold it with the group now
     // rather than flash `Thinking...` under the summary for a second; text,
     // if it comes, makes it a boundary and it shows. At a turn's start the
     // group is empty and the label stays as a sign of life.
-    else if (component.isStreaming === true && currentGroupHasMembers()) return carrierView(component, []);
-    return "plain";
+    else if (component.isStreaming === true && currentGroupHasMembers()) {
+      return renderCarrier(component, width);
+    }
+    // A message with both thinking and text is the group *boundary*: its text
+    // renders as pi draws it and its thinking stays pi's own label — but the
+    // label is the same thing our rows are, so it wears the same format, right
+    // above the text. It is not one of the group's rows, so it is not counted.
+    return "rethink";
   });
   wrapBoundaryRender((UserMessageComponent as any)?.prototype, (component) => {
     noteBoundary(component);

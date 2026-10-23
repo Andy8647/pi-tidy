@@ -4,6 +4,88 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] - 2026-10-23
+
+### Added
+
+**Thinking is a row inside the group, and it stays live while it arrives.** A model step that only
+thinks and calls a tool used to vanish when you opened a group: its `Thinking...` label was hidden, so
+the transcript showed the call but nothing about the reasoning behind it. Now that step is a `thinking`
+line under the `│` gutter — a brain, the word, then one line of what the model actually thought, above
+the call it belongs to and in transcript order, at one consistent height whether the group is folded or
+open. The summary line counts the runs (`▾ 5 calls · bash×3 · 🧠 4 thoughts · 1 failed · 1.3s`),
+which while folded is the only sign the reply did any thinking at all.
+
+- While a run is still arriving, the group keeps one line beneath the summary: a sliding window over the
+  *tail* of that thinking, so the newest words are what you see and the row takes the full width. It
+  moves on a 300ms tick rather than per frame — pi repaints ~30x/s, and a window recomputed on every
+  paint slides a cell per token, which read as flicker — and the cut lands on a word break. The summary
+  says `◐ thinking` while it runs and goes back to `N thoughts` once it stops; the row itself does not
+  animate. A message's thinking **outside** a group (the label above its text, or a turn that has not
+  called a tool yet) is live on the same terms, except that it has no summary above it, so the row wears
+  the spinner itself.
+- Live means three things at once: an agent run is open (`agent_start` … `agent_end`/`agent_settled`,
+  tracked in a live slot so `/reload` reaches the patches), the message is still streaming, and its text
+  grew inside the last 1.5 seconds. Growth is the signal that cannot lie — a run that stops sending
+  tokens goes quiet on its own — and a repaint is scheduled for the moment the window lapses, because by
+  then pi may have nothing left to paint. A restored session never looks live: a component that arrives
+  with its text already finished did not grow in front of us.
+- A click on the row opens that step's thinking: pi renders its own text, untruncated, inside the same
+  rounded box a tool result gets — the border uses the new `thinkingColor` (default `warning`). Another
+  click folds it back. pi's `thinkingVisibilityOverrides` is the switch behind it, so pi's own click and
+  ours cannot disagree about what is open. A message that is nothing but thinking toggles on any click,
+  and the hit map is shifted with the rows when padding is trimmed — pi's own region measures the
+  untrimmed layout.
+- A message with both thinking **and** text is the group boundary, and its `Thinking...` label used to
+  float above the text as bare italic. It now wears the same row — same colour, same format, same
+  preview — right where pi draws it, above the text. Its run is **not** added to the group's count: the
+  group lists only the runs it folded, and counting one that renders above the text would promise a row
+  that opening the group cannot show.
+- The summary line of an open group is carried by the leading thinking row when there is one — a carrier
+  renders *before* its own call, so the header would otherwise land under it. Folded, the first call
+  still carries the line, which keeps the group's first frame from being blank.
+- pi's `hideThinkingBlock` setting is deliberately ignored: the row is the same whether the setting is
+  on or off, and a click is the one way to read the text. One behaviour, not two.
+- The brain is `nf-md-brain`, **U+F09D1** — not the emoji 🧠, which is in no monospace Nerd Font and
+  falls back to a two-cell colour glyph that breaks the row it sits in. The preview is capped at **56
+  cells**: filling the row turned a glance into a paragraph wedged between the calls.
+
+### Changed
+
+**An opened call keeps its row.** It used to *become* a box: the row vanished and a framed block took
+its place, which made a group hard to follow — the thing you clicked disappeared. Inside the group the
+rail already says what belongs to what, so a box there was a frame inside a frame. Now the row stays
+where it is (the anchor never moves), takes a tick off the rail (`├─`) and its output hangs underneath —
+without repeating the command, which the row already spells out. Boxes are kept where they earn their
+keep: an `edit`/`write` call (never folded into a group), and a message's own thinking outside one —
+where the expanded run now keeps its `thinking` title above the box.
+
+**The metrics sit in columns.** `1 line` / `12 lines` and `2.0s` / `0.1s` used to start wherever the
+arguments happened to end, so a group read as a ragged block of numbers. The note and the duration are
+now padded to the group's widest of each and the whole tail is right-aligned, so every row ends on the
+same cell.
+
+**No padding rows left anywhere in the transcript.** The gaps were not the box's spacer but pi's own
+message padding: a user message draws a blank row above and below its text, and an assistant text
+message starts with a `Spacer`. Every message block is now trimmed at both edges — a reply sits directly
+under the prompt, and a group line directly under the text that introduced it. The OSC 133 zone markers
+that ride on those dropped rows move onto the rows that survive, so shell integration (prompt placement,
+`Ctrl+Shift+Up`) is unaffected.
+
+### Fixed
+
+**A tool row now spends the terminal's width on the command.** The argument column was a fixed 60 cells
+and the row was cut at the right edge afterwards, which meant on a narrow terminal the
+`51 lines · 1.6s` went first and a chopped command stayed behind — and on a wide one the command was
+still cut at cell 60 with 80 cells of row left empty. The row now measures what it has: the arguments
+fill the space left after the tail, the `(+12 lines)` marker is dropped before the command is shortened,
+and the tail only gives way when there is no room for both.
+
+**A grouped box no longer opens with a blank row.** pi puts a blank line between a call and its output;
+under the gutter that read as a hole between the row and the box. Inside a group the blank is dropped
+and the click geometry follows it. The split-diff body lost its own blank row under the `↳ diff +N -M`
+summary too: a 20-row diff box was spending three of them on air.
+
 ## [0.4.7] - 2026-10-21
 
 ### Changed

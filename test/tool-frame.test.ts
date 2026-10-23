@@ -56,8 +56,8 @@ test("successful read gets its tool color; icons replace the tool-name word", ()
   // a double space between kind and file icons.
   const callRow = "\x1b[38;2;137;180;250m\x1b[1mread\x1b[22m\x1b[39m src/index.ts";
   const lines = fakeToolBox("read", { path: "src/index.ts" }, { callRow }).render(60);
-  assert.match(lines[1], /^<fg:readCol>╭─+╮<\/fg>$/, "border in the tool color");
-  const row = visible(lines[2]);
+  assert.match(lines[0], /^<fg:readCol>╭─+╮<\/fg>$/, "border in the tool color");
+  const row = visible(lines[1]);
   assert.ok(
     row.startsWith("│ \u{f06e} \u{f06e6} src/index.ts"),
     `exact single-spaced layout, got ${JSON.stringify(row.trimEnd())}`,
@@ -67,12 +67,12 @@ test("successful read gets its tool color; icons replace the tool-name word", ()
 test("file icons carry their nvim-web-devicons brand color", () => {
   const lines = fakeToolBox("read", { path: "src/index.ts" }, { callRow: "read src/index.ts" }).render(60);
   // TypeScript brand color #0188d1 → truecolor escape right before the glyph.
-  assert.ok(lines[2].includes("\x1b[38;2;1;136;209m\u{f06e6}\x1b[39m"), "colored TS glyph");
+  assert.ok(lines[1].includes("\x1b[38;2;1;136;209m\u{f06e6}\x1b[39m"), "colored TS glyph");
 });
 
 test("file icon falls back into the prefix when the path is not in the call row", () => {
   const lines = fakeToolBox("read", { path: "src/index.ts" }).render(60);
-  const row = visible(lines[2]);
+  const row = visible(lines[1]);
   assert.ok(row.indexOf("\u{f06e}") < row.indexOf("\u{f06e6}"), "kind icon before file icon");
   assert.ok(row.indexOf("\u{f06e6}") < row.indexOf("doing things"), "file icon still leads the row");
   assert.ok(!row.includes("read"), "tool-name word removed");
@@ -80,29 +80,29 @@ test("file icon falls back into the prefix when the path is not in the call row"
 
 test("successful bash gets its tool color and the terminal icon", () => {
   const lines = fakeToolBox("bash", { command: "ls" }).render(60);
-  assert.match(lines[1], /^<fg:bashCol>╭─+╮<\/fg>$/);
-  assert.ok(lines[2].includes("\u{f120}"), "terminal icon");
+  assert.match(lines[0], /^<fg:bashCol>╭─+╮<\/fg>$/);
+  assert.ok(lines[1].includes("\u{f120}"), "terminal icon");
 });
 
 test("error stays red even for a colored tool", () => {
   const lines = fakeToolBox("read", { path: "a.ts" }, { isError: true }).render(60);
-  assert.match(lines[1], /^<fg:error>╭─+╮<\/fg>$/);
+  assert.match(lines[0], /^<fg:error>╭─+╮<\/fg>$/);
 });
 
 test("pending stays muted even for a colored tool", () => {
   const lines = fakeToolBox("bash", {}, { isPartial: true }).render(60);
-  assert.match(lines[1], /^<fg:borderMuted>╭─+╮<\/fg>$/);
+  assert.match(lines[0], /^<fg:borderMuted>╭─+╮<\/fg>$/);
 });
 
 test("unlisted tool falls back to the accent color and the wrench icon", () => {
   const lines = fakeToolBox("mcp_server_thing", {}).render(60);
-  assert.match(lines[1], /^<fg:accent>╭─+╮<\/fg>$/);
-  assert.ok(lines[2].includes("\u{f0ad}"), "default wrench icon");
+  assert.match(lines[0], /^<fg:accent>╭─+╮<\/fg>$/);
+  assert.ok(lines[1].includes("\u{f0ad}"), "default wrench icon");
 });
 
 test("read without a path arg falls back to the read tool icon", () => {
   const lines = fakeToolBox("read", {}).render(60);
-  assert.ok(lines[2].includes("\u{f06e}"), "eye icon");
+  assert.ok(lines[1].includes("\u{f06e}"), "eye icon");
 });
 
 test("file icon follows the ~-shortened display path", () => {
@@ -111,7 +111,7 @@ test("file icon follows the ~-shortened display path", () => {
   const home = process.env.HOME!;
   const raw = `${home}/.pi/agent/settings.json`;
   const lines = fakeToolBox("edit", { path: raw }, { callRow: "edit ~/.pi/agent/settings.json" }).render(70);
-  const row = visible(lines[2]);
+  const row = visible(lines[1]);
   const fileIdx = row.indexOf("\ue60b"); // json glyph
   assert.ok(fileIdx >= 0, "json icon present");
   assert.ok(fileIdx < row.indexOf("~/.pi/agent"), "icon sits in front of the ~ path");
@@ -127,7 +127,7 @@ test("file icon lands outside the OSC 8 hyperlink, never inside its URL", () => 
   const closer = "\x1b]8;;\x1b\\";
   const callRow = `write ${opener}\x1b[96m${path}\x1b[0m${closer}`;
   const lines = fakeToolBox("write", { path }, { callRow }).render(60);
-  const row = lines[2];
+  const row = lines[1];
 
   assert.ok(row.includes(opener), "hyperlink opener intact");
   assert.ok(!opener.includes("\u{f06e6}"), "URL not polluted by the icon");

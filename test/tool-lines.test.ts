@@ -5,7 +5,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatGroupLine, formatToolLine, summarizeArgs, summarizeResult } from "../tool-lines.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { formatGroupLine, formatToolLine, previewText, summarizeArgs, summarizeResult } from "../tool-lines.ts";
 import { buildGroupSummary } from "../tool-groups.ts";
 
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
@@ -36,7 +37,10 @@ test("args summary: heredoc collapses to its first line and counts the rest", ()
   assert.equal(summarizeArgs("bash", { command: "cd ~ && python3 - <<'PY'\nprint(1)\nPY" }), "cd ~ && python3 - <<'PY' (+2 lines)");
   assert.equal(summarizeArgs("read", { path: "src/app.ts" }), "src/app.ts");
   assert.equal(summarizeArgs("bash", {}), "");
-  assert.equal(summarizeArgs("bash", { command: `echo ${"x".repeat(200)}` }).length, 60);
+  assert.equal(visibleWidth(summarizeArgs("bash", { command: `echo ${"x".repeat(200)}` })), 60);
+  // The `(+N lines)` marker rides behind the budget, it does not eat into it.
+  assert.equal(visibleWidth(summarizeArgs("bash", { command: `${`echo ${"x".repeat(200)}`}
+more` })), 60 + " (+1 lines)".length);
 });
 
 test("tool line carries the status glyph, name and duration", () => {
@@ -183,4 +187,95 @@ test("hover adds a › hint to a tool row and turns ▸ into ▶ on the summary"
     named,
     { icons: false },
   ), /›/);
+});
+
+/**
+ * Width tests use the identity theme: `named` emits fake tags, and
+ * `visibleWidth` would count those as cells.
+ */
+const bare = { icons: false };
+/** `truncateToWidth` injects an ANSI reset around its ellipsis; drop escapes. */
+const text = (line: string) => line.replace(/[[0-9;]*m/g, "");
+
+test("a row spends its width on the command; the metrics give way first", () => {
+  const long = {
+    toolName: "bash",
+    args: { command: "cd /tmp && git clone --depth 1 https://github.com/heyhuynhgiabuu/pi-pretty" },
+    isPartial: false,
+    result: { ...textResult("a\nb\nc"), durationMs: 1600 },
+  };
+  // Wide: the command is shown whole, not cut at a fixed 60 cells.
+  const wide = text(formatToolLine(long, theme, { ...bare, width: 120 }));
+  assert.match(wide, /github\.com\/heyhuynhgiabuu\/pi-pretty {2}3 lines · 1\.6s$/);
+
+  // 90 cells: the arguments stop where the tail begins, and the tail is intact.
+  const mid = text(formatToolLine(long, theme, { ...bare, width: 90 }));
+  assert.ok(visibleWidth(mid) <= 90, mid);
+  assert.match(mid, /… {2}3 lines · 1\.6s$/);
+
+  // Narrow: the command is still readable and the metrics survive.
+  const narrow = text(formatToolLine(long, theme, { ...bare, width: 60 }));
+  assert.ok(visibleWidth(narrow) <= 60, narrow);
+  assert.match(narrow, /^ ✓ bash cd \/tmp && git clone .*… {2}3 lines · 1\.6s$/);
+
+  // Too narrow to say both: the command wins, the numbers go.
+  const tiny = text(formatToolLine(long, theme, { ...bare, width: 34 }));
+  assert.ok(visibleWidth(tiny) <= 34, tiny);
+  assert.match(tiny, /^ ✓ bash cd \/tmp && git clone .*…$/);
+  assert.doesNotMatch(tiny, /lines ·/);
+});
+
+test("a heredoc's (+N lines) marker is the first thing a narrow row drops", () => {
+  const heredoc = {
+    toolName: "bash",
+    args: { command: "cd ~ && python3 - 'PY'\nprint(1)\nPY" },
+    isPartial: false,
+    result: { ...textResult("1"), durationMs: 100 },
+  };
+  assert.match(formatToolLine(heredoc, theme, { icons: false, width: 120 }), /\(\+2 lines\)/);
+  const tight = text(formatToolLine(heredoc, theme, { icons: false, width: 30 }));
+  assert.doesNotMatch(tight, /\(\+2 lines\)/);
+  assert.match(tight, /^ ✓ bash cd ~ && python3/);
+});
+
+test("a group's metrics sit in columns against the row's right edge", () => {
+  const one = {
+    toolName: "bash",
+    args: { command: "ls" },
+    isPartial: false,
+    result: { ...textResult("a"), durationMs: 1200 },
+  };
+  const twelve = {
+    toolName: "bash",
+    args: { command: "pnpm test" },
+    isPartial: false,
+    result: { ...textResult(Array.from({ length: 12 }, () => "x").join("\n")), durationMs: 100 },
+  };
+  // What the view measures across the group: `12 lines` and a 4-cell duration.
+  const align = { note: 8, duration: 4 };
+  const a = text(formatToolLine(one, theme, { ...bare, width: 60, align }));
+  const b = text(formatToolLine(twelve, theme, { ...bare, width: 60, align }));
+
+  assert.equal(visibleWidth(a), 60, a);
+  assert.equal(visibleWidth(b), 60, b);
+  // `1 line` is padded out to `12 lines`, so the ` · ` sits on the same column…
+  assert.equal(a.indexOf(" · "), b.indexOf(" · "), `${a}\n${b}`);
+  // …and both rows end on their duration, i.e. the same right edge.
+  assert.ok(a.endsWith("1.2s"), a);
+  assert.ok(b.endsWith("0.1s"), b);
+  assert.equal(a.length - "1.2s".length, b.length - "0.1s".length);
+});
+
+test("a live preview slides on word breaks, and holds still until it overflows", () => {
+  // Short enough to fit: shown whole, nothing slides. This is the first seconds
+  // of a step, when the row must not move at all.
+  assert.equal(previewText("先看看这个文件", 40, true), "先看看这个文件");
+
+  // Overflowing: the window starts on a word break, never mid-word.
+  const text = "alpha beta gamma delta epsilon zeta eta theta";
+  const tail = previewText(text, 24, true);
+  assert.ok(tail.startsWith("…"), tail);
+  const firstWord = tail.slice(1).split(" ")[0] as string;
+  assert.ok(text.includes(firstWord), `the window starts at a real word: ${tail}`);
+  assert.ok(visibleWidth(tail) <= 24, `${visibleWidth(tail)} <= 24: ${tail}`);
 });

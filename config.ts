@@ -59,6 +59,12 @@ export interface TidyConfig {
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
+   * Theme color for thinking: the `🧠` row, the counting entry in the summary
+   * line, and the border of an expanded thinking box. Any theme color name or
+   * `#rrggbb`.
+   */
+  thinkingColor: string;
+  /**
    * Per-tool border color for successful executions (theme fg color names;
    * pending stays grey, error stays red). When set in settings, the map
    * REPLACES the defaults entirely — `{}` disables per-tool colors.
@@ -95,6 +101,7 @@ const DEFAULTS: TidyConfig = {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
+  thinkingColor: "warning",
   messageBorderColors: {
     user: "toolTitle",
     compaction: "customMessageLabel",
@@ -134,6 +141,7 @@ export function loadConfig(): TidyConfig {
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
+      thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
         ...toolbox?.messageBorderColors,

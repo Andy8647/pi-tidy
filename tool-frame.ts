@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
+import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
@@ -33,6 +34,8 @@ import {
   renderGroupedTool,
   routeGroupedMouse,
   setGroupingActive,
+  setIconsEnabled,
+  setThinkingColor,
   type GroupedTool,
 } from "./tool-group-view.ts";
 
@@ -51,6 +54,8 @@ interface FrameGeometry {
   /** Source rows rendered, and the width they were rendered at. */
   height: number;
   width: number;
+  /** false when the frame was dropped (a body hanging under a group row): column 0 is the body. */
+  bordered?: boolean;
 }
 
 interface ToolBoxInternals extends GroupedTool {
@@ -76,6 +81,7 @@ interface ToolBoxInternals extends GroupedTool {
     color: string;
     expanded: boolean;
     icons: boolean;
+    unframed: boolean;
     raw: string[];
     out: string[];
     geometry: FrameGeometry;
@@ -109,6 +115,8 @@ export interface ToolFrameOptions {
   splitDiffMinWidth?: number;
   /** Diff rows shown while the box is collapsed (default 20; `0` shows none). */
   diffLines?: number;
+  /** Theme color for thinking rows and the expanded thinking box (default `warning`). */
+  thinkingColor?: string;
 }
 
 interface ResolvedToolFrameOptions {
@@ -119,6 +127,7 @@ interface ResolvedToolFrameOptions {
   splitDiff: boolean;
   splitDiffMinWidth: number;
   diffLines: number;
+  thinkingColor: string;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -129,6 +138,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
+  thinkingColor: "warning",
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
@@ -150,6 +160,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiff = true,
     splitDiffMinWidth = 72,
     diffLines = 20,
+    thinkingColor = "warning",
   } = options;
   toolOptions.set({
     icons,
@@ -159,6 +170,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiff,
     splitDiffMinWidth,
     diffLines,
+    thinkingColor,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
 
@@ -175,6 +187,8 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   const originalSetExpanded = anyProto.setExpanded;
 
   setGroupingActive(grouping);
+  setIconsEnabled(() => toolOptions.get().icons);
+  setThinkingColor(() => toolOptions.get().thinkingColor);
   installGroupBoundaries();
   installHoverTracking();
 
@@ -204,8 +218,9 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     }
     const y = event.y - dy - geometry.top;
     if (y < 0 || y >= geometry.height) return undefined;
-    // Column 0 of the source sits right of the left border.
-    const x = event.x - dx - 1;
+    // Column 0 of the source sits right of the left border — unless the frame
+    // was dropped, in which case the body starts where the row does.
+    const x = event.x - dx - (geometry.bordered === false ? 0 : 1);
     return asPointer(() => target.handleMouse!({ ...event, x, y, width: geometry.width, height: geometry.height }));
   }
 
@@ -278,7 +293,7 @@ function splitEditBody(
 }
 
 /** The rounded box at width `w` (what pi would draw, reframed). */
-  function frameBox(this: ToolBoxInternals, w: number, theme: ThemeLike): string[] {
+  function frameBox(this: ToolBoxInternals, w: number, theme: ThemeLike, unframed = false): string[] {
     const { icons, toolColors } = toolOptions.get();
     const source = !this.hasRendererDefinition()
       ? this.contentText
@@ -331,6 +346,7 @@ function splitEditBody(
       cache.color === color &&
       cache.expanded === this.expanded &&
       cache.icons === icons &&
+      cache.unframed === unframed &&
       sameLines(cache.raw, raw)
     ) {
       this.__frameGeometry = cache.geometry;
@@ -367,17 +383,39 @@ function splitEditBody(
       }
       content = [row, ...content.slice(1)];
     }
-    const out: string[] = [""];
+    // Unframed means the call row is already the row above it: the body is the
+    // output, not the command again. The blank row that separated them goes too.
+    if (unframed && content.length > 0) {
+      content = content.slice(1);
+      const rest = blankEdges(content);
+      content = rest.start === 0 && rest.end === content.length ? content : content.slice(rest.start, rest.end);
+    }
+    const drawn: string[] = [];
     if (content.length > 0) {
       // Split-diff rows carry their own tint; everything else stays transparent.
       const bgRows = split && edges.start > 0
         ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
         : split?.bgRows;
-      for (const line of drawFrame(content, w, theme, color, bgRows)) out.push(line);
+      const framed = drawFrame(content, w, theme, color, bgRows);
+      // Unframed: the row above already carries the frame of reference (the
+      // group rail), so only the body is drawn — borders dropped, cells kept.
+      if (unframed) {
+        // Borders dropped, cells kept: the body is the content columns only.
+        for (const line of framed.slice(1, -1)) drawn.push(sliceByColumn(line, 1, Math.max(1, w - 2)));
+      } else {
+        for (const line of framed) drawn.push(line);
+      }
     }
+    // No leading spacer: the box butts against whatever came before it. pi
+    // puts one there for its own unframed shell, which we replaced with the
+    // frame — inside a transcript it just reads as a stray blank row.
+    const out: string[] = drawn;
     // Output: [spacer, top border, content…, bottom border] — content row 0
-    // is source row `edges.start`.
-    const geometry: FrameGeometry = { top: 2 - edges.start, height: raw.length, width: sourceWidth };
+    // is source row `edges.start`. Unframed drops the spacer and both borders,
+    // so the body starts on the first line.
+    const geometry: FrameGeometry = unframed
+      ? { top: -(edges.start + 1), height: raw.length, width: sourceWidth - 2, bordered: false }
+      : { top: 1 - edges.start, height: raw.length, width: sourceWidth };
     this.__frameGeometry = content.length > 0 ? geometry : undefined;
     // Images stay outside the frame: their lines carry terminal graphics
     // payloads that padding/truncation would corrupt.
@@ -388,8 +426,8 @@ function splitEditBody(
       if (image) for (const line of image.render(w)) out.push(line);
     }
 
-    if (out.length === 1) return [];
-    if (cacheable) this.__frameCache = { width: w, color, expanded: this.expanded, icons, raw, out, geometry };
+    if (out.length === 0) return [];
+    if (cacheable) this.__frameCache = { width: w, color, expanded: this.expanded, icons, unframed, raw, out, geometry };
     return out;
   }
 
@@ -409,7 +447,7 @@ function splitEditBody(
           w,
           theme,
           { icons, pinned: alwaysShow.has(this.toolName) },
-          (boxWidth) => frameBox.call(this, boxWidth, theme),
+          (boxWidth, unframed) => frameBox.call(this, boxWidth, theme, unframed),
         );
         if (grouped) return grouped;
       }

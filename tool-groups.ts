@@ -32,6 +32,7 @@
  */
 
 import type { JobStatus } from "./background-jobs.ts";
+import { agentRunning } from "./live.ts";
 
 export interface GroupMember {
   toolName: string;
@@ -53,6 +54,10 @@ export interface GroupSummary {
   count: number;
   /** Per-tool counts, most frequent first, ties alphabetical. */
   breakdown: BreakdownEntry[];
+  /** Thinking runs listed inside this group (`thoughts` only when > 0). */
+  thoughts: number;
+  /** One of those runs is still arriving: the marker animates. */
+  thinking: boolean;
   /** Sum of the durations that are known (running tools have none yet). */
   durationMs: number;
   /** Tool name of the member still executing, if any. */
@@ -64,7 +69,7 @@ export interface GroupSummary {
 }
 
 /** Pure: what the summary line says, independent of theme or icons. */
-export function buildGroupSummary(members: GroupMember[]): GroupSummary {
+export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking = false): GroupSummary {
   const counts = new Map<string, number>();
   let durationMs = 0;
   let running: string | undefined;
@@ -82,7 +87,7 @@ export function buildGroupSummary(members: GroupMember[]): GroupSummary {
   const breakdown = [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  return { count: members.length, breakdown, durationMs, running, failed, jobsRunning };
+  return { count: members.length, breakdown, thoughts, thinking, durationMs, running, failed, jobsRunning };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,8 +97,7 @@ export function buildGroupSummary(members: GroupMember[]): GroupSummary {
 /**
  * - `boundary`: has visible text → starts a group, renders as usual
  * - `carrier`:  only thinking + tool calls → belongs to the current group and
- *               shows only next to its own call's full box (otherwise every
- *               step's `Thinking...` label would sit between the rows)
+ *               shows as a `🧠` row (or not at all while folded)
  * - `plain`:    anything else (still streaming its thinking, an error, a
  *               truncation notice) → renders as usual, leaves grouping alone
  */
@@ -115,6 +119,28 @@ export function classifyAssistant(message: AssistantMessageLike | undefined): As
   // A length stop renders "Response was truncated" — never fold that away.
   if (hasToolCall && message.stopReason !== "length") return "carrier";
   return "plain";
+}
+
+/**
+ * The message's thinking, one entry per *run*: pi renders consecutive thinking
+ * blocks as one block, so a run is what a single label (or our single row)
+ * stands for. Whitespace-only blocks are dropped, exactly like pi drops them.
+ */
+export function thinkingRuns(message: AssistantMessageLike | undefined): string[] {
+  if (!message || !Array.isArray(message.content)) return [];
+  const content = message.content as Array<{ type?: unknown; thinking?: unknown }>;
+  const runs: string[] = [];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i]?.type !== "thinking") continue;
+    const blocks: string[] = [];
+    for (; i < content.length && content[i]?.type === "thinking"; i++) {
+      const text = content[i].thinking;
+      if (typeof text === "string" && text.trim()) blocks.push(text.trim());
+    }
+    i--;
+    if (blocks.length > 0) runs.push(blocks.join("\n\n"));
+  }
+  return runs;
 }
 
 /** The ids of the tool calls a message carries (matched against `toolCallId`). */
@@ -163,10 +189,42 @@ export interface JobTiming {
 /** An always-shown tool: pi's own box, nothing else. */
 const PINNED: ViewPlan = { header: null, line: false, full: true, gutter: false };
 
-/** Where a carrier message should render, if at all. */
-export type CarrierView = "hidden" | "plain" | "gutter";
+/**
+ * What a carrier message draws this frame. A carrier renders *before* the call
+ * of its own step, so when it is also the group's first entrant it takes the
+ * summary line over from that call — otherwise the line would land under the
+ * carrier's own row.
+ */
+export interface CarrierPlan {
+  /** The group summary line, drawn above the rows (`▾` once open). */
+  header: "closed" | "open" | null;
+  /** This step's thinking is arriving right now: a sliding row, and the
+   * summary spins. False the moment the tokens stop, whatever pi's flag says. */
+  live: boolean;
+  /** Ms until `live` times out on its own — the caller schedules a repaint. */
+  settlesIn?: number;
+  /** This render changed what the summary line says (runs counted): it was
+   * already drawn this frame, so ask for another. */
+  counted: boolean;
+  /** One `🧠` row per thinking run. */
+  rows: boolean;
+  /** Hand pi's own render through untouched (`alwaysShowTools` interop). */
+  plain: boolean;
+}
 
-interface ToolLike {
+/** What the renderer knows about a carrier that the plan needs. */
+export interface CarrierInput {
+  /** The tool calls this step issued (for the `alwaysShowTools` interop). */
+  ids?: readonly string[];
+  /**
+   * Its thinking runs as pi has them *this* render. Growth against the previous
+   * render is what makes a run live; leave it out (mouse routing) to only read.
+   */
+  runs?: readonly string[];
+  now?: number;
+}
+
+export interface ToolLike {
   toolName: string;
   toolCallId?: string;
   isPartial: boolean;
@@ -178,9 +236,28 @@ interface Group {
   level: 0 | 1;
   /** The tool components themselves, so the summary always reads live state. */
   members: ToolLike[];
+  /** Thinking runs of the carrier messages that joined this group. */
+  thoughts: number;
+  /** The carrier that draws the summary line instead of the first member. */
+  headerCarrier: object | null;
+  /** Per carrier: how many of its runs the total already includes. */
+  counted: Map<object, number>;
 }
 
-const newGroup = (): Group => ({ level: 0, members: [] });
+const newGroup = (): Group => ({
+  level: 0,
+  members: [],
+  thoughts: 0,
+  headerCarrier: null,
+  counted: new Map(),
+});
+
+/**
+ * How long a thinking run still counts as live after its last token. pi repaints
+ * on every delta, so this only has to bridge the gap between two tokens; past it
+ * the run has stalled and the row (and the spinner) must stop by itself.
+ */
+export const THOUGHT_LIVE_MS = 1500;
 
 /** The group of the boundary rendered most recently in this frame. */
 let current: Group = newGroup();
@@ -197,6 +274,11 @@ let lateJoin = false;
 /**
  * A boundary component rendered: what follows it (until the next boundary)
  * belongs to its group. Idempotent — called on every frame.
+ *
+ * The boundary's own thinking does **not** join the group's count. It renders
+ * where it sits (above the text, pi's own label in our format) and never as a
+ * row in the list, so counting it would make the summary promise rows that
+ * opening the group cannot show.
  */
 export function noteBoundary(component: object): void {
   let group = groupOfBoundary.get(component);
@@ -208,27 +290,105 @@ export function noteBoundary(component: object): void {
 }
 
 /**
- * A carrier message rendered; where to draw it: only while one of the calls it
- * carries is a full box, so level 1 stays one row per call and ctrl+o's
- * expand-all looks like pi's native transcript. Without ids to match (field
- * missing), any full box in the group shows it.
+ * Per-message thinking growth. A run is live when its text grew inside the last
+ * `THOUGHT_LIVE_MS`; that is the one signal which cannot lie, because pi's
+ * private `isStreaming` flag is not guaranteed to be settled when a step ends.
+ *
+ * Keyed by the message, not by a group: the same run is drawn in two places —
+ * a carrier's `🧠` row inside a group, and a message's own label outside one —
+ * and both have to go live and settle together.
  */
-export function carrierView(component: object, toolCallIds: readonly string[] = []): CarrierView {
+const thoughtGrowth = new WeakMap<object, { chars: number; at: number | null }>();
+
+/** Record the thinking text this render shows; only a live run grows. */
+export function noteThinking(component: object, runs: readonly string[], now = Date.now()): void {
+  const chars = runs.reduce((sum, run) => sum + run.length, 0);
+  const growth = thoughtGrowth.get(component) ?? { chars: 0, at: null };
+  // A restored session hands us a message with its whole text at once: that is
+  // not growth, so it never starts a spinner when a new turn begins.
+  if (chars > growth.chars && agentRunning.get()) growth.at = now;
+  growth.chars = chars;
+  thoughtGrowth.set(component, growth);
+}
+
+/**
+ * Whether this message's thinking is still arriving: the run is open, the
+ * message is still streaming, and its text grew inside the window.
+ */
+export function thinkingState(component: object, now = Date.now()): { live: boolean; settlesIn?: number } {
+  const at = thoughtGrowth.get(component)?.at;
+  if (at == null || !agentRunning.get()) return { live: false };
+  if ((component as { isStreaming?: boolean }).isStreaming !== true) return { live: false };
+  if (now - at >= THOUGHT_LIVE_MS) return { live: false };
+  return { live: true, settlesIn: Math.max(0, THOUGHT_LIVE_MS - (now - at)) };
+}
+
+export function thinkingLive(component: object, now = Date.now()): boolean {
+  return thinkingState(component, now).live;
+}
+
+export function carrierPlan(component: object, input: CarrierInput = {}): CarrierPlan {
+  const { ids = [], runs, now = Date.now() } = input;
+  let grew = false;
   let group = groupOfCarrier.get(component);
   if (!group) {
     group = current;
     groupOfCarrier.set(component, group);
+    // A streaming step has no runs on its first frame and gains them later, so
+    // the total tracks the delta rather than being set once.
+    if ((runs?.length ?? 0) > 0 && group.members.length === 0 && group.headerCarrier === null) {
+      group.headerCarrier = component;
+    }
   }
-  for (const id of toolCallIds) {
-    if (pinnedById.get(id)?.deref()?.expanded) return "plain";
+  {
+    const counted = group.counted.get(component) ?? 0;
+    if (runs && runs.length > counted) {
+      group.thoughts += runs.length - counted;
+      group.counted.set(component, runs.length);
+      // The summary rendered on the first member, before this carrier: its
+      // count is one carrier short until the next frame.
+      lateJoin = true;
+      grew = true;
+    }
   }
-  if (group.level === 0) return "hidden";
-  const shown = group.members.some(
-    (member) =>
-      member.expanded &&
-      (toolCallIds.length === 0 || (member.toolCallId !== undefined && toolCallIds.includes(member.toolCallId))),
-  );
-  return shown ? "gutter" : "hidden";
+  if (runs) noteThinking(component, runs, now);
+  for (const id of ids) {
+    if (!pinnedById.get(id)?.deref()?.expanded) continue;
+    // Its call draws as pi's own box and pi draws the step's thinking with it:
+    // those runs are not rows of this group, so they must not be counted in a
+    // list that will never show them.
+    const included = group.counted.get(component) ?? 0;
+    if (included > 0) {
+      group.thoughts -= included;
+      group.counted.set(component, 0);
+      lateJoin = true;
+    }
+    return { header: null, live: false, rows: false, counted: false, plain: true };
+  }
+  const thought = thinkingState(component, now);
+  const live = thought.live;
+  // The line only lands once a call has actually joined: a carrier whose call
+  // turns out to be always-shown (an edit) leaves the group empty, and a
+  // summary line for a group that never happened would hang there forever.
+  // Level 1 only: while folded the first member still carries the line, which
+  // keeps the frame the group first appears on from being blank.
+  const owns = group.headerCarrier === component && group.members.length > 0 && group.level === 1;
+  return {
+    header: owns ? "open" : null,
+    live,
+    settlesIn: thought.settlesIn,
+    // Folded, a step that is still thinking keeps one row: the sliding window
+    // under the summary shows what it is working on without opening anything.
+    // Once the tokens stop the row goes: a `thinking` line next to nothing is
+    // worse than the count that replaced it.
+    rows: (runs?.length ?? 0) > 0 && (group.level === 1 || live),
+    // The gap belongs to the opened list only; it is what makes steps read as
+    // blocks there. Folded there is nothing but that one live row.
+    // Rhythm only where it earns its keep: a two-row group reads fine tight, and
+    // a gap there looks like a stray blank line under the summary.
+    counted: grew,
+    plain: false,
+  };
 }
 
 function join(tool: ToolLike): Group {
@@ -238,7 +398,7 @@ function join(tool: ToolLike): Group {
   // The summary sits on the first member, which rendered before this one:
   // its count is one short until the next frame. An expanded newcomer also
   // un-hides its carrier, which rendered before it too.
-  if (group.members.length > 0 || tool.expanded) lateJoin = true;
+  if (group.members.length > 0 || tool.expanded || group.headerCarrier) lateJoin = true;
   group.members.push(tool);
   firstSeen.set(tool, Date.now());
   // pi hands a new box `setExpanded(toolOutputExpanded)` before it ever
@@ -285,7 +445,14 @@ export function planFor(tool: ToolLike, pinned = false, job?: JobTiming, now = D
     return PINNED;
   }
   const group = join(tool);
-  const header = group.members[0] === tool ? (group.level === 0 ? "closed" : "open") : null;
+  // A leading carrier takes the line over once the group is open (it renders
+  // above the first member there); folded, the member keeps it.
+  const header =
+    group.members[0] === tool && (!group.headerCarrier || group.level === 0)
+      ? group.level === 0
+        ? "closed"
+        : "open"
+      : null;
   if (group.level === 0) {
     // 运行中的那个露一行 B,否则长命令跑三十秒时 C 行一动不动(跑满一秒才露,
     // 免得几十毫秒的调用闪一下)。失败的不再挂行:一个五十来个调用的折叠组,
@@ -299,12 +466,47 @@ export function planFor(tool: ToolLike, pinned = false, job?: JobTiming, now = D
   return { header, line: !tool.expanded, full: tool.expanded, gutter: true };
 }
 
+/** The calls this component's group holds, in render order. */
+export function groupMembers(component: object): readonly ToolLike[] {
+  return groupFor(component)?.members ?? [];
+}
+
+/**
+ * Whether earlier steps already sit in this group: true when the first call this
+ * carrier issued is not the group's first member. Derived from membership rather
+ * than a "first carrier" flag, because a step can have no carrier at all (a
+ * tool-only step) and the next step still needs its gap.
+ */
+function cameBefore(ids: readonly string[], group: Group): boolean {
+  if (ids.length > 0) {
+    const first = group.members.findIndex((member) => member.toolCallId !== undefined && ids.includes(member.toolCallId));
+    if (first >= 0) return first > 0;
+  }
+  return group.members.length > 0;
+}
+
+/** The group a component belongs to — a tool or a carrier message. */
+function groupFor(component: object): Group | undefined {
+  return groupOf.get(component as ToolLike) ?? groupOfCarrier.get(component);
+}
+
+/** Whether any run this group lists is still arriving (the summary spins). */
+function livesNow(group: Group, now: number): boolean {
+  if (!agentRunning.get()) return false;
+  for (const [component, counted] of group.counted) {
+    // A carrier whose call renders as pi's own box is not in this list: its
+    // thinking belongs to pi's rendering, not to this line.
+    if (counted > 0 && thinkingLive(component, now)) return true;
+  }
+  return false;
+}
+
 export function summaryFor(
-  tool: ToolLike,
+  tool: object,
   jobOf?: (member: ToolLike) => JobTiming | undefined,
   now = Date.now(),
 ): GroupSummary | undefined {
-  const group = groupOf.get(tool);
+  const group = groupFor(tool);
   if (!group) return undefined;
   return buildGroupSummary(
     group.members.map((member) => {
@@ -319,12 +521,14 @@ export function summaryFor(
         fresh: age !== undefined && age < RUNNING_ROW_DELAY_MS,
       };
     }),
+    group.thoughts,
+    livesNow(group, now),
   );
 }
 
 /** Level 0 → 1: the summary line unfolds into one row per call. */
-export function openGroup(tool: object): void {
-  const group = groupOf.get(tool);
+export function openGroup(component: object): void {
+  const group = groupFor(component);
   if (group) group.level = 1;
 }
 
@@ -333,8 +537,8 @@ export function openGroup(tool: object): void {
  * box; the caller folds them through pi's `setExpanded`, so reopening the
  * group starts from plain rows again.
  */
-export function closeGroup(tool: object): ToolLike[] {
-  const group = groupOf.get(tool);
+export function closeGroup(component: object): ToolLike[] {
+  const group = groupFor(component);
   if (!group) return [];
   group.level = 0;
   return group.members.filter((member) => member.expanded);
@@ -349,7 +553,7 @@ export function closeGroup(tool: object): ToolLike[] {
  * collapse-all returns the whole group to its summary line.
  */
 export function noteSetExpanded(tool: object, expanded: boolean, fromPointer: boolean): void {
-  const group = groupOf.get(tool);
+  const group = groupFor(tool);
   if (!group) return;
   if (expanded) group.level = 1;
   else if (!fromPointer) group.level = 0;

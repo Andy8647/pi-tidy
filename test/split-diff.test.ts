@@ -51,7 +51,7 @@ test("pairs removed and added lines into two panes", () => {
   assert.ok(out, "expected a split at this width");
   const text = out.lines.map(plain);
   assert.match(text[0] ?? "", /↳ diff \+\d+ -\d+ \[\++-*\]/);
-  assert.match(text[2] ?? "", /old\s+│\s+new/);
+  assert.match(text[1] ?? "", /old\s+│\s+new/);
   // The single-line replacement is one row with both sides on it.
   const changed = text.find((line) => line.includes("before"));
   assert.ok(changed?.includes("après café"), "removed and added text share a row");
@@ -185,7 +185,7 @@ test("the body is clipped to the budget, and says what it left out", () => {
   const footer = clipped.at(-1) ?? "";
   assert.match(footer, /… \(\d+ more lines, \d+ total,/);
   assert.match(footer, /to expand/);
-  assert.match(clipped[2] ?? "", /old\s+│\s+new/, "the panes header stays put");
+  assert.match(clipped[1] ?? "", /old\s+│\s+new/, "the panes header stays put");
 });
 
 test("a window that starts below the top says how many lines it skipped", () => {

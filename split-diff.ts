@@ -496,7 +496,6 @@ function build(input: SplitDiffInput): SplitDiffOutput | null {
     if (row.right?.changed) added++;
   }
   lines.push(renderSummary(added, removed, width, palette));
-  lines.push(" ".repeat(width));
 
   const label = (text: string) => `${palette.contextFg}${text}\x1b[39m`;
   const separator = `${palette.separator}${SEPARATOR}\x1b[39m`;
