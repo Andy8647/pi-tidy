@@ -43,6 +43,21 @@ test("args summary: heredoc collapses to its first line and counts the rest", ()
 more` })), 60 + " (+1 lines)".length);
 });
 
+test("a multi-line value is one row, whichever argument it arrives in", () => {
+  const script = "() => {\n  const f = document.getElementById('ueditor_1');\n  return f.contentWindow.scrollY;\n}";
+  // No `command` key: the summary falls through to the first stringish value.
+  assert.equal(summarizeArgs("chrome-devtools_evaluate_script", { function: script }), "() => { (+3 lines)");
+  const row = formatToolLine(
+    { toolName: "chrome-devtools_evaluate_script", args: { function: script }, isPartial: false, result: { durationMs: 200 } },
+    theme,
+    { icons: false, width: 120 },
+  );
+  // A row that carries `\n` is several physical rows to the terminal and one to
+  // pi's frame: everything below it painted off by the difference.
+  assert.ok(!row.includes("\n"), `row carries a newline: ${JSON.stringify(row)}`);
+  assert.match(row, /^ ✓ chrome-devtools_evaluate_script \(\) => \{/u);
+});
+
 test("tool line carries the status glyph, name and duration", () => {
   const ok = formatToolLine(
     { toolName: "bash", args: { command: "ls -la" }, isPartial: false, result: { durationMs: 340 } },

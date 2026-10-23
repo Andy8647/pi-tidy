@@ -188,20 +188,32 @@ function argParts(args: unknown): { text: string; suffix: string } {
   const record = args as Record<string, unknown>;
 
   const command = typeof record.command === "string" ? record.command : undefined;
-  if (command) {
-    const [first, ...rest] = command.split("\n");
-    return { text: first.trim(), suffix: rest.length > 0 ? ` (+${rest.length} lines)` : "" };
-  }
+  if (command) return oneLine(command);
 
   for (const key of ["path", "file_path", "filePath", "pattern", "url", "query"]) {
     const value = record[key];
-    if (typeof value === "string" && value) return { text: value, suffix: "" };
+    if (typeof value === "string" && value) return oneLine(value);
   }
 
   for (const value of Object.values(record)) {
-    if (typeof value === "string" && value) return { text: value, suffix: "" };
+    if (typeof value === "string" && value) return oneLine(value);
   }
   return { text: "", suffix: "" };
+}
+
+/**
+ * One row means one line, for every argument — not just `command`.
+ *
+ * A row is a single string in the lines array the renderer hands back, so a
+ * multi-line value (a script, a file body, anything an MCP tool takes) used to
+ * come through with real newlines in it. The terminal then drew three physical
+ * rows where pi's frame counted one, and every row below it — the status
+ * spinner included — painted two rows off, leaving fragments of the previous
+ * frame behind. A multi-line value keeps its first line and counts the rest.
+ */
+function oneLine(value: string): { text: string; suffix: string } {
+  const [first, ...rest] = value.split("\n");
+  return { text: first.trim(), suffix: rest.length > 0 ? ` (+${rest.length} lines)` : "" };
 }
 
 /**
