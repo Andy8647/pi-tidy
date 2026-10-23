@@ -573,10 +573,73 @@ test("a thinking-only message toggles on any click, and a thinking+text one on i
   }
 });
 
+/**
+ * The click handler a carrier installs lives on the component, and a component's
+ * role changes under it: an assistant step streams as a carrier, then its text
+ * arrives and it becomes the group boundary. The handler used to answer "row"
+ * to every `y`, so once a step had been through the carrier path, every click on
+ * that message — the code block included — opened its thinking instead of
+ * reaching the text.
+ */
+test("a step that streamed as a carrier hands clicks back once its text arrives", () => {
+  resetGroups();
+  const chat = new Container();
+  const a = bash("ls", "a");
+  chat.addChild(a.component);
+  const step = new AssistantMessageComponent(undefined, true);
+  chat.addChild(step);
+  const run = "先想一下目录里有什么。";
+  agentRunning.set(true);
+  try {
+    // Streaming, with the group's first call already placed: this is the carrier
+    // path, which is what installs the row handler, and its row is on screen.
+    step.updateContent({ role: "assistant", content: [{ type: "thinking", thinking: run }] } as any, true);
+    assert.ok(
+      visible(frame(chat)).some((line) => line.includes("thinking  先想一下")),
+      frame(chat).join("\n"),
+    );
+    // The row opens where it sits, then folds back from a click on itself.
+    assert.ok(click(chat, "thinking  先想一下"));
+    assert.ok(
+      visible(frame(chat)).some((line) => line.includes("├─") && line.includes("thinking")),
+      `the row takes a tick and hangs its reasoning under it:\n${frame(chat).join("\n")}`,
+    );
+    assert.ok(click(chat, "├─"));
+  } finally {
+    agentRunning.set(false);
+  }
+
+  // The text arrives: the same component is now the boundary that owns it.
+  step.updateContent(
+    {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: run },
+        { type: "text", text: "查了 API。\n\n```fish\ncurl -s https://example.com | jq -r '.end'\n```\n" },
+      ],
+      stopReason: "stop",
+    } as any,
+    false,
+  );
+  const lines = visible(frame(chat));
+  const codeRow = lines.findIndex((line) => line.includes("curl -s"));
+  assert.ok(codeRow >= 0, lines.join("\n"));
+  chat.handleMouse({ type: "click", button: "left", x: 4, y: codeRow, screenX: 4, screenY: codeRow, width: W, height: 20 } as any);
+  assert.ok(
+    !frame(chat).some((line) => line.includes("├─") || line.includes("╭")),
+    `a click in the text must not open the thinking:\n${frame(chat).join("\n")}`,
+  );
+
+  // Its own row still opens and folds, exactly as before.
+  assert.ok(click(chat, "thinking  先想一下"));
+  assert.ok(frame(chat).some((line) => line.includes("╭")), `the row still opens:\n${frame(chat).join("\n")}`);
+  assert.ok(click(chat, "╭"));
+  assert.ok(!frame(chat).some((line) => line.includes("╭")), frame(chat).join("\n"));
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Background jobs (pi-processes protocol, on a stand-in event bus)
 // ─────────────────────────────────────────────────────────────────────────────
-
 /** pi's extension bus with pi-processes answering `processes:request:get`. */
 function processesBus(known: Record<string, object>) {
   const listeners = new Map<string, Array<(data: unknown) => void>>();

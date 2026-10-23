@@ -398,6 +398,14 @@ const BOUNDARY_WRAPPER = Symbol.for("pi-toolbox:group-boundary");
 /** This carrier's thinking was expanded by a click on its `🧠` row. */
 const THOUGHT_OPEN = Symbol.for("pi-toolbox:thought-open");
 const CARRIER_MOUSE = Symbol.for("pi-toolbox:carrier-mouse");
+/**
+ * Where this frame put the rows a click can land on. `null` = this frame drew
+ * no carrier rows at all, so nothing here belongs to us — the record has to be
+ * per frame because a component's role changes under it: an assistant step
+ * streams as a carrier, then its text arrives and it becomes a boundary.
+ */
+const CARRIER_CLICK = Symbol.for("pi-toolbox:carrier-click");
+type CarrierClickMap = { header: number | null; from: number; to: number };
 
 /**
  * Last renderer a tool handed us. Carrier components have no `ui` of their own,
@@ -432,6 +440,10 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   const thinkingColor = thinkingColorFor();
   installCarrierMouse(component);
   const lines: string[] = [];
+  // Row indices of what this frame draws, in the component's own coordinates.
+  // `from` is -1 while no thought row has been drawn: an empty range.
+  const clickMap: CarrierClickMap = { header: null, from: -1, to: -1 };
+  component[CARRIER_CLICK] = clickMap;
   if (plan.header) {
     const line = groupHeaderLine(
       component,
@@ -442,7 +454,10 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
       hoverState.tool === component && hoverState.row === "header",
       Date.now(),
     );
-    if (line !== undefined) lines.push(line);
+    if (line !== undefined) {
+      clickMap.header = lines.length;
+      lines.push(line);
+    }
   }
   if (!plan.rows) return { lines };
   const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS;
@@ -461,6 +476,7 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   // summary line, not here — and the window moves on a tick, not per frame.
   const now = Date.now();
   const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
+  const firstRow = lines.length;
   for (const [index, run] of runs.entries()) {
     const text = liveTexts?.[index] ?? previewText(run, width - context);
     const row = formatThoughtLine(text, theme, { icons, thinkingColor });
@@ -473,6 +489,8 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     const body = trimBlankEdges(renderThinkingBody(component, iconBodyWidth(width)));
     for (const line of body) lines.push(`${gutter}${BODY_PAD}${theme.fg("thinkingText", line)}`);
   }
+  clickMap.from = firstRow;
+  clickMap.to = lines.length - 1;
   return { lines };
 }
 
@@ -496,31 +514,42 @@ function iconBodyWidth(width: number): number {
  * Clicks on a `🧠` row unfold that message's thinking; motion lights the row.
  * Both are ours to route — the component draws the rows itself, so nothing
  * below it is listening.
+ *
+ * Everything outside the rows this frame drew goes back to the handler that was
+ * here before us. A component's role changes under it (a streaming step is a
+ * carrier, the same object becomes a boundary when its text arrives), and a
+ * handler that answered "row" to every `y` swallowed the whole message: any
+ * click below the row opened the thinking instead of reaching the text.
  */
 function installCarrierMouse(component: any): void {
   if (component[CARRIER_MOUSE]) return;
   component[CARRIER_MOUSE] = true;
-  /** Where `y` sits, given the plan this frame draws. */
+  const previous = component.handleMouse;
+  const pass = (event: any) => previous?.call(component, event);
+  /** Where `y` sits in what this frame drew, or null when it is not ours. */
   const rowAt = (y: unknown): HoverRow | null => {
-    if (typeof y !== "number" || y < 0) return null;
-    const plan = carrierPlan(component);
-    return plan.header && y === 0 ? "header" : "row";
+    const map = component[CARRIER_CLICK] as CarrierClickMap | null | undefined;
+    if (!map || typeof y !== "number" || y < 0) return null;
+    if (map.header !== null && y === map.header) return "header";
+    return map.from >= 0 && y >= map.from && y <= map.to ? "row" : null;
   };
   component.handleMouse = (event: any) => {
     if (event?.type === "move") {
-      if (!hoverTracking) return undefined;
-      hoverClaimed = true;
+      if (!hoverTracking) return pass(event);
       const row = rowAt(event.y);
+      // Only a row claims the packet; the alt-screen hook drops the band when
+      // nothing does, so motion across the rest of the message clears it.
+      if (row) hoverClaimed = true;
       if (setHover(row ? component : null, row, lastUi)) lastUi?.requestRender?.();
-      return undefined;
+      return pass(event);
     }
-    if (event?.type !== "click" || (event.button !== "left" && event.button !== 0)) return undefined;
+    if (event?.type !== "click" || (event.button !== "left" && event.button !== 0)) return pass(event);
     const theme = getTheme();
-    if (!theme) return undefined;
-    // Expanded: our own rows are gone (pi's box is drawn in their place), so
-    // the click that folds it back has to be ours too. pi's inner regions sit
-    // one row lower than ours (the summary line), so its own click cannot be
-    // relied on here.
+    if (!theme) return pass(event);
+    const row = rowAt(event.y);
+    if (!row) return pass(event);
+    // Expanded, the run's box hangs under its row and the whole block is ours:
+    // the frame was drawn by us, so the click that folds it back has to be too.
     const expanded = component[THOUGHT_OPEN] && component.thinkingVisibilityOverrides?.get?.(0) === false;
     if (expanded) {
       const overrides = component.thinkingVisibilityOverrides;
@@ -532,7 +561,7 @@ function installCarrierMouse(component: any): void {
       lastUi?.requestRender?.();
       return { handled: true };
     }
-    if (rowAt(event.y) === "header") {
+    if (row === "header") {
       // Same toggle the first member's header does: shut folds every box inside.
       const { header } = carrierPlan(component);
       if (header === "closed") openGroup(component);
@@ -654,6 +683,10 @@ function installRethinkMouse(component: any): void {
       const content = Array.isArray(component.lastMessage?.content) ? component.lastMessage.content : [];
       const hasText = content.some((block: any) => block?.type === "text" && typeof block.text === "string" && block.text.trim());
       if (!hasText && runs.length === 1) return toggle(0);
+      // A click that missed every run is not pi's either: its regions sit on the
+      // *untrimmed* layout, so one row under a run would hit pi's label and
+      // toggle a block nobody aimed at. Our spans cover every run, open or shut.
+      return undefined;
     }
     return previous?.call(component, event);
   };
@@ -755,6 +788,11 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
     if (!groupingActive()) return render.apply(this, args);
     const [width, ...rest] = args;
+    // Click geometry is per frame. A component whose role changed (a streaming
+    // step stops being a carrier once its text arrives) must stop answering
+    // clicks at the rows it used to draw.
+    this[CARRIER_CLICK] = null;
+    this[THOUGHT_SPANS] = [];
     const how = view(this, typeof width === "number" ? width : 80);
     if (how === "hidden") return [];
     // pi pads every message with a blank row above (and sometimes below). Those
