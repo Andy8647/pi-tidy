@@ -4,6 +4,22 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.9] - 2026-10-23
+
+### Fixed
+
+**A thinking row no longer takes the whole message with it.** An assistant step streams as a carrier and
+becomes the group boundary when its text arrives, and the click handler installed while it was a carrier
+stayed on the component: it answered "this is my row" for every `y`, and consumed the click. So on any
+message that had streamed its thinking, clicking the text (a fenced code block included) opened the
+reasoning instead of reaching what was under the pointer. The handler now records the rows it actually
+drew each frame and hands everything else back to the handler it replaced.
+
+**One row under a thinking row no longer toggles it.** pi places its own regions on the untrimmed
+layout, and the padding rows this extension trims away move every row by one, so a click on the first
+line below a run landed on pi's hidden label. The runs are ours once restyled — the click table covers
+every one of them, open or shut — so a click that misses them all now falls through instead.
+
 ## [0.4.8] - 2026-10-23
 
 ### Added
