@@ -4,6 +4,21 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.10] - 2026-10-23
+
+### Fixed
+
+**A multi-line argument no longer paints the rows below it off by a line.** A row is one string in the lines
+array the renderer hands back, and the summary took a call's `command` apart at its first newline but passed
+every other argument through whole. So a tool whose first string argument is a script
+(`chrome-devtools_evaluate_script`'s `function`, most MCP tools) returned a "row" with real newlines in it:
+the terminal drew four physical rows where pi's frame counted one, and every row below painted off by the
+difference. What you saw was the last few lines of a script sitting in the middle of the transcript, with
+`Working` wedged between them and the durations stranded on their own rows.
+
+Every argument now goes through the same rule: first line, then `(+N lines)` for the rest, trimmed. That is
+also what the collapsed row has always claimed, so a script now reads as `evaluate_script () => { (+3 lines)`.
+
 ## [0.4.9] - 2026-10-23
 
 ### Fixed
