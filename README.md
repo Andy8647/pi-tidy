@@ -1,5 +1,24 @@
 # pi-tidy
 
+## Personal fork
+
+This fork preserves user-message padding while grouping tools and leaves one
+column beside framed output for Pi's auto-hiding scrollbar. Keep
+`fullscreenScrollbar: "auto"`; no always-visible scrollbar is required.
+Configuration uses the native home directory, including Windows without `HOME`.
+
+To switch from the npm release, install only this source (do not load both):
+
+```bash
+pi remove npm:pi-tidy
+pi install git:github.com/bumaociyuan/pi-tidy@main
+```
+
+Restart Pi after switching sources. Set `tidy.groupTools` to `true` to restore
+grouping if it was disabled as a spacing workaround. Native Windows terminal
+interaction still needs on-device verification; automated layout tests do not
+replace that check. The original upstream documentation follows below.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — a reply's tool calls fold into one line" width="840">
 </p>

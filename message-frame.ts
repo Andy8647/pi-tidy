@@ -15,7 +15,7 @@ import {
   SkillInvocationMessageComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { drawFrame, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
+import { drawFrame, FRAME_RIGHT_GUTTER, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
 import { MESSAGE_ICONS } from "./icons.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme } from "./theme-access.ts";
@@ -78,7 +78,7 @@ export function patchMessageBoxes(
       try {
         const { icons } = options;
         const borderColor = options.borderColors[kind];
-        const w = Math.max(4, width);
+        const w = Math.max(4, width - FRAME_RIGHT_GUTTER);
         // Frame + one cell of horizontal padding on each side (+2 for the icon).
         const contentWidth = Math.max(1, icons ? w - 6 : w - 4);
         const content: string[] = [];
@@ -192,7 +192,7 @@ export function patchContainerBoxes(
 
         const { icons } = live;
         const borderColor = live.borderColors[kind];
-        const w = Math.max(4, width);
+        const w = Math.max(4, width - FRAME_RIGHT_GUTTER);
         // Icons take two cells of the first row; rendering the box narrower
         // keeps every line lossless.
         const raw = box.render(icons ? w - 4 : w - 2).map(stripBackgroundFills);

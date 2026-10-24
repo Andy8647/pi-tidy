@@ -7,6 +7,9 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "./theme-access.ts";
 
+/** Pi overlays its auto scrollbar on the final transcript column. */
+export const FRAME_RIGHT_GUTTER = 1;
+
 // Solid background fills: truecolor/256 "48;…" sequences and the standard
 // 40-47 / 100-107 bg colors. pi's shell and some built-in renderers (edit)
 // paint toolPendingBg/toolSuccessBg/toolErrorBg into their lines; stripping

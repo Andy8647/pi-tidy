@@ -7,6 +7,7 @@
  */
 
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
 import { test } from "node:test";
 
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
@@ -108,7 +109,7 @@ test("read without a path arg falls back to the read tool icon", () => {
 test("file icon follows the ~-shortened display path", () => {
   // renderToolPath shortens $HOME to ~ in the display text; the raw args
   // path never appears in the row, so the icon must match the short form.
-  const home = process.env.HOME!;
+  const home = homedir();
   const raw = `${home}/.pi/agent/settings.json`;
   const lines = fakeToolBox("edit", { path: raw }, { callRow: "edit ~/.pi/agent/settings.json" }).render(70);
   const row = visible(lines[1]);

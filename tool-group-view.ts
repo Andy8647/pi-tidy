@@ -15,7 +15,7 @@ import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent
 import { ANIMATE_MS, jobForTool, noteJobMessage, spinnerFrame, type JobState } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
+import { drawFrame, FRAME_RIGHT_GUTTER, trimBlankEdges } from "./frame-draw.ts";
 import {
   formatGroupLine,
   formatThoughtLine,
@@ -735,8 +735,9 @@ function restyleThinking(component: any, lines: string[], width: number): string
       spans.push({ from, to: from, run: run - 1 });
       continue;
     }
-    const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
-    out.push(...(body.length > 0 ? drawFrame(body, width, theme, color) : []));
+    const boxWidth = Math.max(4, width - FRAME_RIGHT_GUTTER);
+    const body = trimBlankEdges(kid.render(Math.max(4, boxWidth - BOX_CELLS)) as string[]);
+    out.push(...(body.length > 0 ? drawFrame(body, boxWidth, theme, color) : []));
     spans.push({ from, to: out.length - 1, run: run - 1 });
   }
   out.push(...lines.slice(cursor));
@@ -787,7 +788,7 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
     if (!groupingActive()) return render.apply(this, args);
-    const [width, ...rest] = args;
+    const [width] = args;
     // Click geometry is per frame. A component whose role changed (a streaming
     // step stops being a carrier once its text arrives) must stop answering
     // clicks at the rows it used to draw.

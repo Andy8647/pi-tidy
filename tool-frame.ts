@@ -19,7 +19,7 @@
 import { homedir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
+import { blankEdges, drawFrame, FRAME_RIGHT_GUTTER, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { setJobOptions } from "./background-jobs.ts";
@@ -294,6 +294,7 @@ function splitEditBody(
 
 /** The rounded box at width `w` (what pi would draw, reframed). */
   function frameBox(this: ToolBoxInternals, w: number, theme: ThemeLike, unframed = false): string[] {
+    if (!unframed) w = Math.max(4, w - FRAME_RIGHT_GUTTER);
     const { icons, toolColors } = toolOptions.get();
     const source = !this.hasRendererDefinition()
       ? this.contentText
