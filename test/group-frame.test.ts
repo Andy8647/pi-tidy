@@ -27,6 +27,7 @@ import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts
 
 initTheme("dark");
 const renderUserUnpatched = UserMessageComponent.prototype.render;
+const renderCustomUnpatched = CustomMessageComponent.prototype.render;
 const OPTIONS = { icons: false, groupTools: true } as const;
 patchToolBoxFrames(OPTIONS);
 
@@ -332,6 +333,33 @@ test("grouping preserves user-message padding and prompt markers verbatim", () =
       assert.deepEqual(user.render(width), expected, `user rendering at width ${width}`);
     }
   }
+});
+
+test("a custom message keeps its own padding while grouping", () => {
+  // pi pads a custom message with a Spacer above and `Box(1, 1, customMessageBg)`
+  // below — the same shape as a user message, so the same trim used to eat it.
+  const noticeLines = new CustomMessageComponent({
+    role: "custom",
+    customType: "notice",
+    content: "pay attention",
+    display: true,
+    timestamp: 0,
+  } as any);
+  const expected = renderCustomUnpatched.call(noticeLines, W);
+  assert.equal(strip(expected[expected.length - 1]), "", "pi supplies bottom padding");
+  assert.deepEqual(noticeLines.render(W), expected, "custom message rendering is untouched");
+
+  const chat = new Container();
+  const a = bash("ls", "a\nb");
+  chat.addChild(noticeLines);
+  chat.addChild(step(a.id));
+  chat.addChild(a.component);
+  const lines = frame(chat);
+  const body = lines.findIndex((line) => line.includes("pay attention"));
+  const header = lines.findIndex((line) => line.includes("▸ 1 call"));
+  assert.ok(body >= 0 && header >= 0, lines.join("\n"));
+  assert.equal(header, body + 2, "one blank row separates the notice and group");
+  assert.equal(lines[header - 1], "");
 });
 
 test("user padding separates a folded group without shifting its click targets", () => {

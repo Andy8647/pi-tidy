@@ -840,8 +840,10 @@ export function installGroupBoundaries(): void {
   });
   // A background job's notifications (`[process] "ticker" matched stdout:
   // READY`) say what its row already shows. The model still receives them —
-  // this only skips drawing them.
+  // this only skips drawing them. Everything else keeps its own edges: a custom
+  // message is pi's `Box(1, 1, customMessageBg)` too, so the same trim that ate
+  // the user message's padding was eating its inset as well.
   wrapBoundaryRender((CustomMessageComponent as any)?.prototype, (component) =>
-    noteJobMessage(component.message) ? "hidden" : "plain",
+    noteJobMessage(component.message) ? "hidden" : "untrimmed",
   );
 }
