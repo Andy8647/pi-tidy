@@ -21,6 +21,10 @@ mistake for messages rather than a preference.
 
 Reported by @bumaociyuan (#17) and @frostime (#19); the fix is @bumaociyuan's `untrimmed` change from #18.
 
+**Settings are read from the native home directory.** Before `PI_CODING_AGENT_DIR`, the fallback was
+`${HOME}/.pi/agent` with `/tmp` behind it, so a Windows session without `HOME` looked in `/tmp/.pi/agent` and
+silently ran on defaults. It asks `os.homedir()` now, which is right on Windows too.
+
 ## [0.4.10] - 2026-10-23
 
 ### Fixed
