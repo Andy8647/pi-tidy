@@ -26,6 +26,8 @@ import { tidyEnabled, agentRunning } from "../live.ts";
 import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
 
 initTheme("dark");
+const renderUserUnpatched = UserMessageComponent.prototype.render;
+const renderCustomUnpatched = CustomMessageComponent.prototype.render;
 const OPTIONS = { icons: false, groupTools: true } as const;
 patchToolBoxFrames(OPTIONS);
 
@@ -322,13 +324,77 @@ test("options are live: a re-patch (what /reload does) and enabled=false take ef
   assert.ok(frame(chat).includes(" ▸ 3 calls · bash×3 · 2 thoughts · 0.5s"));
 });
 
+test("grouping preserves user-message padding and prompt markers verbatim", () => {
+  for (const width of [24, W]) {
+    for (const prompt of ["hi", "请列出当前目录中的文件，并检查它们的内容。\n保留消息之间的空行。"]) {
+      const user = new UserMessageComponent(prompt);
+      const expected = renderUserUnpatched.call(user, width);
+      assert.equal(strip(expected[expected.length - 1]), "", "pi supplies bottom padding");
+      assert.deepEqual(user.render(width), expected, `user rendering at width ${width}`);
+    }
+  }
+});
+
+test("a custom message keeps its own padding while grouping", () => {
+  // pi pads a custom message with a Spacer above and `Box(1, 1, customMessageBg)`
+  // below — the same shape as a user message, so the same trim used to eat it.
+  const noticeLines = new CustomMessageComponent({
+    role: "custom",
+    customType: "notice",
+    content: "pay attention",
+    display: true,
+    timestamp: 0,
+  } as any);
+  const expected = renderCustomUnpatched.call(noticeLines, W);
+  assert.equal(strip(expected[expected.length - 1]), "", "pi supplies bottom padding");
+  assert.deepEqual(noticeLines.render(W), expected, "custom message rendering is untouched");
+
+  const chat = new Container();
+  const a = bash("ls", "a\nb");
+  chat.addChild(noticeLines);
+  chat.addChild(step(a.id));
+  chat.addChild(a.component);
+  const lines = frame(chat);
+  const body = lines.findIndex((line) => line.includes("pay attention"));
+  const header = lines.findIndex((line) => line.includes("▸ 1 call"));
+  assert.ok(body >= 0 && header >= 0, lines.join("\n"));
+  assert.equal(header, body + 2, "one blank row separates the notice and group");
+  assert.equal(lines[header - 1], "");
+});
+
+test("user padding separates a folded group without shifting its click targets", () => {
+  const chat = new Container();
+  const a = bash("ls", "a\nb");
+  const b = bash("pwd", "/tmp");
+  chat.addChild(new UserMessageComponent("List files."));
+  chat.addChild(step(a.id));
+  chat.addChild(a.component);
+  chat.addChild(step(b.id));
+  chat.addChild(b.component);
+  chat.addChild(text("Done."));
+
+  const lines = frame(chat);
+  const prompt = lines.findIndex((line) => line.includes("List files."));
+  const header = lines.findIndex((line) => line.includes("▸ 2 calls"));
+  assert.ok(prompt >= 0 && header >= 0, lines.join("\n"));
+  assert.equal(header, prompt + 2, "one blank row separates the prompt and group");
+  assert.equal(lines[header - 1], "");
+  assert.ok(click(chat, "2 calls"));
+  assert.ok(click(chat, "bash pwd"));
+  assert.equal(b.component.expanded, true);
+  assert.ok(click(chat, "▾ 2 calls"));
+  assert.equal(b.component.expanded, false);
+  assert.deepEqual(frame(chat), lines, "folding restores the same spacing");
+});
+
 test("user-message boundary survives a predecessor-skipping render patch on top", () => {
   // pi-starline replaces UserMessageComponent.prototype.render and only calls
   // the predecessor as a fallback. It loads after toolbox, so it lands on top.
   const proto = UserMessageComponent.prototype as any;
   const previous = proto.render;
+  const userLines = ["\x1b]133;A\x07", "> user", "\x1b[48;2;40;40;40m    \x1b[0m\x1b]133;B\x07"];
   proto.render = function () {
-    return ["> user"];
+    return userLines;
   };
   try {
     const chat = new Container();
@@ -337,10 +403,12 @@ test("user-message boundary survives a predecessor-skipping render patch on top"
     // Turn 1 ends with a tool; turn 2 starts with a tool-only step.
     chat.addChild(textStep("Go.", a.id));
     chat.addChild(a.component);
-    chat.addChild(new UserMessageComponent("next"));
+    const user = new UserMessageComponent("next");
+    chat.addChild(user);
     chat.addChild(step(b.id));
     chat.addChild(b.component);
     assert.deepEqual(visible(frame(chat)), [" Go.", " ▸ 1 call · bash×1 · 0.2s", "> user", " ▸ 1 call · bash×1 · 1 thought · 0.2s"]);
+    assert.deepEqual(user.render(W), userLines, "the replacement renderer keeps its padding and markers");
   } finally {
     proto.render = previous;
   }

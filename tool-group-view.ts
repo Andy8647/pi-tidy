@@ -623,12 +623,12 @@ function liveRowText(component: object, runs: string[], budgets: number[], now: 
 }
 
 /**
- * What a boundary component draws this frame: `plain` hands back pi's own
- * render untouched, `rethink` keeps pi's render but restyles its `Thinking...`
+ * What a boundary component draws this frame: `plain` trims pi's padding,
+ * `untrimmed` preserves the render verbatim, `rethink` restyles its `Thinking...`
  * labels (see `restyleThinking`), `lines` are drawn verbatim, `hidden` draws
  * nothing.
  */
-type BoundaryDraw = "hidden" | "plain" | "rethink" | { lines: string[] };
+type BoundaryDraw = "hidden" | "plain" | "untrimmed" | "rethink" | { lines: string[] };
 
 /** A box border costs two cells of its width. */
 const BOX_CELLS = 2;
@@ -795,9 +795,9 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
     this[THOUGHT_SPANS] = [];
     const how = view(this, typeof width === "number" ? width : 80);
     if (how === "hidden") return [];
-    // pi pads every message with a blank row above (and sometimes below). Those
-    // are the gaps that show up around a group line; the transcript reads as one
-    // block here, so the edges are trimmed wherever the message is pi's own.
+    if (how === "untrimmed") return render.apply(this, args);
+    // Compact assistant/custom message edges around a group. User messages opt
+    // out above so their padding still separates turns.
     const trim = (lines: string[]) => trimMessageEdges(lines);
     if (how === "rethink") return trim(restyleThinking(this, render.apply(this, args), typeof width === "number" ? width : 80));
     if (typeof how === "object") return how.lines;
@@ -836,12 +836,14 @@ export function installGroupBoundaries(): void {
   });
   wrapBoundaryRender((UserMessageComponent as any)?.prototype, (component) => {
     noteBoundary(component);
-    return "plain";
+    return "untrimmed";
   });
   // A background job's notifications (`[process] "ticker" matched stdout:
   // READY`) say what its row already shows. The model still receives them —
-  // this only skips drawing them.
+  // this only skips drawing them. Everything else keeps its own edges: a custom
+  // message is pi's `Box(1, 1, customMessageBg)` too, so the same trim that ate
+  // the user message's padding was eating its inset as well.
   wrapBoundaryRender((CustomMessageComponent as any)?.prototype, (component) =>
-    noteJobMessage(component.message) ? "hidden" : "plain",
+    noteJobMessage(component.message) ? "hidden" : "untrimmed",
   );
 }

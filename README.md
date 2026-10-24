@@ -250,6 +250,12 @@ clicks on its own rows are taken — presses and drags pass through, so text
 selection works as usual. Without fullscreen there are no clicks: `ctrl+o` still
 toggles every box.
 
+The transcript's scrollbar is pi's, and with `fullscreenScrollbar: "auto"` (the
+default) pi paints it over the rightmost column — the one these frames put their
+border in, so it covers the border while it is on screen. Set `"always"` and pi
+reserves that column instead, drawing the frames one cell narrower; `"hidden"`
+works too if you never want it. Nothing to configure on this side either way.
+
 ## Compatible themes
 
 For the best transparent experience, set tool background colors to `""` in your theme:

@@ -3,8 +3,9 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import os, { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../config.ts";
@@ -33,6 +34,30 @@ test("settings come from the `tidy` key", () => {
 test("the pre-rename `toolbox` key still works, and `tidy` wins over it", () => {
   withSettings({ toolbox: { icons: false } }, () => assert.equal(loadConfig().icons, false));
   withSettings({ toolbox: { icons: false }, tidy: { icons: true } }, () => assert.equal(loadConfig().icons, true));
+});
+
+test("settings use the native home directory when HOME is absent", (t) => {
+  const home = mkdtempSync(join(tmpdir(), "pi-tidy-home-"));
+  const agentDir = join(home, ".pi", "agent");
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ tidy: { bashResultLines: 23 } }));
+  const previousHome = process.env.HOME;
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const mockedHome = t.mock.method(os, "homedir", () => home);
+  syncBuiltinESMExports();
+  delete process.env.HOME;
+  delete process.env.PI_CODING_AGENT_DIR;
+  try {
+    assert.equal(loadConfig().bashResultLines, 23);
+  } finally {
+    mockedHome.mock.restore();
+    syncBuiltinESMExports();
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("no settings file: defaults", () => {

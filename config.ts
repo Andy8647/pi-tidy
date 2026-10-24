@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface MessageBorderColors {
@@ -113,7 +114,7 @@ const DEFAULTS: TidyConfig = {
 };
 
 function readSettings(): any {
-  const agentDir = process.env.PI_CODING_AGENT_DIR || `${process.env.HOME || "/tmp"}/.pi/agent`;
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
   return JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"));
 }
 
