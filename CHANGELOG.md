@@ -4,6 +4,23 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.11] - 2026-10-24
+
+### Fixed
+
+**A user message keeps its own padding while tools are folded.** Grouping trims the blank rows pi pads every
+message with, so a folded group sits against the line above it. A user message is not one of those: it is a
+filled box whose first and last rows are padding *with a background fill*, not empty rows, and the trim
+stripped them as well — the highlighted bubble hugged its text on both sides and the `▸ 2 calls` header
+pressed against it. The boundary wrapper gained an `untrimmed` branch, and the messages that are pi's own
+padded boxes (user, plus custom in the same shape) take it. Assistant steps keep their edges compacted
+around a group, which is what the compacting was for.
+
+No setting was added: keeping the padding is now the only behaviour, because the tight version was a
+mistake for messages rather than a preference.
+
+Reported by @bumaociyuan (#17) and @frostime (#19); the fix is @bumaociyuan's `untrimmed` change from #18.
+
 ## [0.4.10] - 2026-10-23
 
 ### Fixed
