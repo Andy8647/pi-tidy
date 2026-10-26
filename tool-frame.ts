@@ -217,11 +217,25 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
       return asPointer(() => originalHandleMouse?.call(this, event));
     }
     const y = event.y - dy - geometry.top;
-    if (y < 0 || y >= geometry.height) return undefined;
-    // Column 0 of the source sits right of the left border — unless the frame
-    // was dropped, in which case the body starts where the row does.
-    const x = event.x - dx - (geometry.bordered === false ? 0 : 1);
-    return asPointer(() => target.handleMouse!({ ...event, x, y, width: geometry.width, height: geometry.height }));
+    if (y >= 0 && y < geometry.height) {
+      // Column 0 of the source sits right of the left border — unless the frame
+      // was dropped, in which case the body starts where the row does.
+      const x = event.x - dx - (geometry.bordered === false ? 0 : 1);
+      const handled = asPointer(() =>
+        target.handleMouse!({ ...event, x, y, width: geometry.width, height: geometry.height }),
+      );
+      if (handled !== undefined) return handled;
+    }
+    // Nothing under the pointer took it. The rows we draw are not always rows
+    // pi's own layout knows about: a split diff is painted here, so pi's
+    // sub-components keep the height they had before the preview arrived (a
+    // streamed frame leaves them at two or three rows), and an unframed body is
+    // shifted by the gutter. Every cell of the box is the expand switch, so a
+    // click that found no owner toggles it here instead of doing nothing.
+    const click = event?.type === "click" && (event.button === "left" || event.button === 0);
+    if (!click) return undefined;
+    asPointer(() => this.setExpanded(!this.expanded));
+    return { handled: true };
   }
 
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
