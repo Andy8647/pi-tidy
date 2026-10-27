@@ -45,9 +45,10 @@ every box gets a rounded transparent frame.
   no summary to carry it) and the preview slides over the newest words; once it stops, the row settles
   to a short head preview capped at 56 cells — a glance, not a paragraph. pi's `hideThinkingBlock`
   setting is ignored on purpose: the row is the same whether thinking is configured on or off, and the
-  click is the one way to read it. A message that both thinks and writes gets the same row for its
-  label (clicking it opens the same box), and its run stays out of the group's count — it renders above
-  the text, not as a row in the list
+  click is the one way to read it — unless you set `thinkingOpen`, which starts every run expanded (an
+  opened group then shows its whole reasoning at once) and leaves the click to fold it. A message that
+  both thinks and writes gets the same row for its label (clicking it opens the same box), and its run
+  stays out of the group's count — it renders above the text, not as a row in the list
 - **Background jobs** — a call that starts a long-running process (pi-processes' `process start`) shows
   the *process's* state on its row: `◐ process ticker  running 12s · READY matched`, then
   `✓ … exited 0 · 20s` / `✗ … exit 1` / `⊘ … killed SIGTERM`. The summary spins while one runs
@@ -145,6 +146,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "writeLines": 10,
     "diffLines": 20,
     "thinkingColor": "warning",
+    "thinkingOpen": false,
     "groupTools": true,
     "alwaysShowTools": ["edit", "write"],
     "backgroundJobs": true,
@@ -184,6 +186,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `splitDiff` | boolean | `true` | Render an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff |
 | `splitDiffMinWidth` | number | `72` | Box width below which the split is dropped for pi's unified diff — two panes need room to stay readable |
 | `thinkingColor` | theme color | `warning` | Colour of the brain, the `N thoughts` count and an expanded thinking box. Any theme color name or `#rrggbb` |
+| `thinkingOpen` | boolean | `false` | Start every thinking run expanded instead of as a one-line preview: the run before a reply in its box, and each step's run under its row once you open the group. A click folds a run and it stays folded. Groups themselves still start folded. With `groupTools: false` pi draws thinking itself and its `hideThinkingBlock` applies |
 | `diffLines` | number | `20` | Diff rows drawn while an edit box is collapsed. The window is anchored at the first changed line (a third of the budget of context above it), with `… (N more lines, M total, ctrl+o to expand)` under it — pi's own edit renderer has no budget at all, so this is the only thing keeping a long diff from owning the screen. `ctrl+o` draws all of it, `0` keeps just the summary row |
 | `bashResultLines` | number | `1` | Visual lines of bash *output* shown while collapsed. pi's renderer hard-codes 5 with no setting; raise this for more context, `0` to hide output until you expand |
 | `writeLines` | number | `10` | Visual lines of a written file shown while the box is collapsed (pi's own number, now adjustable). `0` keeps just the header until you expand. Requires Pi's `registerToolRenderer` API |

@@ -36,6 +36,7 @@ import {
   setGroupingActive,
   setIconsEnabled,
   setThinkingColor,
+  setThinkingOpen,
   type GroupedTool,
 } from "./tool-group-view.ts";
 
@@ -117,6 +118,8 @@ export interface ToolFrameOptions {
   diffLines?: number;
   /** Theme color for thinking rows and the expanded thinking box (default `warning`). */
   thinkingColor?: string;
+  /** Thinking starts expanded instead of as a one-line preview (default false). */
+  thinkingOpen?: boolean;
 }
 
 interface ResolvedToolFrameOptions {
@@ -128,6 +131,7 @@ interface ResolvedToolFrameOptions {
   splitDiffMinWidth: number;
   diffLines: number;
   thinkingColor: string;
+  thinkingOpen: boolean;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -139,6 +143,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   splitDiffMinWidth: 72,
   diffLines: 20,
   thinkingColor: "warning",
+  thinkingOpen: false,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
@@ -161,6 +166,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiffMinWidth = 72,
     diffLines = 20,
     thinkingColor = "warning",
+    thinkingOpen = false,
   } = options;
   toolOptions.set({
     icons,
@@ -171,6 +177,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiffMinWidth,
     diffLines,
     thinkingColor,
+    thinkingOpen,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
 
@@ -189,6 +196,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   setGroupingActive(grouping);
   setIconsEnabled(() => toolOptions.get().icons);
   setThinkingColor(() => toolOptions.get().thinkingColor);
+  setThinkingOpen(() => toolOptions.get().thinkingOpen);
   installGroupBoundaries();
   installHoverTracking();
 

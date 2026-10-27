@@ -603,6 +603,50 @@ export function setThinkingColor(color: () => string): void {
   thinkingColorFor = color;
 }
 
+/** `tidy.thinkingOpen`: runs start expanded instead of as a preview row. */
+let thinkingOpenFor: () => boolean = () => false;
+
+export function setThinkingOpen(open: () => boolean): void {
+  thinkingOpenFor = open;
+}
+
+/** Runs this component already defaulted, so a fold the user made stays folded. */
+const THOUGHT_DEFAULTED = Symbol.for("pi-toolbox:thought-defaulted");
+/** This carrier already took its default-open state. */
+const CARRIER_DEFAULTED = Symbol.for("pi-toolbox:carrier-defaulted");
+
+/**
+ * `thinkingOpen`: each run opens the first time it is seen, through the same
+ * `thinkingVisibilityOverrides` switch a click flips, so a later click folds it
+ * and it stays folded. Runs before the render, because pi builds the run's
+ * child (label or markdown) from that map in `updateContent`: a run opened
+ * after pi built it would draw its label inside the box.
+ *
+ * A carrier also needs `THOUGHT_OPEN`, the marker its row click sets. It takes
+ * the state run 0 already has, once: at a turn's start a step draws as a plain
+ * message before its call arrives, and a fold made then has to survive.
+ */
+function defaultThinkingOpen(component: any, carrier: boolean): void {
+  if (!thinkingOpenFor()) return;
+  const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
+  if (!overrides?.set) return;
+  const runs = thinkingRuns(component.lastMessage).length;
+  const done: Set<number> = (component[THOUGHT_DEFAULTED] ??= new Set<number>());
+  let changed = false;
+  for (let i = done.size; i < runs; i++) {
+    done.add(i);
+    if (!overrides.has(i)) {
+      overrides.set(i, false);
+      changed = true;
+    }
+  }
+  if (carrier && runs > 0 && !component[CARRIER_DEFAULTED]) {
+    component[CARRIER_DEFAULTED] = true;
+    component[THOUGHT_OPEN] = overrides.get(0) === false;
+  }
+  if (changed && component.lastMessage) component.updateContent?.(component.lastMessage);
+}
+
 /**
  * A live thinking row changes on a tick, not on every frame: pi repaints while
  * streaming, and a window recomputed per paint slides one cell per token, which
@@ -818,6 +862,8 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
 export function installGroupBoundaries(): void {
   wrapBoundaryRender((AssistantMessageComponent as any)?.prototype, (component, width) => {
     const role = classifyAssistant(component.lastMessage);
+    const carrier = role === "carrier" || (role !== "boundary" && component.isStreaming === true && currentGroupHasMembers());
+    defaultThinkingOpen(component, carrier);
     if (role === "boundary") noteBoundary(component);
     else if (role === "carrier") return renderCarrier(component, width);
     // A step still streaming its thinking mid-segment is, almost always, a

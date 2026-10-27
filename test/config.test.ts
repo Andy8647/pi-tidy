@@ -31,6 +31,12 @@ test("settings come from the `tidy` key", () => {
   });
 });
 
+test("thinkingOpen is off unless set to a boolean", () => {
+  withSettings({}, () => assert.equal(loadConfig().thinkingOpen, false));
+  withSettings({ tidy: { thinkingOpen: true } }, () => assert.equal(loadConfig().thinkingOpen, true));
+  withSettings({ tidy: { thinkingOpen: "yes" } }, () => assert.equal(loadConfig().thinkingOpen, false));
+});
+
 test("the pre-rename `toolbox` key still works, and `tidy` wins over it", () => {
   withSettings({ toolbox: { icons: false } }, () => assert.equal(loadConfig().icons, false));
   withSettings({ toolbox: { icons: false }, tidy: { icons: true } }, () => assert.equal(loadConfig().icons, true));

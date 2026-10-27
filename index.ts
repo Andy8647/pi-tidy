@@ -29,6 +29,9 @@
  *     0 hides the body). pi's own edit renderer has no budget at all.
  *   thinkingColor: string   — color for thinking rows and the thinking box
  *     (default: warning, a yellow)
+ *   thinkingOpen: boolean   — thinking starts expanded instead of as a one-line
+ *     preview; a click still folds it. No effect with groupTools: false, where
+ *     pi draws thinking itself (default: false)
  *   messageBorderColors: per-kind theme fg colors for message-box borders
  *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
  *      mdCode/accent/warning)
@@ -223,6 +226,7 @@ export default function (pi: ExtensionAPI): void {
       splitDiffMinWidth: config.splitDiffMinWidth,
       diffLines: config.diffLines,
       thinkingColor: config.thinkingColor,
+      thinkingOpen: config.thinkingOpen,
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);

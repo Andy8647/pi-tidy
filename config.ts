@@ -66,6 +66,12 @@ export interface TidyConfig {
    */
   thinkingColor: string;
   /**
+   * Thinking starts expanded: a run's full text instead of its one-line
+   * preview, inside a group and outside one. A click still folds it. Groups
+   * themselves still start folded.
+   */
+  thinkingOpen: boolean;
+  /**
    * Per-tool border color for successful executions (theme fg color names;
    * pending stays grey, error stays red). When set in settings, the map
    * REPLACES the defaults entirely — `{}` disables per-tool colors.
@@ -103,6 +109,7 @@ const DEFAULTS: TidyConfig = {
   splitDiffMinWidth: 72,
   diffLines: 20,
   thinkingColor: "warning",
+  thinkingOpen: false,
   messageBorderColors: {
     user: "toolTitle",
     compaction: "customMessageLabel",
@@ -143,6 +150,7 @@ export function loadConfig(): TidyConfig {
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
       thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
+      thinkingOpen: typeof toolbox?.thinkingOpen === "boolean" ? toolbox.thinkingOpen : DEFAULTS.thinkingOpen,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
         ...toolbox?.messageBorderColors,

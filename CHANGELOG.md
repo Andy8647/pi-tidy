@@ -4,6 +4,17 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**`thinkingOpen` starts every thinking run expanded.** With the setting on, the run before a reply opens in
+its box, and each step's run opens under its row once you open the group, so an opened group shows its whole
+reasoning at once. Groups themselves still start folded. A click folds a run and it stays folded, including a
+fold made while a step was still drawing as a plain message before its call arrived. The default (`false`)
+keeps today's preview rows. With `groupTools: false` pi draws thinking itself, and its `hideThinkingBlock`
+applies.
+
 ## [0.4.11] - 2026-10-24
 
 ### Fixed
