@@ -4,6 +4,15 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.13] - 2026-10-27
+
+### Fixed
+
+**The group header keeps its click when a thinking run above it is expanded.** `installCarrierMouse` answered an
+expanded run before it looked at which row was hit, and the summary line is drawn by the same component, so
+clicking `▾ 3 calls` folded the run instead of shutting the group: the header stayed `▾` and the reasoning
+disappeared. The fold now only answers on the run's own rows.
+
 ## [0.4.11] - 2026-10-24
 
 ### Fixed
