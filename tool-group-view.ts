@@ -550,8 +550,11 @@ function installCarrierMouse(component: any): void {
     if (!row) return pass(event);
     // Expanded, the run's box hangs under its row and the whole block is ours:
     // the frame was drawn by us, so the click that folds it back has to be too.
+    // Only its own rows: the summary line is a second target on the same
+    // component, and an expanded run beside it used to eat the header's click
+    // (the group stayed open and the reasoning folded instead).
     const expanded = component[THOUGHT_OPEN] && component.thinkingVisibilityOverrides?.get?.(0) === false;
-    if (expanded) {
+    if (expanded && row === "row") {
       const overrides = component.thinkingVisibilityOverrides;
       for (let i = 0; i < Math.max(1, thinkingRuns(component.lastMessage).length); i++) overrides?.set?.(i, true);
       component[THOUGHT_OPEN] = false;

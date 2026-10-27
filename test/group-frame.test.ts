@@ -469,6 +469,27 @@ test("thinking is a row above its own call, and clicking it opens pi's text", ()
   assert.ok(closed.some((line) => line.startsWith(" │ thinking  先确认一下这个目录")));
 });
 
+test("an expanded run does not take the group header's click", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const first =
+    "先确认一下这个目录里有什么东西，然后再决定下一步怎么做，最后把结论写进结尾标记里。这一段故意写得很长，用来验证预览行真的会截断。";
+  chat.addChild(textStep("Checking.", a.id));
+  chat.addChild(thinkStep(a.id, first));
+  chat.addChild(a.component);
+  chat.addChild(text("Done."));
+  assert.ok(click(chat, "1 call"));
+
+  // The step that owns the summary line is also the one whose run is open.
+  assert.ok(click(chat, "先确认一下这个目录"));
+  assert.ok(frame(chat).some((line) => line.includes("结尾标记")), "the run is open");
+
+  // The header keeps its own click: this closes the group rather than folding
+  // the run that happens to sit next to it.
+  assert.ok(click(chat, "1 call"));
+  assert.deepEqual(visible(frame(chat)), [" Checking.", " ▸ 1 call · bash×1 · 1 thought · 0.2s", " Done."]);
+});
+
 test("a step that is still thinking spins instead of keeping a still brain", () => {
   const chat = new Container();
   const a = bash("ls", "a");
