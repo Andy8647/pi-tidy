@@ -44,7 +44,7 @@ import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts"
 import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
 import { formatWriteCallText } from "./write-preview.ts";
-import { connectJobs, type EventBusLike } from "./background-jobs.ts";
+import { connectJobs, registerNestedJobs, type EventBusLike } from "./background-jobs.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
 export { highlightBashCommand, formatBashCallHighlighted } from "./bash-highlight.ts";
@@ -226,6 +226,7 @@ export default function (pi: ExtensionAPI): void {
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);
+    if (config.backgroundJobs) registerNestedJobs(pi);
   } catch (error) {
     console.debug("[pi-tidy] tool box frame patch failed:", error);
   }

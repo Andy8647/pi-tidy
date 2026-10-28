@@ -41,6 +41,8 @@ export interface GroupMember {
   isError?: boolean;
   /** The background job this call started (background-jobs.ts), if any. */
   job?: JobStatus;
+  /** A wrapper can own several jobs without becoming several tool calls. */
+  jobs?: Array<{ status: JobStatus; fresh: boolean }>;
   /** Running for under RUNNING_ROW_DELAY_MS: not worth announcing yet. */
   fresh?: boolean;
 }
@@ -76,8 +78,10 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
   let failed = 0;
   let jobsRunning = 0;
   for (const member of members) {
-    if ((!member.isPartial && member.isError) || member.job === "failed") failed++;
-    if (member.job === "running" && !member.fresh) jobsRunning++;
+    const jobs = member.jobs ?? (member.job ? [{ status: member.job, fresh: !!member.fresh }] : []);
+    const failedJobs = jobs.filter((job) => job.status === "failed").length;
+    failed += Math.max(!member.isPartial && member.isError ? 1 : 0, failedJobs);
+    jobsRunning += jobs.filter((job) => job.status === "running" && !job.fresh).length;
     counts.set(member.toolName, (counts.get(member.toolName) ?? 0) + 1);
     if (typeof member.durationMs === "number" && Number.isFinite(member.durationMs)) {
       durationMs += member.durationMs;
@@ -503,27 +507,36 @@ function livesNow(group: Group, now: number): boolean {
 
 export function summaryFor(
   tool: object,
-  jobOf?: (member: ToolLike) => JobTiming | undefined,
+  jobOf?: (member: ToolLike) => JobTiming | JobTiming[] | undefined,
   now = Date.now(),
 ): GroupSummary | undefined {
   const group = groupFor(tool);
   if (!group) return undefined;
   return buildGroupSummary(
     group.members.map((member) => {
-      const job = jobOf?.(member);
+      const found = jobOf?.(member);
+      const jobs = Array.isArray(found) ? found : found ? [found] : [];
+      const job = jobs.find((job) => job.status === "running");
       const age = runningFor(member, job, now);
       return {
         toolName: member.toolName,
         isPartial: member.isPartial,
         isError: member.result?.isError === true,
         durationMs: member.isPartial ? undefined : member.result?.durationMs,
-        job: job?.status,
+        jobs: jobs.map((job) => ({
+          status: job.status,
+          fresh: job.status === "running" && now - (job.startTime ?? now) < RUNNING_ROW_DELAY_MS,
+        })),
         fresh: age !== undefined && age < RUNNING_ROW_DELAY_MS,
       };
     }),
     group.thoughts,
     livesNow(group, now),
   );
+}
+
+export function groupIsOpen(component: object): boolean {
+  return groupFor(component)?.level === 1;
 }
 
 /** Level 0 → 1: the summary line unfolds into one row per call. */
