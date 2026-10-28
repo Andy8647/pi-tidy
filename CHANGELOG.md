@@ -4,6 +4,22 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.14] - 2026-10-28
+
+### Fixed
+
+**Background jobs started through codemode are tracked too.** Nested `process start` calls now keep
+independent status rows under their calling tool, including multiple processes started by one script.
+Completion and log-match notifications fold into those rows instead of appearing separately. A script
+failure does not discard jobs it already started, and saved associations survive session restoration.
+Direct starts and processes without a corresponding row keep their existing behaviour.
+
+**Each nested process has its own hover and expand target.** Clicking a process no longer expands
+codemode. It opens that process's command, working directory and the last 20 output lines; expanded
+logs update as output arrives. Closing one process leaves its siblings and the script unchanged.
+The group header and collapse-all close child details too. Unavailable logs are reported explicitly,
+and process output is stripped of terminal control sequences before display.
+
 ## [0.4.13] - 2026-10-27
 
 ### Fixed

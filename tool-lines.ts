@@ -403,7 +403,7 @@ export function previewText(text: string, maxWidth: number, tail = false): strin
 export const GUTTER_CELLS = 2;
 
 /** A call that started a background job: the row tracks the job, not the call. */
-function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, icons: boolean, spinner = "◐"): string {
+export function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, icons: boolean, spinner = "◐"): string {
   const status =
     job.status === "running"
       ? theme.fg("accent", spinner)
@@ -415,7 +415,7 @@ function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, icons: b
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
   const name = theme.fg("toolTitle", `${icon}${tool.toolName}`);
   const color = job.status === "failed" ? "error" : job.status === "running" ? "warning" : "muted";
-  return ` ${status} ${name}${theme.fg("toolOutput", ` ${job.name}`)}  ${theme.fg(color, describeJob(job))}`;
+  return ` ${status} ${name}${theme.fg("toolOutput", ` ${job.name.replace(/\s+/g, " ")}`)}  ${theme.fg(color, describeJob(job).replace(/\s+/g, " "))}`;
 }
 
 export { formatDuration };

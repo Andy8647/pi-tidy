@@ -10,9 +10,13 @@
  * the groups get cut.
  */
 
+import { stripVTControlCharacters } from "node:util";
 import { MouseRegion, truncateToWidth, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { ANIMATE_MS, jobForTool, noteJobMessage, spinnerFrame, type JobState } from "./background-jobs.ts";
+import {
+  ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobsForTool, noteJobMessage,
+  spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
+} from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
@@ -20,6 +24,7 @@ import {
   formatGroupLine,
   formatThoughtLine,
   formatToolLine,
+  formatJobLine,
   GUTTER_CELLS,
   groupGutter,
   formatDuration,
@@ -34,6 +39,8 @@ import {
   closeGroup,
   currentGroupHasMembers,
   groupMembers,
+  groupIsOpen,
+  RUNNING_ROW_DELAY_MS,
   noteBoundary,
   noteThinking,
   thinkingState,
@@ -78,7 +85,7 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type HoverRow = "header" | "row";
+type HoverRow = "header" | "row" | `job:${string}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
@@ -167,10 +174,12 @@ export function renderGroupedTool(
   // Another extension may have patched a boundary render on top of ours
   // since; re-wrap so the boundaries keep being seen.
   installGroupBoundaries();
+  nestedRowSpans.delete(tool);
   const job = options.pinned ? undefined : jobForTool(tool);
+  const jobs = options.pinned ? [] : jobsForTool(tool);
   if (tool.ui) lastUi = tool.ui;
   const now = Date.now();
-  const plan = planFor(tool, options.pinned, job, now);
+  const plan = planFor(tool, options.pinned, runningJob(jobs) ?? job, now);
   if (takeLateJoin()) tool.ui?.requestRender?.();
   if (plan.revealIn !== undefined) scheduleReveal(tool, plan.revealIn);
   if (!plan.header && !plan.gutter) return undefined;
@@ -200,7 +209,57 @@ export function renderGroupedTool(
     const body = frameBox(Math.max(4, width - BODY_INDENT), true);
     for (const line of body) lines.push(`${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`);
   }
+  // Nested starts belong to the wrapper, but do not replace its result/error.
+  // Keep them below its body so the body's existing click geometry is unchanged.
+  const spans: NestedRowSpan[] = [];
+  const open = groupIsOpen(tool);
+  for (const nested of jobs) {
+    if (nested === job) continue;
+    const details = jobDetails(nested.id);
+    if (!open && !details && (nested.status !== "running" || now - (nested.startTime ?? now) < RUNNING_ROW_DELAY_MS)) continue;
+    const from = lines.length;
+    const hot = hovered === `job:${nested.id}`;
+    const arrow = details ? "▾" : hot ? "▶" : "▸";
+    const row = formatJobLine({ toolName: "process", isPartial: false }, nested, theme, icons, spinnerFrame(nested, now));
+    const line = `${gutter}  ${theme.fg("muted", arrow)}${row}`;
+    lines.push(hot ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
+    if (details) {
+      for (const body of renderJobDetails(nested, details, theme)) {
+        lines.push(truncateToWidth(`${gutter}      ${body}`, width, "…"));
+      }
+    }
+    spans.push({ id: nested.id, from, to: lines.length - 1 });
+  }
+  nestedRowSpans.set(tool, spans);
   return lines;
+}
+
+interface NestedRowSpan { id: string; from: number; to: number }
+const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
+
+/** Logs are plain text here: no cursor moves, OSC payloads, tabs or embedded rows. */
+function jobText(text: string): string {
+  return stripVTControlCharacters(text).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+}
+
+function renderJobDetails(job: JobState, details: JobDetails, theme: ThemeLike): string[] {
+  const lines = [theme.fg("muted", `id: ${jobText(job.id)}`)];
+  if (details.command) lines.push(theme.fg("toolOutput", `$ ${jobText(details.command)}`));
+  if (details.cwd) lines.push(theme.fg("muted", `cwd: ${jobText(details.cwd)}`));
+  if (!details.logs) lines.push(theme.fg("muted", "Logs unavailable."));
+  else if (details.logs.length === 0) lines.push(theme.fg("muted", "No output yet."));
+  else for (const entry of details.logs) {
+    lines.push(theme.fg(entry.type === "stderr" ? "error" : "toolOutput", `${entry.type}: ${jobText(entry.text)}`));
+  }
+  return lines;
+}
+
+function closeGroupJobDetails(component: object): void {
+  for (const member of groupMembers(component)) closeJobDetails(jobsForTool(member as GroupedTool).map((job) => job.id));
+}
+
+function runningJob(jobs: JobState[]): JobState | undefined {
+  return jobs.filter((job) => job.status === "running").sort((a, b) => (a.startTime ?? Infinity) - (b.startTime ?? Infinity))[0];
 }
 
 /**
@@ -255,9 +314,9 @@ function groupHeaderLine(
   const summary = summaryFor(
     anchor,
     (member) => {
-      const job = jobForTool(member as GroupedTool);
-      if (job) jobs.push(job);
-      return job;
+      const owned = jobsForTool(member as GroupedTool);
+      jobs.push(...owned);
+      return owned;
     },
     now,
   );
@@ -343,12 +402,29 @@ export interface MouseRouting {
  */
 export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseRouting): unknown {
   const job = routing.pinned ? undefined : jobForTool(tool);
-  const plan = planFor(tool, routing.pinned, job);
+  const jobs = routing.pinned ? [] : jobsForTool(tool);
+  const plan = planFor(tool, routing.pinned, runningJob(jobs) ?? job);
   if (!plan.header && !plan.gutter) return NOT_GROUPED;
 
   // pi-tui names buttons ("left"); accept the raw SGR code too.
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
+  const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
+  if (nested) {
+    if (event?.type === "move" && hoverTracking) {
+      const row: HoverRow | null = y === nested.from ? `job:${nested.id}` : null;
+      if (row) hoverClaimed = true;
+      if (setHover(row ? tool : null, row, tool.ui)) tool.ui?.requestRender?.();
+    }
+    if (click && y === nested.from) {
+      toggleJobDetails(nested.id);
+      setHover(null, null);
+      tool.ui?.requestRender?.();
+      return { handled: true };
+    }
+    // The log body is selectable text, not the enclosing script's expand switch.
+    return undefined;
+  }
 
   // Pointer motion: light up the row under it, but never consume the packet —
   // pi still needs it for drag-selection. Repaint only when the row changes.
@@ -364,7 +440,10 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
     if (y === 0) {
       if (!click) return undefined;
       if (plan.header === "closed") openGroup(tool);
-      else for (const member of closeGroup(tool)) routing.asPointer(() => (member as GroupedTool).setExpanded(false));
+      else {
+        closeGroupJobDetails(tool);
+        for (const member of closeGroup(tool)) routing.asPointer(() => (member as GroupedTool).setExpanded(false));
+      }
       // 行几何变了，上一帧的高亮不再对应原来那一行
       setHover(null, null);
       // 层级是跨组件的状态;pi 每帧都重渲染整个 transcript,请求一帧即可
@@ -568,7 +647,10 @@ function installCarrierMouse(component: any): void {
       // Same toggle the first member's header does: shut folds every box inside.
       const { header } = carrierPlan(component);
       if (header === "closed") openGroup(component);
-      else for (const member of closeGroup(component)) (member as GroupedTool).setExpanded(false);
+      else {
+        closeGroupJobDetails(component);
+        for (const member of closeGroup(component)) (member as GroupedTool).setExpanded(false);
+      }
       setHover(null, null);
       lastUi?.requestRender?.();
       return { handled: true };

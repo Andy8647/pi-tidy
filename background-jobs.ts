@@ -15,6 +15,7 @@
  * reloaded — rebuilt from the notification messages the extension persisted.
  */
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { liveSlot } from "./live.ts";
 
 export type JobStatus = "running" | "done" | "failed" | "killed" | "gone";
@@ -32,12 +33,20 @@ export interface JobState {
   note?: string;
 }
 
+export interface JobDetails {
+  command?: string;
+  cwd?: string;
+  /** Undefined means unavailable; an empty array means no output yet. */
+  logs?: Array<{ type: "stdout" | "stderr"; text: string }>;
+}
+
 export interface EventBusLike {
   emit(channel: string, data: unknown): void;
   on(channel: string, handler: (data: unknown) => void): () => void;
 }
 
 export interface ToolSnapshot {
+  toolCallId?: string;
   toolName: string;
   args?: unknown;
   isPartial: boolean;
@@ -67,6 +76,8 @@ export interface JobProvider {
 interface ProcessInfoLike {
   id?: unknown;
   name?: unknown;
+  command?: unknown;
+  cwd?: unknown;
   status?: unknown;
   startTime?: unknown;
   endTime?: unknown;
@@ -185,6 +196,13 @@ interface Store {
   jobs: Map<string, JobState>;
   /** Jobs whose start row has rendered — their notifications are redundant. */
   rows: Set<string>;
+  /** Nested call → transcript-visible root, and the jobs owned by each root. */
+  parents: Map<string, string>;
+  nested: Map<string, JobState[]>;
+  /** Notifications can arrive before the start result or its first render. */
+  pending: Map<string, Partial<JobState>>;
+  /** Presence means expanded; undefined means its cached snapshot is dirty. */
+  details: Map<string, JobDetails | undefined>;
   events?: EventBusLike;
   ui?: { requestRender?(): void };
   unsubscribe?: () => void;
@@ -201,10 +219,19 @@ function jobsStore(): Store {
       providers: [piProcessesProvider],
       jobs: new Map(),
       rows: new Set(),
+      parents: new Map(),
+      nested: new Map(),
+      pending: new Map(),
+      details: new Map(),
       options: { enabled: true, hideNotifications: true },
     };
     store.set(s);
   }
+  // A /reload can inherit the store created by an earlier package version.
+  s.parents ??= new Map();
+  s.nested ??= new Map();
+  s.pending ??= new Map();
+  s.details ??= new Map();
   return s;
 }
 
@@ -246,7 +273,21 @@ export function connectJobs(events: EventBusLike | undefined): void {
   if (!events) return;
   const disposers = s.providers.map((provider) =>
     provider.subscribe(events, (id, patch) => {
-      if (apply(s, id, patch)) repaint(s);
+      const inspecting = invalidateJobDetails(s, id);
+      if (!s.jobs.has(id)) s.pending.set(id, { ...s.pending.get(id), ...patch });
+      const changed = apply(s, id, patch);
+      if (changed || inspecting) repaint(s);
+    }),
+  );
+  disposers.push(
+    events.on("processes:output_changed", (payload) => {
+      const id = str((payload as { id?: unknown })?.id);
+      if (id && invalidateJobDetails(s, id)) repaint(s);
+    }),
+    events.on("processes:changed", (payload) => {
+      if ((payload as { reason?: unknown })?.reason !== "cleared") return;
+      for (const id of s.details.keys()) invalidateJobDetails(s, id);
+      if (s.details.size) repaint(s);
     }),
   );
   s.unsubscribe = () => {
@@ -254,11 +295,67 @@ export function connectJobs(events: EventBusLike | undefined): void {
   };
 }
 
-/**
- * The job this tool call started, if any. Registers its row: from now on the
- * job's notification messages are redundant with it.
- */
-export function jobForTool(tool: ToolSnapshot & { ui?: { requestRender?(): void } }): JobState | undefined {
+function invalidateJobDetails(s: Store, id: string): boolean {
+  if (!s.details.has(id)) return false;
+  s.details.set(id, undefined);
+  return true;
+}
+
+export function toggleJobDetails(id: string): void {
+  const s = jobsStore();
+  if (s.details.has(id)) s.details.delete(id);
+  else s.details.set(id, undefined);
+}
+
+export function closeJobDetails(ids: Iterable<string>): void {
+  const s = jobsStore();
+  for (const id of ids) s.details.delete(id);
+}
+
+/** Only expanded rows read logs, once per output/end event, never once per frame. */
+export function jobDetails(id: string): JobDetails | undefined {
+  const s = jobsStore();
+  if (!s.details.has(id)) return undefined;
+  const cached = s.details.get(id);
+  if (cached) return cached;
+  let info: ProcessInfoLike | null | undefined;
+  let output: unknown;
+  try {
+    s.events?.emit("processes:request:get", { id, reply: (value: ProcessInfoLike | null) => { info = value; } });
+    s.events?.emit("processes:request:combined_output", { id, tailLines: 20, reply: (value: unknown) => { output = value; } });
+  } catch {
+    // Missing/stale process providers must not break the transcript.
+  }
+  const details: JobDetails = { command: str(info?.command), cwd: str(info?.cwd) };
+  if (Array.isArray(output)) {
+    details.logs = output.slice(-20).filter((line): line is { type: "stdout" | "stderr"; text: string } =>
+      line && (line.type === "stdout" || line.type === "stderr") && typeof line.text === "string",
+    );
+  }
+  s.details.set(id, details);
+  return details;
+}
+
+/** Seed once, then correct the snapshot from live state and early notifications. */
+function rememberJob(s: Store, seed: JobState, provider: JobProvider): JobState {
+  let job = s.jobs.get(seed.id);
+  if (!job) {
+    job = { ...seed };
+    s.jobs.set(seed.id, job);
+    const live = s.events ? provider.lookup(s.events, seed.id) : undefined;
+    if (live === null) job.status = "gone";
+    else if (live) apply(s, seed.id, live);
+    const pending = s.pending.get(seed.id);
+    if (pending) apply(s, seed.id, pending);
+    s.pending.delete(seed.id);
+  }
+  return job;
+}
+
+type RenderedTool = ToolSnapshot & { ui?: { requestRender?(): void } };
+
+/** A direct start still replaces its call's row, just as before. */
+export function jobForTool(tool: RenderedTool): JobState | undefined {
   const s = jobsStore();
   if (!s.options.enabled) return undefined;
   for (const provider of s.providers) {
@@ -266,21 +363,96 @@ export function jobForTool(tool: ToolSnapshot & { ui?: { requestRender?(): void 
     if (!seed) continue;
     if (tool.ui) s.ui = tool.ui;
     s.rows.add(seed.id);
-    let job = s.jobs.get(seed.id);
-    if (!job) {
-      job = seed;
-      s.jobs.set(seed.id, job);
-      // The result is a snapshot from the moment it started. Ask for the
-      // truth once; a job its extension doesn't know (a reloaded session
-      // from an earlier pi) is gone, not running forever.
-      const live = s.events ? provider.lookup(s.events, seed.id) : undefined;
-      if (live === null) job.status = "gone";
-      else if (live) apply(s, seed.id, live);
-    }
+    const job = rememberJob(s, seed, provider);
     ensureTicker(s);
     return job;
   }
   return undefined;
+}
+
+/** All jobs this row owns, including starts made inside another tool. */
+export function jobsForTool(tool: RenderedTool): JobState[] {
+  const s = jobsStore();
+  if (!s.options.enabled) return [];
+  if (tool.ui) s.ui = tool.ui;
+  const direct = jobForTool(tool);
+  const details = tool.result?.details as { tidyBackgroundJobs?: unknown } | undefined;
+  const saved = details?.tidyBackgroundJobs;
+  const nested = tool.toolCallId ? s.nested.get(tool.toolCallId) : undefined;
+  if (!direct && !nested?.length && !Array.isArray(saved)) return [];
+  const jobs = new Map<string, JobState>(direct ? [[direct.id, direct]] : []);
+  const seeds = [...(nested ?? [])];
+  if (Array.isArray(saved)) {
+    for (const seed of saved) {
+      if (seed && str(seed.id) && str(seed.name) && ["running", "done", "failed", "killed", "gone"].includes(seed.status)) {
+        seeds.push(seed as JobState);
+      }
+    }
+  }
+  for (const seed of seeds) {
+    const job = rememberJob(s, seed, piProcessesProvider);
+    jobs.set(job.id, job);
+    s.rows.add(job.id);
+  }
+  ensureTicker(s);
+  return [...jobs.values()];
+}
+
+/** Clear branch/session ownership, without changing options or event subscriptions. */
+function clearJobSession(): void {
+  const s = jobsStore();
+  if (s.timer) clearTimeout(s.timer);
+  s.timer = undefined;
+  s.ui = undefined;
+  s.jobs.clear();
+  s.rows.clear();
+  s.parents.clear();
+  s.nested.clear();
+  s.pending.clear();
+  s.details.clear();
+}
+
+/** Use pi's structured nested-call events, never script source or printed output. */
+export function registerNestedJobs(pi: ExtensionAPI): void {
+  pi.on("tool_execution_start", (event) => {
+    const s = jobsStore();
+    if (s.options.enabled && event.parentToolCallId) {
+      s.parents.set(event.toolCallId, s.parents.get(event.parentToolCallId) ?? event.parentToolCallId);
+    }
+  });
+  pi.on("tool_result", (event) => {
+    const s = jobsStore();
+    if (!s.options.enabled) return;
+    if (event.parentToolCallId) {
+      const root = s.parents.get(event.parentToolCallId) ?? event.parentToolCallId;
+      const seed = piProcessesProvider.fromToolResult({
+        toolName: event.toolName,
+        args: event.input,
+        isPartial: false,
+        result: event,
+      });
+      if (!seed) return;
+      const jobs = s.nested.get(root) ?? [];
+      if (!jobs.some((job) => job.id === seed.id)) jobs.push(rememberJob(s, seed, piProcessesProvider));
+      s.nested.set(root, jobs);
+      repaint(s);
+      return;
+    }
+    for (const [id, root] of s.parents) if (root === event.toolCallId) s.parents.delete(id);
+    const jobs = s.nested.get(event.toolCallId);
+    if (!jobs?.length) return;
+    // Preserve the tool's own details contract. Unknown non-object details keep
+    // live tracking, but cannot carry our metadata safely on a resumed session.
+    const details = event.details;
+    if (details !== undefined && (details === null || typeof details !== "object" || Array.isArray(details))) return;
+    return { details: { ...details, tidyBackgroundJobs: jobs.map((job) => ({ ...job })) } };
+  });
+  pi.on("session_start", clearJobSession);
+  pi.on("session_tree", clearJobSession);
+  pi.on("session_shutdown", () => {
+    clearJobSession();
+    connectJobs(undefined);
+  });
 }
 
 /**
@@ -295,7 +467,8 @@ export function noteJobMessage(message: MessageSnapshot | undefined): boolean {
     if (!hit) continue;
     // On a reload the row rendered first, with the start snapshot: one more
     // frame lets it show what this message says.
-    if (apply(s, hit.id, hit.patch)) repaint(s);
+    if (!s.jobs.has(hit.id)) s.pending.set(hit.id, { ...s.pending.get(hit.id), ...hit.patch });
+    else if (apply(s, hit.id, hit.patch)) repaint(s);
     return s.options.hideNotifications && s.rows.has(hit.id);
   }
   return false;
@@ -345,6 +518,10 @@ export function resetJobs(providers: JobProvider[] = [piProcessesProvider]): voi
     providers,
     jobs: new Map(),
     rows: new Set(),
+    parents: new Map(),
+    nested: new Map(),
+    pending: new Map(),
+    details: new Map(),
     options: { enabled: true, hideNotifications: true },
   });
 }

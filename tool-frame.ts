@@ -22,7 +22,7 @@ import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
-import { setJobOptions } from "./background-jobs.ts";
+import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -253,7 +253,12 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   // ctrl+o 与 pi 自己的展开都走 setExpanded:先改层级,再让 pi 记自己的状态
   anyProto.setExpanded = function (this: ToolBoxInternals, expanded: boolean) {
-    if (grouping()) noteSetExpanded(this, expanded, pointerDepth > 0);
+    if (grouping()) {
+      if (!expanded && pointerDepth === 0 && !toolOptions.get().alwaysShow.has(this.toolName)) {
+        closeJobDetails(jobsForTool(this).map((job) => job.id));
+      }
+      noteSetExpanded(this, expanded, pointerDepth > 0);
+    }
     return originalSetExpanded.call(this, expanded);
   };
 
