@@ -185,10 +185,35 @@ test("the fold state is per box and survives a re-render", () => {
   assert.equal(codemodeSections({}).script, false, "another box starts closed");
 });
 
-test("a script that called nothing keeps pi's body, with no fold rows", () => {
-  const out = composeCodemodeBody(piBody, { calls: [] }, { script: false, output: false }, theme, { icons: true });
-  assert.deepEqual(out.toggles, []);
-  assert.ok(text(out).some((row) => row.includes("==> text 1/2")), "pi's output rows are kept");
+test("a script that called nothing still folds: the output marker is its anchor", () => {
+  // What pi draws for `text('hi')` with no nested calls: title, script, output.
+  const noCalls = [
+    " codemode",
+    " const x = 1;",
+    " text('hi');",
+    "",
+    " \x1b[36m==> text 1/1 <==\x1b[39m",
+    " \x1b[36mhi\x1b[39m",
+    "",
+    " Took 0.1s",
+  ];
+  const out = composeCodemodeBody(noCalls, { calls: [] }, { script: false, output: false }, theme, { icons: true });
+  assert.deepEqual(
+    out.toggles.map((toggle) => toggle.section),
+    ["script", "output"],
+  );
+  assert.deepEqual(text(out), ["▸ script · 2 lines", "▸ output · 1 item"]);
+
+  // No marker to anchor on: pi's own body stays.
+  const bare = [" codemode", " const x = 1;", "", " just text"];
+  assert.deepEqual(composeCodemodeBody(bare, { calls: [] }, { script: false, output: false }, theme, { icons: true }).toggles, []);
+});
+
+test("one rule separates the script from the output when no calls sit between them", () => {
+  const noCalls = [" codemode", " const x = 1;", "", " \x1b[36m==> text 1/1 <==\x1b[39m", " \x1b[36mhi\x1b[39m"];
+  const out = composeCodemodeBody(noCalls, { calls: [] }, { script: false, output: false }, theme, { icons: true, width: 40 });
+  const rules = text(out).filter((row) => row.startsWith("─"));
+  assert.equal(rules.length, 1, text(out).join("\n"));
 });
 
 test("the body's own rows take a name column and a duration column", () => {

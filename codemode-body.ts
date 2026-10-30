@@ -317,6 +317,8 @@ export interface CodemodeToggle {
 const TIMER_ROW = /^\s*(?:Took|Elapsed)\s+\d/;
 const CONTINUATION = /^\s{4,}\S/;
 const TEXT_ITEM = /^==> text \d+\/\d+ <==$/;
+/** The first row of the output, when a script's calls cannot locate it. */
+const OUTPUT_START = /^(?:==> text \d+\/\d+ <==|<console_output>|Script error:)$/;
 
 /** The rows pi drew for one call, plus the indented error text under it. */
 interface Regions {
@@ -326,15 +328,16 @@ interface Regions {
 }
 
 /**
- * Split a decorated body into the script, the call rows and the output.
+ * Split a body into the script, the call rows and the output.
  *
  * The call rows are the anchors: pi draws one per `details.calls` entry, in
  * order, so matching them in sequence locates both boundaries without knowing
- * anything else about the layout. Without a call row there is nothing to anchor
- * on and the body is left as it is.
+ * anything else about the layout. A script that calls nothing has no anchor, so
+ * the output's first marker takes over (`==> text 1/2 <==`, `<console_output>`,
+ * `Script error:`); without either there is nothing to go by and the body is
+ * left as it is.
  */
 function splitRegions(lines: readonly string[], calls: readonly NestedCall[], toolName: string): Regions | undefined {
-  if (calls.length === 0) return undefined;
   const plain = lines.map(visibleText);
   let next = 0;
   let first = -1;
@@ -348,21 +351,36 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
     next++;
     end = i + 1;
   }
+  if (calls.length === 0) {
+    const start = plain.findIndex((row) => OUTPUT_START.test(row.trim()));
+    if (start < 0) return undefined;
+    return finishRegions(lines, plain, -1, start, toolName);
+  }
   if (first < 0 || end < 0) return undefined;
   // What hangs under a call: its error text, indented by the renderer.
   while (end < lines.length && (plain[end]!.trim() === "" || CONTINUATION.test(plain[end]!))) end++;
   while (end > first && plain[end - 1]!.trim() === "") end--;
+  return finishRegions(lines, plain, first, end, toolName);
+}
 
-  const head = lines.slice(0, first).filter((line) => visibleText(line).trim() !== "");
+/** Cut the three regions out of the body once `start`/`end` of the calls are known. */
+function finishRegions(
+  lines: readonly string[],
+  plain: readonly string[],
+  first: number,
+  end: number,
+  toolName: string,
+): Regions {
+  const head = lines.slice(0, first < 0 ? end : first).filter((line) => visibleText(line).trim() !== "");
   // pi's call renderer titles the block with the tool's name, which the row
   // above the body already says.
   while (head.length > 0 && visibleText(head[0]!).trim() === toolName) head.shift();
 
   // pi's elapsed row closes the body; the row above the body carries the time.
-  const tail = lines.slice(end).filter((line) => visibleText(line).trim() !== "");
+  const tail = lines.slice(first < 0 ? end : end).filter((line) => visibleText(line).trim() !== "");
   while (tail.length > 0 && TIMER_ROW.test(visibleText(tail[tail.length - 1]!).trim())) tail.pop();
 
-  return { script: head, calls: lines.slice(first, end), output: tail };
+  return { script: head, calls: first < 0 ? [] : lines.slice(first, end), output: tail };
 }
 
 /**
@@ -413,15 +431,19 @@ export function composeCodemodeBody(
 
   const out: string[] = [];
   const toggles: CodemodeToggle[] = [];
+  // The script's rule only closes a block of call rows; between the script and
+  // the output with nothing in between, the output's rule does the job alone.
+  const ruleAfterScript = rule !== undefined && callRows.length > 0;
+  const ruleBeforeOutput = rule !== undefined && (callRows.length > 0 || regions.script.length > 0);
   if (regions.script.length > 0) {
     toggles.push({ row: out.length, section: "script" });
     out.push(foldRow(state.script, options.hovered === "script", "script", plural(regions.script.length, "line"), theme));
     if (state.script) out.push(...regions.script);
-    if (rule) out.push(rule);
+    if (ruleAfterScript) out.push(rule!);
   }
   out.push(...callRows);
   if (regions.output.length > 0) {
-    if (rule) out.push(rule);
+    if (ruleBeforeOutput) out.push(rule!);
     toggles.push({ row: out.length, section: "output" });
     out.push(foldRow(state.output, options.hovered === "output", "output", plural(itemCount(regions.output), "item"), theme));
     if (state.output) out.push(...separateItems(regions.output));
