@@ -343,6 +343,13 @@ test("nested codemode calls are counted by tool, failures included", () => {
   );
   assert.deepEqual(summarizeNestedCalls(undefined), { kinds: "", failed: 0, total: 0 });
   assert.deepEqual(summarizeNestedCalls({ calls: [] }), { kinds: "", failed: 0, total: 0 });
+  // MCP tools count by server: the tool names alone would fill the row.
+  assert.deepEqual(
+    summarizeNestedCalls({
+      calls: [call("mcp__chrome_devtools__list_pages", "ok"), call("mcp__chrome_devtools__take_screenshot", "ok")],
+    }).kinds,
+    "chrome_devtools×2",
+  );
 });
 
 test("a codemode row counts its nested calls instead of quoting the script", () => {

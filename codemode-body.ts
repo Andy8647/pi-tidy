@@ -24,7 +24,7 @@
  * summary of several calls; nothing ties an item back to the call that fed it.
  */
 
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { rawIndexOfVisible, trimTrailingSpaces, visibleText } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
@@ -73,7 +73,7 @@ function nestedCalls(details: unknown): NestedCall[] {
  * it through; otherwise read the one key that survived. Empty when neither
  * works, and the row keeps pi's JSON.
  */
-function summarizeNestedArgs(name: string, argsText: string): string {
+function summarizeNestedArgs(name: string, argsText: string, budget: number): string {
   let args: unknown;
   try {
     args = JSON.parse(argsText);
@@ -90,7 +90,7 @@ function summarizeNestedArgs(name: string, argsText: string): string {
     }
   }
   if (!args || typeof args !== "object") return "";
-  return summarizeArgs(name, args);
+  return summarizeArgs(name, args, budget);
 }
 
 /**
@@ -180,6 +180,7 @@ function decorateRows(
   calls: NestedCall[],
   icons: boolean,
   nameWidth: number,
+  width: number | undefined,
 ): string[] {
   const built: string[] = [];
   const callRows = new Set<number>();
@@ -204,8 +205,15 @@ function decorateRows(
     const call = calls[index]!;
     let row = line;
     if (call.args) {
-      const summary = summarizeNestedArgs(name, call.args);
-      if (summary) row = replaceArgs(row, call.args, summary);
+      // What the arguments may use: the row, minus the name (a long one keeps
+      // its own cells), the kind icon and the duration column.
+      const budget = Math.max(20, (width ?? 100) - Math.max(nameWidth, name.length) - 14);
+      const summary = summarizeNestedArgs(name, call.args, budget);
+      // A summary is short by construction; the raw JSON is not, and a 200-cell
+      // argument wraps the row inside the box. Clip it the way the outer rows
+      // clip a long command.
+      const replacement = summary || truncateToWidth(call.args, budget, "…");
+      if (replacement) row = replaceArgs(row, call.args, replacement);
     }
     row = padName(row, name, lead, nameWidth);
     if (icons) row = addKindIcon(row, name, lead);
@@ -270,7 +278,7 @@ export function decorateCodemodeBody(
   options: CodemodeBodyOptions,
 ): string[] {
   const calls = nestedCalls(details);
-  const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons, nameColumn(calls)) : lines;
+  const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons, nameColumn(calls), options.width) : lines;
   return dropBashTrailers(decorated);
 }
 
@@ -426,7 +434,7 @@ export function composeCodemodeBody(
   // and the name is what tells one call row from the output.
   const regions = splitRegions(lines, calls, "codemode");
   if (!regions) return { lines: decorateCodemodeBody(lines, details, options), toggles: [] };
-  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons, nameColumn(calls)));
+  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons, nameColumn(calls), options.width));
   const rule = ruleRow(theme, options.width);
 
   const out: string[] = [];

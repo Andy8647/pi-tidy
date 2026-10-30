@@ -216,6 +216,18 @@ test("one rule separates the script from the output when no calls sit between th
   assert.equal(rules.length, 1, text(out).join("\n"));
 });
 
+test("arguments with nothing readable are clipped to the row instead of wrapping", () => {
+  // Numbers only: there is no value to summarize, and the raw JSON is long.
+  const json = `{${Array.from({ length: 12 }, (_, i) => `"k${i}":${i * 100}`).join(",")}}`;
+  const calls = [{ name: "mcp__chrome_devtools__list_pages", args: json }];
+  const body = [" codemode", " const x = 1;", "", ` \x1b[32m✓\x1b[39m mcp__chrome_devtools__list_pages \x1b[90m${json}\x1b[39m 4ms`];
+  const out = composeCodemodeBody(body, { calls }, { script: false, output: false }, theme, { icons: true, width: 60 });
+  const row = out.lines.find((line) => line.includes("list_pages"))!;
+  assert.ok(!plain(row).includes(json), "the raw JSON is clipped, not printed whole");
+  assert.ok(plain(row).includes("…"), "clipped, not wrapped");
+  assert.ok(plain(row).includes("4ms"), "the duration survives the clip");
+});
+
 test("the body's own rows take a name column and a duration column", () => {
   const calls = [
     { name: "bash", args: '{"command":"pwd"}' },

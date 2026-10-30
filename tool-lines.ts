@@ -240,7 +240,10 @@ export function summarizeNestedCalls(details: unknown): NestedCallSummary {
   let failed = 0;
   for (const call of calls as Array<{ name?: unknown; status?: unknown }>) {
     const name = typeof call?.name === "string" && call.name ? call.name : "call";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
+    // `mcp__chrome_devtools__take_screenshot` says less than its server does and
+    // eats the row; one server with three tools is one entry.
+    const key = name.startsWith("mcp__") ? (name.split("__")[1] ?? name) : name;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
     if (call?.status === "error" || call?.status === "cancelled") failed++;
   }
   const kinds = [...counts].map(([name, count]) => `${name}×${count}`).join(" ");
