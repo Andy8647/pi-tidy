@@ -432,13 +432,6 @@ function renderCell(
 }
 
 /**
- * Render the diff as two panes. Returns null when the width cannot hold a
- * readable split — the caller then keeps pi's unified diff.
- *
- * Memoised on the diff text: the frame patch re-renders every box on every
- * frame, and highlighting is the expensive part.
- */
-/**
  * The line under the call row: `↳ diff +3 -1 [+++----]`.
  *
  * The bar is proportional (lazygit's summary line), not a histogram — one
@@ -460,18 +453,16 @@ function renderSummary(add: number, remove: number, width: number, palette: Pale
   return pad(`${' '.repeat(PAD)}${prefix} ${graph}\x1b[39m${' '.repeat(PAD)}`, width);
 }
 
+/**
+ * Render the diff as two panes. Returns null when the width cannot hold a
+ * readable split — the caller then keeps pi's unified diff.
+ *
+ * Not memoised: pi re-renders every box on every frame, so the cache has to
+ * hold one entry per box, and it lives on the box (`splitEditBody` in
+ * tool-frame.ts). A single module-level slot here was evicted by the next edit
+ * box in the transcript, every frame, and never hit.
+ */
 export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
-  const { diff, width, theme, filePath, maxLines } = input;
-  const key = `${width}\u0000${maxLines ?? "all"}\u0000${filePath ?? ""}\u0000${theme.fg("toolDiffAdded", "x")}\u0000${diff}`;
-  if (memo && memo.key === key) return memo.value;
-  const value = build(input);
-  memo = { key, value };
-  return value;
-}
-
-let memo: { key: string; value: SplitDiffOutput | null } | undefined;
-
-function build(input: SplitDiffInput): SplitDiffOutput | null {
   const { diff, width, theme, filePath } = input;
   const parsed: ParsedLine[] = [];
   for (const raw of diff.split("\n")) {

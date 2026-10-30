@@ -129,10 +129,29 @@ export function classifyAssistant(message: AssistantMessageLike | undefined): As
  * The message's thinking, one entry per *run*: pi renders consecutive thinking
  * blocks as one block, so a run is what a single label (or our single row)
  * stands for. Whitespace-only blocks are dropped, exactly like pi drops them.
+ *
+ * Asked for by every assistant message on every frame, so the runs are kept
+ * per message and handed back as the same array while the text is unchanged
+ * (callers cache their previews against it). Thinking only ever grows by
+ * appending, so the block count plus the thinking length says when it has.
  */
-export function thinkingRuns(message: AssistantMessageLike | undefined): string[] {
+export function thinkingRuns(message: AssistantMessageLike | undefined): readonly string[] {
   if (!message || !Array.isArray(message.content)) return [];
   const content = message.content as Array<{ type?: unknown; thinking?: unknown }>;
+  let size = 0;
+  for (const block of content) {
+    if (block?.type === "thinking" && typeof block.thinking === "string") size += block.thinking.length;
+  }
+  const cached = runsOf.get(message);
+  if (cached && cached.blocks === content.length && cached.size === size) return cached.runs;
+  const runs = collectRuns(content);
+  runsOf.set(message, { blocks: content.length, size, runs });
+  return runs;
+}
+
+const runsOf = new WeakMap<object, { blocks: number; size: number; runs: readonly string[] }>();
+
+function collectRuns(content: Array<{ type?: unknown; thinking?: unknown }>): string[] {
   const runs: string[] = [];
   for (let i = 0; i < content.length; i++) {
     if (content[i]?.type !== "thinking") continue;
