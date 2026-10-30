@@ -410,6 +410,16 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
 }
 
 /**
+ * `󰧑 thinking` on its own: what an open thinking box carries in its top border,
+ * in place of the row it opened from. Same glyph, colour and slant as the row.
+ */
+export function formatThoughtLabel(theme: ThemeLike, options: LineOptions = {}): string {
+  const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
+  const label = theme.fg(options.thinkingColor ?? "warning", `${glyph ? `${glyph} ` : ""}thinking`);
+  return theme.italic ? theme.italic(label) : label;
+}
+
+/**
  * `nf-md-brain`. Not the emoji 🧠: it is absent from every monospace Nerd Font
  * and falls back to a two-cell colour glyph, which breaks the row's alignment.
  */

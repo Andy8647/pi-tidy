@@ -18,11 +18,13 @@ import {
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
+import { tidyEnabled } from "./live.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
+import { drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
 import {
   formatGroupLine,
+  formatThoughtLabel,
   formatThoughtLine,
   formatToolLine,
   formatJobLine,
@@ -124,7 +126,7 @@ export function codemodeHover(tool: object): CodemodeSection | undefined {
 }
 
 /** A full-width band behind the row: the whole row is the click target. */
-function hoverBand(line: string, width: number, theme: ThemeLike): string {
+export function hoverBand(line: string, width: number, theme: ThemeLike): string {
   const padded = padToWidth(line, width);
   return theme.bg ? theme.bg("selectedBg", padded) : padded;
 }
@@ -253,7 +255,7 @@ export function renderGroupedTool(
     const base = lines.length;
     const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
     for (const [index, line] of body.entries()) {
-      const out = `${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`;
+      const out = `${gutter}${BODY_PAD}${line.trimEnd()}`;
       const section = toggles.find((toggle) => toggle.row === index)?.section;
       lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
     }
@@ -298,11 +300,36 @@ interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
 
 /** A codemode body's fold labels: one clickable row each. */
-interface CodemodeRowSpan {
+export interface CodemodeRowSpan {
   row: number;
   section: CodemodeSection;
 }
 const codemodeSpans = new WeakMap<object, CodemodeRowSpan[]>();
+
+/** The fold row at `y`, if there is one. */
+export function codemodeFoldAt(rows: readonly CodemodeRowSpan[] | undefined, y: unknown): CodemodeRowSpan | undefined {
+  return typeof y === "number" ? rows?.find((span) => span.row === y) : undefined;
+}
+
+/**
+ * A packet on a codemode fold row, grouped or framed: a click opens or shuts
+ * that section, motion lights the row. Presses and drags stay pi's: the row is
+ * text like any other.
+ */
+export function routeCodemodeFold(tool: GroupedTool, event: any, section: CodemodeSection): unknown {
+  const click = event?.type === "click" && (event.button === "left" || event.button === 0);
+  if (click) {
+    toggleCodemodeSection(tool, section);
+    (tool as { invalidate?(): void }).invalidate?.();
+    tool.ui?.requestRender?.();
+    return { handled: true };
+  }
+  if (event?.type === "move" && hoverTracking) {
+    hoverClaimed = true;
+    if (setHover(tool, `codemode:${section}`, tool.ui)) tool.ui?.requestRender?.();
+  }
+  return undefined;
+}
 
 /** Logs are plain text here: no cursor moves, OSC payloads, tabs or embedded rows. */
 function jobText(text: string): string {
@@ -514,21 +541,8 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
   // A codemode body's fold labels: the script and the output open in place.
-  const fold = typeof y === "number" ? codemodeSpans.get(tool)?.find((span) => y === span.row) : undefined;
-  if (fold) {
-    if (click) {
-      toggleCodemodeSection(tool, fold.section);
-      (tool as { invalidate?(): void }).invalidate?.();
-      tool.ui?.requestRender?.();
-      return { handled: true };
-    }
-    if (event?.type === "move" && hoverTracking) {
-      hoverClaimed = true;
-      if (setHover(tool, `codemode:${fold.section}`, tool.ui)) tool.ui?.requestRender?.();
-    }
-    // Presses and drags stay pi's: the row is text like any other.
-    return undefined;
-  }
+  const fold = codemodeFoldAt(codemodeSpans.get(tool), y);
+  if (fold) return routeCodemodeFold(tool, event, fold.section);
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
     if (event?.type === "move" && hoverTracking) {
@@ -941,11 +955,17 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
       continue;
     }
     const index = run++;
-    const text = liveTexts?.[index] ?? settledRowText(runs, budget)[index] ?? "";
-    const rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
-    if (overrides?.get?.(index) === false) {
-      const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
-      if (body.length > 0) rows.push(...drawFrame(body, width, theme, color));
+    const open = overrides?.get?.(index) === false;
+    const body = open ? trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]) : [];
+    let rows: string[];
+    if (body.length > 0) {
+      // Open, the box carries the label in its top border (`╭─ 󰧑 thinking ──╮`):
+      // the row it opened from would only repeat the first words of the box.
+      rows = drawFrame(body, width, theme, color);
+      rows[0] = labeledTopBorder(width, theme, color, formatThoughtLabel(theme, { icons, thinkingColor: color, spinner }));
+    } else {
+      const text = liveTexts?.[index] ?? settledRowText(runs, budget)[index] ?? "";
+      rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
     }
     // A final thinking block carries pi's end-of-message markers too.
     for (const marker of taken.join("").match(ZONE_MARKERS) ?? []) {
@@ -1001,7 +1021,12 @@ function trimMessageEdges(lines: string[]): { lines: string[]; top: number } {
  * decides per render: draw as usual, draw nothing, draw under the group
  * gutter (two cells narrower, `│` in front), or draw its own rows.
  */
-function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (component: any, width: number) => BoundaryDraw): void {
+function wrapBoundaryRender(
+  proto: { render?: RenderFn } | undefined,
+  view: (component: any, width: number) => BoundaryDraw,
+  /** How it draws with grouping off; pi's own render when absent. */
+  ungrouped?: BoundaryDraw,
+): void {
   const render = proto?.render;
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
@@ -1009,9 +1034,8 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
     // streaming carrier/boundary transitions, but their old layout must not.
     this[CARRIER_CLICK] = null;
     this[MESSAGE_VIEW] = undefined;
-    if (!groupingActive()) return render.apply(this, args);
     const width = typeof args[0] === "number" ? args[0] : 80;
-    const how = view(this, width);
+    const how = groupingActive() ? view(this, width) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
     if (how === "hidden") return [];
     if (how === "untrimmed") return render.apply(this, args);
     if (typeof how === "object") return how.lines;
@@ -1049,7 +1073,10 @@ export function installGroupBoundaries(): void {
     // label is the same thing our rows are, so it wears the same format, right
     // above the text. It is not one of the group's rows, so it is not counted.
     return "rethink";
-  });
+    // Grouping off there is nothing to fold a step into, but its thinking is
+    // still tidy's row rather than a bare `Thinking...` floating over the box:
+    // the row has nothing to do with folding calls.
+  }, "rethink");
   wrapBoundaryRender((UserMessageComponent as any)?.prototype, (component) => {
     noteBoundary(component);
     return "untrimmed";

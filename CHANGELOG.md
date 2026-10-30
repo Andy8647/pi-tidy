@@ -13,7 +13,35 @@ pointer shape to match: tidy asks the terminal for a hand (OSC 22) while a row i
 none is, and puts the arrow back before pi leaves the alt screen. Ghostty, kitty, foot and WezTerm draw it; other
 terminals ignore the sequence.
 
+**A `codemode` box reads as its call list with grouping off, too**
+([#27](https://github.com/Andy8647/pi-tidy/issues/27)). 0.6.0 built the call list into the group: with
+`groupTools: false` the box was still pi's own — ten lines of script, the last eight calls, the head of the output
+and a `Took` row. Now it is the same list in a frame of its own: the row a group would show for the call
+(`✓ codemode bash×3 read×1  1 failed · 0.1s`) as its title, every call the script made, and the script and the
+output folded to one row each that open on click and light up under the pointer. `ctrl+o`, or a click anywhere
+else in the box, opens both. The list is drawn from a second, expanded rendering of pi's own renderer, so nothing
+is cut short and pi's box is left as it was. The same goes for a grouped session with `codemode` in
+`alwaysShowTools`. Each box keeps its list until something in it changes: 0.6.0 re-decorated every framed
+`codemode` box on every frame, which on a session of 300 scripts cost about 38 ms a frame; it is under 2 ms now.
+Thanks to @indesperate for asking for the call list in the first place and for noticing it was missing with
+grouping off.
+
+**Thinking is tidy's row with grouping off, too.** The thinking row was wired into grouping, so with
+`groupTools: false` every step left pi's bare `Thinking...` floating over its box. The row has nothing to do with
+folding calls: with grouping off each step's thinking is now the same `thinking` row a message that writes text
+gets inside a group — the brain, one line of what it thought, a click to open it in its box — and the step loses
+pi's padding rows the way it does with grouping on.
+
+**An open thinking box carries its label in the border.** Opening a message's thinking used to keep the
+`󰧑 thinking  Now demo…` row above the box, repeating the box's first words. The row now folds into the box's
+top border, `╭─ 󰧑 thinking ───╮`, so the open box is one row shorter and still says what it holds; a click
+anywhere on it, the border included, folds it back into the row.
+
 ### Fixed
+
+**bash's `Command exited with code N` trailer comes off a failed call inside a script.** 0.6.0 said so, but
+it only matched the row without pi's box around it: drawn for real, the row is one cell further in, and the
+trailer stayed, two blank rows above it.
 
 **Long sessions scroll smoothly again.** pi's fullscreen mode draws the whole transcript on every frame — every
 wheel tick, every streamed token, every hover change — and three things tidy draws were rebuilt from scratch each
@@ -23,6 +51,11 @@ diff in the history. The lag grew with the number of edits, which is why only lo
 1,500-message session with 121 edits a scroll frame took about 50 ms (pi on its own: under 1 ms); it takes about
 1.4 ms now. The diff is kept per box, and so are each group's summary line and each message's thinking rows, each
 rebuilt only when what it shows changes. Nothing looks different.
+
+**…and with every box open, too.** With `ctrl+o`'s expand-all on, each opened call's rows went through a
+trailing-whitespace regex that is quadratic on a padded row (the padding is followed by a colour reset, so it
+never sits at the end), and the same session took about 250 ms a frame. It is about 24 ms now, with nothing
+looking different.
 
 ## [0.6.0] - 2026-10-30
 

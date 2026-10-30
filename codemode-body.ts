@@ -38,7 +38,8 @@ const STATUS_GLYPHS = new Set(["✓", "✗", "⊘", "…"]);
  * four spaces. The top-level bash box keeps pi's version: there it is the only
  * report of the exit code.
  */
-const NESTED_BASH_TRAILER = /^ {4}Command (?:exited with code \d+|terminated)\b/;
+// Four cells of pi's error indent, plus the box's own padding when pi draws it.
+const NESTED_BASH_TRAILER = /^ {4,5}Command (?:exited with code \d+|terminated)\b/;
 
 /**
  * The first path-ish argument visible in a clipped JSON string. `args` is cut
@@ -141,7 +142,7 @@ const DURATION_TAIL = /(\d+(?:\.\d+)?(?:ms|s))$/;
 
 /** The text of a call row without the padding pi gave it, and without its duration. */
 function argumentsWidth(line: string): number {
-  const body = visibleText(line).replace(/\s+$/, "");
+  const body = visibleText(line).trimEnd();
   const match = DURATION_TAIL.exec(body);
   return match ? visibleWidth(body.slice(0, match.index)) : visibleWidth(body);
 }
@@ -156,7 +157,7 @@ function argumentsWidth(line: string): number {
  */
 function alignDuration(line: string, target: number, gap: number): string {
   const plain = visibleText(line);
-  const match = DURATION_TAIL.exec(plain.replace(/\s+$/, ""));
+  const match = DURATION_TAIL.exec(plain.trimEnd());
   if (!match) return line;
   const pad = target + gap - argumentsWidth(line);
   if (pad <= 0) return line;
@@ -248,7 +249,7 @@ function decorateRows(
   let widestDuration = 0;
   for (const index of callRows) {
     target = Math.max(target, argumentsWidth(built[index]!));
-    const plain = visibleText(built[index]!).replace(/\s+$/, "");
+    const plain = visibleText(built[index]!).trimEnd();
     const match = DURATION_TAIL.exec(plain);
     if (match) widestDuration = Math.max(widestDuration, visibleWidth(match[1]!));
   }
@@ -266,14 +267,14 @@ function decorateRows(
  */
 function clipRow(line: string, width: number): string {
   const plain = visibleText(line);
-  const body = plain.replace(/\s+$/, "");
+  const body = plain.trimEnd();
   if (visibleWidth(body) <= width) return line;
   const match = DURATION_TAIL.exec(body);
   const from = match ? rawIndexOfVisible(line, match.index) : -1;
   if (from < 0) return truncateToWidth(line, width, "…");
   const tail = trimTrailingSpaces(line.slice(from));
   const room = Math.max(8, width - visibleWidth(visibleText(tail)) - 2);
-  return `${truncateToWidth(line.slice(0, from).replace(/\s+$/, ""), room, "…")}  ${tail}`;
+  return `${truncateToWidth(line.slice(0, from).trimEnd(), room, "…")}  ${tail}`;
 }
 
 /** Cells the call rows' name column may take before the arguments stop paying. */

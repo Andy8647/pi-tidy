@@ -313,10 +313,20 @@ test("options are live: a re-patch (what /reload does) and enabled=false take ef
     const lines = frame(chat);
     assert.equal(lines.filter((line) => line.includes("╭")).length, 3, "every call is a box again");
     assert.ok(!lines.some((line) => line.includes("calls")));
-    assert.ok(lines.some((line) => line.includes("Thinking...")), "carriers render as pi draws them");
+    // Nothing to fold a step into, but its thinking is still tidy's row, not a
+    // bare label floating over the boxes.
+    assert.ok(!lines.some((line) => line.includes("Thinking...")), lines.join("\n"));
+    assert.ok(lines.some((line) => /thinking {2}\S/.test(line)), `a step's thinking is a row:\n${lines.join("\n")}`);
+    // And the row opens into its box on a click, as it does inside a group.
+    click(chat, "thinking  ");
+    assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 4, `the run opens:\n${frame(chat).join("\n")}`);
+    click(chat, "─ thinking ─");
+    assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 3, "and folds back from its border");
 
     tidyEnabled.set(false);
-    assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 0, "pi's own unframed boxes");
+    const off = frame(chat);
+    assert.equal(off.filter((line) => line.includes("╭")).length, 0, "pi's own unframed boxes");
+    assert.ok(off.some((line) => line.includes("Thinking...")), "and pi's own thinking label");
   } finally {
     tidyEnabled.set(true);
     patchToolBoxFrames(OPTIONS);
@@ -599,14 +609,14 @@ test("a message that both thinks and writes wears the same row, but the group do
   assert.ok(y >= 0);
   chat.handleMouse({ type: "click", button: "left", x: 4, y, screenX: 4, screenY: y, width: W, height: 10 } as any);
   const boxed = frame(chat);
-  assert.ok(boxed.some((line) => line.includes("╭")), boxed.join("\n"));
-  // The title stays above the box — outside a group the box is the only frame,
-  // so it has to say what it holds.
-  assert.ok(
-    boxed.some((line) => line.includes("thinking  先想一下")),
-    `the title sits above its box:\n${boxed.join("\n")}`,
-  );
+  // The title moves into the box's top border — outside a group the box is the
+  // only frame, so it has to say what it holds — and the preview row goes: the
+  // box shows the whole run.
   const boxTop = boxed.findIndex((line) => line.includes("╭"));
+  assert.ok(boxTop >= 0, boxed.join("\n"));
+  assert.match(boxed[boxTop]!, /^╭─ thinking ─+╮$/, `the title is in the top border:\n${boxed.join("\n")}`);
+  assert.ok(boxed[boxTop + 1]!.includes("先想一下要列哪些。"), "the run fills the box");
+  assert.ok(!boxed.some((line) => line.includes("thinking  先想一下")), `no preview row over the box:\n${boxed.join("\n")}`);
   chat.handleMouse({ type: "click", button: "left", x: 4, y: boxTop, screenX: 4, screenY: boxTop, width: W, height: 10 } as any);
   const folded = frame(chat);
   assert.ok(!folded.some((line) => line.includes("╭")), folded.join("\n"));
