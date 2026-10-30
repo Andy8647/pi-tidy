@@ -75,6 +75,17 @@ export function visibleIndexOf(row: string, needle: string): number {
   return pi >= 0 ? map[pi] : -1;
 }
 
+/** A row's text with every escape sequence removed. */
+export function visibleText(row: string): string {
+  return visibleCharMap(row).plain;
+}
+
+/** The raw index of the visible character at `plainIndex`, or -1. */
+export function rawIndexOfVisible(row: string, plainIndex: number): number {
+  const { map } = visibleCharMap(row);
+  return plainIndex >= 0 && plainIndex < map.length ? map[plainIndex] : -1;
+}
+
 /**
  * Remove the leading tool name from a call row — with the kind icon in
  * front, the word is redundant (`󰛦 edit ~/x.ts` reads choppier than

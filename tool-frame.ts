@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
+import { decorateCodemodeBody } from "./codemode-body.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
@@ -341,7 +342,13 @@ function splitEditBody(
     const iconCells = (kindPrefix ? visibleWidth(kindPrefix) : 0) + (fileGlyph ? visibleWidth(fileGlyph) + 1 : 0);
     const sourceWidth = w - 2 - iconCells;
     const split = splitEditBody(this, w - 2, sourceWidth, theme);
-    const raw = split ? split.raw : source.render(sourceWidth);
+    // A codemode body is pi's rows: its nested calls get tidy's kind icons and
+    // lose bash's trailer, nothing else moves (see codemode-body.ts).
+    const raw = this.toolName === "codemode"
+      ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons })
+      : split
+        ? split.raw
+        : source.render(sourceWidth);
 
     // The whole returned array is cached, not just the framed body.
     // pi-powerline-footer's compositor re-renders the entire root on every
