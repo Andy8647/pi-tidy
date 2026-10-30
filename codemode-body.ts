@@ -95,20 +95,80 @@ function summarizeNestedArgs(name: string, argsText: string, budget: number): st
 }
 
 /**
- * Replace the row's visible arguments with the summary. The escapes inside the
- * replaced span (the arguments' own colour closers) are carried over, so the
- * rest of the row keeps whatever styling pi gave it.
+ * Replace the visible cells `[from, to)` with the summary. The escapes inside
+ * the replaced span (the arguments' own colour closers) are carried over, so
+ * the rest of the row keeps whatever styling pi gave it.
  */
-function replaceArgs(line: string, argsText: string, summary: string): string {
-  const plain = visibleText(line);
-  const at = plain.indexOf(argsText);
-  if (at < 0) return line;
-  const from = rawIndexOfVisible(line, at);
-  const to = rawIndexOfVisible(line, at + argsText.length);
-  if (from < 0) return line;
-  const end = to < 0 ? line.length : to;
-  const escapes = line.slice(from, end).match(ESCAPES_ONLY)?.join("") ?? "";
-  return line.slice(0, from) + summary + escapes + line.slice(end);
+function replaceSpan(line: string, from: number, to: number, summary: string): string {
+  const start = rawIndexOfVisible(line, from);
+  if (start < 0) return line;
+  const stop = rawIndexOfVisible(line, to);
+  const end = stop < 0 ? line.length : stop;
+  const escapes = line.slice(start, end).match(ESCAPES_ONLY)?.join("") ?? "";
+  return line.slice(0, start) + summary + escapes + line.slice(end);
+}
+
+/**
+ * Where a call's arguments sit in its row, as visible cells `[from, to)`, or
+ * undefined while the row does not hold all of them. pi writes `✓ name args …`,
+ * so the search starts past the name and nowhere else.
+ *
+ * Spaces are let through on either side: a glued row has one where pi cut a
+ * word in two, and none where the wrap swallowed more than one. Every other
+ * character must match, in order.
+ */
+function argsSpan(plain: string, start: number, args: string): [number, number] | undefined {
+  let i = start;
+  while (plain[i] === " ") i++;
+  const from = i;
+  let k = 0;
+  while (k < args.length) {
+    if (plain[i] === args[k]) {
+      i++;
+      k++;
+    } else if (plain[i] === " ") i++;
+    else if (args[k] === " ") k++;
+    else return undefined;
+  }
+  return [from, i];
+}
+
+/**
+ * Glue a row pi's box wrapped back onto the row it came off. The box pads the
+ * first out to its width and indents the second, and breaks at a space it then
+ * drops: one space where they meet is what the text had.
+ */
+function glueWrapped(row: string, next: string): string {
+  const lead = leadIndex(visibleText(next));
+  const at = rawIndexOfVisible(next, lead);
+  const rest = at < 0 ? next : (next.slice(0, at).match(ESCAPES_ONLY)?.join("") ?? "") + next.slice(at);
+  return `${trimTrailingSpaces(row)} ${rest}`;
+}
+
+/** Rows one call's arguments may run over: 200 characters on a narrow box. */
+const WRAP_ROWS_MAX = 8;
+
+/**
+ * The call row that starts at `lines[at]`, with the rows pi wrapped its
+ * arguments onto glued back on, where its arguments sit in it, and the first
+ * row after it.
+ */
+function callRow(
+  lines: readonly string[],
+  at: number,
+  name: string,
+  args: string,
+): { row: string; span: [number, number] | undefined; next: number } {
+  let row = lines[at]!;
+  let next = at + 1;
+  if (!args) return { row, span: undefined, next };
+  const start = leadIndex(visibleText(row)) + 2 + name.length;
+  let span = argsSpan(visibleText(row), start, args);
+  while (!span && next < lines.length && next - at <= WRAP_ROWS_MAX && isWrapRow(lines[next]!)) {
+    row = glueWrapped(row, lines[next++]!);
+    span = argsSpan(visibleText(row), start, args);
+  }
+  return { row, span, next };
 }
 
 /**
@@ -139,6 +199,9 @@ function padName(line: string, name: string, lead: number, width: number): strin
 
 /** The trailing `50ms` / `1.8s` of a call row, if it has one. */
 const DURATION_TAIL = /(\d+(?:\.\d+)?(?:ms|s))$/;
+
+/** The SGR escapes a raw string ends with. */
+const OPENERS_BEFORE = /(?:\x1b\[[0-9;:]*m)+$/;
 
 /** The text of a call row without the padding pi gave it, and without its duration. */
 function argumentsWidth(line: string): number {
@@ -215,15 +278,13 @@ function decorateRows(
     callRows.add(built.length);
 
     const call = calls[index]!;
-    let row = line;
-    if (call.args) {
-      // pi's box wraps an argument longer than the row onto the next rows, and a
-      // wrapped argument cannot be found, replaced or clipped. Glue the pieces
-      // back into one logical row first.
-      let guard = 0;
-      while (!visibleText(row).includes(call.args) && guard++ < 4 && lines[i + 1] !== undefined && isWrapRow(lines[i + 1]!)) {
-        row += lines[++i];
-      }
+    // pi's box wraps an argument longer than the row onto the next rows, and a
+    // wrapped argument cannot be found, replaced or clipped. Glue the pieces
+    // back into one logical row first.
+    const glued = callRow(lines, i, name, call.args);
+    let row = glued.row;
+    i = glued.next - 1;
+    if (glued.span) {
       // What the arguments may use: the row, minus the name (a long one keeps
       // its own cells), the kind icon and the duration column.
       const budget = Math.max(8, (width ?? 100) - Math.max(nameWidth, name.length) - 14);
@@ -232,7 +293,7 @@ function decorateRows(
       // argument wraps the row inside the box. Clip it the way the outer rows
       // clip a long command.
       const replacement = summary || truncateToWidth(call.args, budget, "…");
-      if (replacement) row = replaceArgs(row, call.args, replacement);
+      if (replacement) row = replaceSpan(row, glued.span[0], glued.span[1], replacement);
     }
     row = padName(row, name, lead, nameWidth);
     if (icons) row = addKindIcon(row, name, lead);
@@ -270,8 +331,11 @@ function clipRow(line: string, width: number): string {
   const body = plain.trimEnd();
   if (visibleWidth(body) <= width) return line;
   const match = DURATION_TAIL.exec(body);
-  const from = match ? rawIndexOfVisible(line, match.index) : -1;
-  if (from < 0) return truncateToWidth(line, width, "…");
+  const at = match ? rawIndexOfVisible(line, match.index) : -1;
+  if (at < 0) return truncateToWidth(line, width, "…");
+  // The duration's colour opens right in front of it: it goes with the
+  // duration, or the clip takes it and the duration reads like the arguments.
+  const from = at - (OPENERS_BEFORE.exec(line.slice(0, at))?.[0].length ?? 0);
   const tail = trimTrailingSpaces(line.slice(from));
   const room = Math.max(8, width - visibleWidth(visibleText(tail)) - 2);
   return `${truncateToWidth(line.slice(0, from).trimEnd(), room, "…")}  ${tail}`;
@@ -399,7 +463,7 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
   const plain = lines.map(visibleText);
   let next = 0;
   let first = -1;
-  let end = -1;
+  let last = -1;
   for (let i = 0; i < lines.length && next < calls.length; i++) {
     const row = plain[i]!;
     const lead = leadIndex(row);
@@ -407,22 +471,18 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
     if ((row.slice(lead + 2).split(" ")[0] ?? "") !== calls[next]!.name) continue;
     if (first < 0) first = i;
     next++;
-    end = i + 1;
+    last = i;
   }
   if (calls.length === 0) {
     const start = plain.findIndex((row) => OUTPUT_START.test(row.trim()));
     if (start < 0) return undefined;
     return finishRegions(lines, plain, -1, start, toolName);
   }
-  if (first < 0 || end < 0) return undefined;
+  if (first < 0 || last < 0) return undefined;
   // pi's box wraps an argument longer than the row onto the rows below it; those
   // rows belong to that call, not to the output.
-  const last = calls[next - 1];
-  let glued = 0;
-  while (last?.args && end < lines.length && glued++ < 6 && isWrapRow(plain[end]!)) {
-    end++;
-    if (plain.slice(first, end).join("").includes(last.args)) break;
-  }
+  const call = calls[next - 1]!;
+  let end = callRow(lines, last, call.name, call.args).next;
   // What hangs under a call: its error text, indented by the renderer.
   while (end < lines.length && (plain[end]!.trim() === "" || CONTINUATION.test(plain[end]!))) end++;
   while (end > first && plain[end - 1]!.trim() === "") end--;

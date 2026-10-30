@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { Box, Text, visibleWidth } from "@earendil-works/pi-tui";
 import { test } from "node:test";
 import {
   codemodeSections,
@@ -243,6 +243,47 @@ test("a row pi wrapped is stitched back and clipped to one line", () => {
   assert.ok(call.includes("214ms"), rows.join("\n"));
   assert.ok(!rows.some((row) => row.startsWith("document.querySelectorAll")), "the wrapped row is gone");
   assert.ok(visibleWidth(call) <= 60, call);
+});
+
+test("a row pi's own box wrapped, padding and all, reads as its summary", () => {
+  // pi-tui wraps at a space and drops it, pads each row out to the box and
+  // indents the next: glued as drawn, the text no longer equals `args`.
+  const content = Array.from({ length: 12 }, (_, i) => `export const line${i} = "padding padding padding";`).join("\n");
+  const command = "cd ~/repo && git log --oneline -3 && git status --short && echo 'long enough that its arguments wrap'";
+  const calls = [
+    { name: "write", args: `${JSON.stringify({ path: "/tmp/demo.ts", content }).slice(0, 197)}...` },
+    { name: "bash", args: JSON.stringify({ command }) },
+  ];
+  const rows = calls.map((call) => `\x1b[32m✓\x1b[39m \x1b[36m${call.name}\x1b[39m \x1b[90m${call.args}\x1b[39m \x1b[2m3ms\x1b[22m`);
+  for (const width of [60, 100, 160]) {
+    const box = new Box(1, 0);
+    box.addChild(new Text(["codemode", "const x = 1;", "", ...rows, "", "==> text 1/1 <==", "done"].join("\n"), 0, 0));
+    const drawn = box.render(width);
+    const out = composeCodemodeBody(drawn, { calls }, { script: false, output: false }, theme, { icons: false, width });
+    const shown = text(out);
+    const write = shown.find((row) => row.startsWith("✓ write"));
+    const bash = shown.find((row) => row.startsWith("✓ bash"));
+    assert.match(write ?? "", /^✓ write\s+\/tmp\/demo\.ts\s+3ms$/, `width ${width}:\n${shown.join("\n")}`);
+    assert.match(bash ?? "", /^✓ bash\s+cd ~\/repo && git log/, `width ${width}:\n${shown.join("\n")}`);
+    assert.ok(!shown.some((row) => row.includes('{"')), `no raw JSON at width ${width}:\n${shown.join("\n")}`);
+    for (const line of out.lines.filter((line) => plain(line).includes("✓"))) {
+      assert.match(line, /\x1b\[2m *3ms/, "the duration keeps its own colour");
+      assert.ok(visibleWidth(line) <= width, plain(line));
+    }
+    assert.ok(shown.includes("▸ output · 1 item"), "the rows a call wrapped onto are not the output");
+  }
+});
+
+test("a row tidy cannot read is clipped, and its duration keeps its colour", () => {
+  // pi's collapsed rows cut the arguments at 80 characters: what the row shows
+  // is not `args`, so there is nothing to replace and the row is clipped whole.
+  const args = JSON.stringify({ path: "/tmp/demo.ts", content: "x".repeat(120) });
+  const calls = [{ name: "write", args }];
+  const body = [" codemode", " const x = 1;", "", ` \x1b[32m✓\x1b[39m \x1b[36mwrite\x1b[39m \x1b[90m${args.slice(0, 77)}...\x1b[39m \x1b[2m4ms\x1b[22m`];
+  const out = composeCodemodeBody(body, { calls }, { script: false, output: false }, theme, { icons: false, width: 60 });
+  const row = out.lines.find((line) => plain(line).includes("write"))!;
+  assert.ok(plain(row).includes("…"), plain(row));
+  assert.match(row, /\x1b\[2m *4ms/, `the clip leaves the duration its colour: ${JSON.stringify(row)}`);
 });
 
 test("one rule separates the script from the output when no calls sit between them", () => {
