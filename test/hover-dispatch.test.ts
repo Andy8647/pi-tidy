@@ -29,7 +29,7 @@ const { noteBoundary, resetGroups } = await import("../tool-groups.ts");
 
 /** The Terminal surface TuiAltScreen touches, minus anything real. */
 function fakeTerminal(columns = 200, rows = 20) {
-  const state: { input?: (data: string) => void } = {};
+  const state: { input?: (data: string) => void; writes: string[] } = { writes: [] };
   return {
     state,
     columns,
@@ -43,7 +43,9 @@ function fakeTerminal(columns = 200, rows = 20) {
       state.input = undefined;
     },
     async drainInput() {},
-    write() {},
+    write(data: string) {
+      state.writes.push(data);
+    },
     moveBy() {},
     hideCursor() {},
     showCursor() {},
@@ -128,4 +130,73 @@ test("a motion packet lights the row under it, and leaving drops the band", asyn
   assert.doesNotMatch(grouped.render(200)[0]!, /\[band\]/, "the band is dropped");
 
   tui.stop();
+});
+
+test("the pointer is a hand over a lit row and the arrow again off it", async () => {
+  resetGroups();
+  resetHover();
+  enableHoverForTests();
+  installHoverTracking();
+  noteBoundary({});
+
+  const tool: any = {
+    toolName: "bash",
+    toolCallId: "call-pointer",
+    args: { command: "pnpm test" },
+    isPartial: false,
+    expanded: false,
+    result: { isError: false, durationMs: 100, content: [] },
+    setExpanded(next: boolean) {
+      tool.expanded = next;
+    },
+  };
+  const grouped = groupedComponent(tool);
+  tool.ui = { requestRender: () => grouped.render(200) };
+  const plain = { render: () => ["a message row"], invalidate: () => {} };
+
+  const terminal = fakeTerminal();
+  const tui = new TuiAltScreen(terminal as any);
+  tui.addChild(
+    new ScrollView(
+      {
+        render: (width: number) => [...grouped.render(width), ...plain.render()],
+        invalidate() {},
+        handleMouse(event: any) {
+          if (event.y === 0 && event.type === "move") return grouped.handleMouse(event);
+          return undefined;
+        },
+      } as any,
+      {} as any,
+    ) as any,
+  );
+  tui.start();
+  await tick();
+
+  /** Every OSC 22 the terminal received, as its shape name. */
+  const shapes = () =>
+    terminal.state.writes.flatMap((data) => [...data.matchAll(/\x1b\]22;([^\x1b]*)\x1b\\/g)].map((match) => match[1]));
+  const send = (seq: string) => terminal.state.input?.(seq);
+
+  send("\x1b[<35;3;1M"); // onto the summary line
+  await tick();
+  assert.deepEqual(shapes(), ["pointer"], "a lit row turns the pointer into a hand");
+
+  send("\x1b[<35;9;1M"); // along the same row
+  await tick();
+  assert.deepEqual(shapes(), ["pointer"], "moving along the row writes nothing more");
+
+  send("\x1b[<35;3;2M"); // off it, onto the plain component
+  await tick();
+  assert.deepEqual(shapes(), ["pointer", "default"], "leaving the row brings the arrow back");
+
+  // Lit when pi leaves the alt screen: the arrow goes back before mouse
+  // tracking is switched off, so the terminal's own cursor wins afterwards.
+  send("\x1b[<35;3;1M");
+  await tick();
+  terminal.state.writes.length = 0;
+  tui.stop();
+  const out = terminal.state.writes.join("");
+  const reset = out.indexOf("\x1b]22;default\x1b\\");
+  assert.ok(reset >= 0, "stopping while lit resets the pointer");
+  assert.ok(reset < out.indexOf("\x1b[?1003l"), "the reset precedes turning mouse tracking off");
 });

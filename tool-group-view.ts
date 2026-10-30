@@ -132,22 +132,55 @@ function hoverBand(line: string, width: number, theme: ThemeLike): string {
 const HOVER_HOOK = Symbol.for("pi-toolbox:hover-hook");
 
 /**
+ * OSC 22, the pointer shape, in CSS's cursor names (Ghostty, kitty, foot,
+ * WezTerm). A lit row is a click target, so it gets the hand. `default` is the
+ * arrow a terminal shows while mouse tracking is on — the shape pi runs under —
+ * so it is what the pointer goes back to. Terminals without OSC 22 ignore both.
+ */
+const POINTER_SHAPE = "\x1b]22;pointer\x1b\\";
+const DEFAULT_SHAPE = "\x1b]22;default\x1b\\";
+/** What the terminal was last told, so a move along the same row writes nothing. */
+let pointerShown = false;
+
+type TerminalLike = { write?(data: string): void } | undefined;
+
+function syncPointer(terminal: TerminalLike, lit: boolean): void {
+  if (lit === pointerShown || typeof terminal?.write !== "function") return;
+  pointerShown = lit;
+  terminal.write(lit ? POINTER_SHAPE : DEFAULT_SHAPE);
+}
+
+/**
  * Every mouse packet goes through the alt screen. Watching it is what makes
  * hover honest: a pointer that moves off our rows — onto the editor, a message,
  * the scrollbar — produces no event for us at all, so without this hook the
  * last row would stay lit forever. No hook, no hover.
+ *
+ * The pointer shape follows the band: a hand while a row is lit, the arrow
+ * again once nothing is.
  */
 export function installHoverTracking(): void {
   const proto = (TuiAltScreen as unknown as { prototype?: Record<PropertyKey, any> })?.prototype;
   if (!proto || proto[HOVER_HOOK]) return;
   const original = proto.handleMouseEvent;
   if (typeof original !== "function") return;
-  proto.handleMouseEvent = function (this: unknown, raw: unknown) {
+  proto.handleMouseEvent = function (this: { terminal?: TerminalLike }, raw: unknown) {
     hoverClaimed = false;
     const result = original.call(this, raw);
     if (!hoverClaimed) clearHover();
+    syncPointer(this.terminal, hoverState.tool !== null);
     return result;
   };
+  // Leaving the alt screen (exit, suspend, an external editor) must not leave
+  // the hand behind. It goes first: once pi turns mouse tracking off, Ghostty
+  // puts its own text cursor back, and an arrow written after that would stick.
+  const stop = proto.beforeTerminalStop;
+  if (typeof stop === "function") {
+    proto.beforeTerminalStop = function (this: { terminal?: TerminalLike }, ...args: unknown[]) {
+      syncPointer(this.terminal, false);
+      return stop.apply(this, args);
+    };
+  }
   proto[HOVER_HOOK] = true;
   hoverTracking = true;
 }
@@ -166,6 +199,7 @@ export function disableHoverForTests(): void {
 export function resetHover(): void {
   hoverState = { tool: null, row: null };
   hoverClaimed = false;
+  pointerShown = false;
 }
 
 /**
