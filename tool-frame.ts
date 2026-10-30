@@ -31,6 +31,7 @@ import { noteSetExpanded } from "./tool-groups.ts";
 import {
   installGroupBoundaries,
   installHoverTracking,
+  codemodeHover,
   NOT_GROUPED,
   renderGroupedTool,
   routeGroupedMouse,
@@ -355,7 +356,11 @@ function splitEditBody(
     let raw: string[];
     if (collapse) {
       const body = source.render(sourceWidth - railCells);
-      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, { icons, width: sourceWidth - railCells });
+      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, {
+        icons,
+        width: sourceWidth - railCells,
+        hovered: codemodeHover(this),
+      });
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
       codemodeRows.push(...composed.toggles);

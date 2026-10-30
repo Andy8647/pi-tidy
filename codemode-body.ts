@@ -256,6 +256,8 @@ export interface CodemodeBodyOptions {
   icons: boolean;
   /** Cells the rows may occupy, for the duration column. */
   width?: number;
+  /** The fold row the pointer is on, so it can read as clickable. */
+  hovered?: CodemodeSection;
 }
 
 /**
@@ -367,8 +369,9 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
  * `▸ script · 13 lines` / `▾ output · 4 items`. The leading cell matches the
  * pad pi's own rows carry, so the fold glyph lines up under a call's status.
  */
-function foldRow(open: boolean, label: string, meta: string, theme: ThemeLike): string {
-  const glyph = theme.fg("accent", open ? "▾" : "▸");
+function foldRow(open: boolean, hovered: boolean, label: string, meta: string, theme: ThemeLike): string {
+  // Same three signals as the group's rows: open, hovered, neither.
+  const glyph = theme.fg("accent", open ? "▾" : hovered ? "▶" : "▸");
   const rest = `${theme.fg("muted", label)}${theme.fg("dim", ` · ${meta}`)}`;
   return ` ${glyph} ${rest}`;
 }
@@ -412,7 +415,7 @@ export function composeCodemodeBody(
   const toggles: CodemodeToggle[] = [];
   if (regions.script.length > 0) {
     toggles.push({ row: out.length, section: "script" });
-    out.push(foldRow(state.script, "script", plural(regions.script.length, "line"), theme));
+    out.push(foldRow(state.script, options.hovered === "script", "script", plural(regions.script.length, "line"), theme));
     if (state.script) out.push(...regions.script);
     if (rule) out.push(rule);
   }
@@ -420,7 +423,7 @@ export function composeCodemodeBody(
   if (regions.output.length > 0) {
     if (rule) out.push(rule);
     toggles.push({ row: out.length, section: "output" });
-    out.push(foldRow(state.output, "output", plural(itemCount(regions.output), "item"), theme));
+    out.push(foldRow(state.output, options.hovered === "output", "output", plural(itemCount(regions.output), "item"), theme));
     if (state.output) out.push(...separateItems(regions.output));
   }
   // pi's `Took 0.1s` row says what the row above the body already says.

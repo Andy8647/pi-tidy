@@ -15,6 +15,7 @@ import { Container, Text } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../frame.ts";
 import { resetGroups } from "../tool-groups.ts";
 import { tidyEnabled } from "../live.ts";
+import { enableHoverForTests, resetHover } from "../tool-group-view.ts";
 
 initTheme("dark");
 patchToolBoxFrames({ icons: false, groupTools: true });
@@ -163,6 +164,35 @@ test("clicking the output row opens the items, without pi's markers", () => {
   assert.ok(body.includes("▾ output · 1 item"), body);
   assert.ok(body.includes('#0 ok exit=0 "/tmp"'), "the item is shown");
   assert.ok(!body.includes("==> text 1/1 <=="), "the marker became the count on the row");
+});
+
+test("the fold rows light up under the pointer before they are clicked", () => {
+  resetGroups();
+  resetHover();
+  enableHoverForTests();
+  const chat = transcript();
+  openBox(chat);
+
+  const rows = frame(chat);
+  const row = rows.findIndex((line) => line.includes("▸ script"));
+  assert.ok(row >= 0, rows.join("\n"));
+  const x = rows[row]!.indexOf("▸ script");
+  chat.handleMouse({
+    type: "move",
+    x,
+    y: row,
+    screenX: x,
+    screenY: row,
+    width: W,
+    height: rows.length,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  } as any);
+  const hovered = frame(chat).join("\n");
+  assert.ok(hovered.includes("▶ script"), hovered);
+  assert.ok(!hovered.includes("▸ script"), "only the hovered row changes glyph");
+  resetHover();
 });
 
 test("every body row starts on the same rail, icons on or off", () => {

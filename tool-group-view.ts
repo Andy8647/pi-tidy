@@ -86,7 +86,7 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type HoverRow = "header" | "row" | `job:${string}`;
+type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
@@ -114,6 +114,13 @@ function clearHover(): void {
   if (!hoverState.tool) return;
   hoverState = { tool: null, row: null, ui: hoverState.ui };
   hoverState.ui?.requestRender?.();
+}
+
+/** A codemode body's fold row the pointer is on, if that is where it is. */
+export function codemodeHover(tool: object): CodemodeSection | undefined {
+  if (hoverState.tool !== tool) return undefined;
+  const row = hoverState.row;
+  return row?.startsWith("codemode:") ? (row.slice("codemode:".length) as CodemodeSection) : undefined;
 }
 
 /** A full-width band behind the row: the whole row is the click target. */
@@ -210,10 +217,14 @@ export function renderGroupedTool(
     // the row that opened it.
     const body = frameBox(Math.max(4, width - BODY_INDENT), true);
     const base = lines.length;
-    for (const line of body) lines.push(`${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`);
+    const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
+    for (const [index, line] of body.entries()) {
+      const out = `${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`;
+      const section = toggles.find((toggle) => toggle.row === index)?.section;
+      lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
+    }
     // A codemode body folds its script and output to one row each; those rows
     // answer their own clicks (see routeGroupedMouse).
-    const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
     codemodeSpans.set(
       tool,
       toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as CodemodeSection })),
@@ -448,7 +459,11 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
       tool.ui?.requestRender?.();
       return { handled: true };
     }
-    // Motion and drags stay pi's: the row is text like any other.
+    if (event?.type === "move" && hoverTracking) {
+      hoverClaimed = true;
+      if (setHover(tool, `codemode:${fold.section}`, tool.ui)) tool.ui?.requestRender?.();
+    }
+    // Presses and drags stay pi's: the row is text like any other.
     return undefined;
   }
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
