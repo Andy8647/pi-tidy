@@ -94,6 +94,42 @@ test("user message gets a frame in the user color and keeps its OSC133 zone mark
   assert.ok(!BG_FILL_RE.test(lines.join("\n")), "no background fill escapes");
 });
 
+test("a framed user message hugs its text and carries the user icon in its top border", () => {
+  // Zero-width colors for this one: the fake theme's tags would count as text
+  // and widen the measured row.
+  const tagged = (globalThis as any)[THEME_KEY];
+  (globalThis as any)[THEME_KEY] = {
+    ...tagged,
+    fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m`,
+    bold: (text: string) => text,
+  };
+  try {
+    patchContainerBoxes(COLORS, { icons: false, includeUser: true });
+    const plain = (line: string) => line.replace(/\x1b\][^\x07]*\x07/g, "").replace(/\x1b\[[0-9;]*m/g, "");
+    // No icons: a plain top border, one-cell inset each side of the text.
+    const short = new UserMessageComponent("hi" as never).render(60).map(plain);
+    assert.deepEqual(short.slice(1), ["╭────╮", "│ hi │", "╰────╯"]);
+
+    // With icons the icon sits in the top border, not on the text's row, and
+    // the box is never narrower than it needs.
+    patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+    const iconedShort = new UserMessageComponent("hi" as never).render(60).map(plain);
+    assert.deepEqual(iconedShort.slice(1), ["╭─ \u{f007} ─╮", "│ hi  │", "╰─────╯"]);
+    const iconed = new UserMessageComponent("hello there" as never).render(60).map(plain);
+    assert.deepEqual(iconed.slice(1), ["╭─ \u{f007} ─────────╮", "│ hello there │", "╰─────────────╯"]);
+    patchContainerBoxes(COLORS, { icons: false, includeUser: true });
+
+    // A long one wraps, and the frame hugs the widest wrapped row, never past 60.
+    const long = new UserMessageComponent("word ".repeat(40) as never).render(60).map(plain);
+    const widths = long.slice(1).map((line) => [...line].length);
+    assert.ok(widths[0] <= 60 && widths[0] > 50, String(widths[0]));
+    assert.ok(widths.every((width) => width === widths[0]), "every row the frame's width");
+    assert.ok(long.length > 4, "wrapped onto several rows");
+  } finally {
+    (globalThis as any)[THEME_KEY] = tagged;
+  }
+});
+
 test("custom message with default rendering gets a frame in the custom color", () => {
   patchContainerBoxes(COLORS, { icons: true, includeUser: true });
   const component = new CustomMessageComponent({ customType: "notice", content: "pay attention" } as any);

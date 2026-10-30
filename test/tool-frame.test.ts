@@ -1,6 +1,7 @@
 /**
- * Tests for tool box per-kind colors and icons, and for the default skip of
- * user messages (pi-starline owns UserMessageComponent — see frame.ts).
+ * Tests for tool box per-kind colors and icons, and for the frame patch
+ * leaving user messages alone unless asked (the default "rail" style is
+ * user-message.ts's — see user-message.test.ts).
  *
  * Runs in its own process (node --test isolates files), so the prototype
  * patches here must NOT enable includeUser.
@@ -166,7 +167,7 @@ test("an unchanged box still hits the cache (no re-framing)", () => {
   assert.strictEqual(second, first, "same array instance returned on a hit");
 });
 
-test("user messages are not framed by default (pi-starline owns them)", () => {
+test("the frame patch leaves user messages alone without includeUser", () => {
   patchContainerBoxes({ user: "userCol", custom: "customCol" });
   const component = new UserMessageComponent("hello" as never);
   const lines: string[] = component.render(60);

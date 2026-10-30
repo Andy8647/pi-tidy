@@ -4,6 +4,29 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-30
+
+### Changed
+
+**User messages are tidy's now, in a frame that hugs them.** pi-starline used to restyle user messages, tied to its
+editor switch: turning Starline's input box off sent the transcript's prompts back to pi's filled block. They are
+tidy's to draw now, independently of Starline, and by default (`userMessageStyle: "frame"`) in tidy's rounded frame,
+as wide as the text plus its inset — a one-word prompt gets a small box, a long one stops at the screen's width —
+with the user icon set into the top border (`╭─  ───╮`), so the text starts clean and copies without it. The
+border is `messageBorderColors.user`.
+
+`"rail"` keeps the look pi-starline drew: a full-width rule above and below, an accent `│` and (with `icons`) the
+user icon in front of the text, later rows hanging under it; `userMessagePaddingY` and `userMessageColors` (`rail`,
+`rule`; theme names or `#rrggbb`) tune it. `"off"` leaves pi's look. Both styles render pi's own Markdown child, so
+markdown transformers keep working. `frameUserMessages` is no longer read: `true` asked for what is now the default.
+pi-starline 0.9 drops its own version; with an older pi-starline, Starline's still draws on top.
+
+**Your own `!` commands get a frame, marked as yours.** pi drew `!` / `!!` runs between two full-width `bashMode`
+rules, which read like the agent's bash box without its frame. Under `frameMessages` they now get tidy's rounded frame
+with the user icon, the `!` or `!!` that was typed in place of `$`, and the user messages' color — the agent's bash
+box changes color with its state, this one does not, and pi's own `Running...` / `(exit N)` / `(cancelled)` rows report
+the outcome. `!!` stays dim. The 20-row preview and `ctrl+o` are pi's, unchanged.
+
 ## [0.4.14] - 2026-10-28
 
 ### Fixed

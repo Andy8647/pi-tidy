@@ -129,6 +129,19 @@ export function trimBlankEdges(lines: string[]): string[] {
 }
 
 /**
+ * A rounded top border with a label set into it: `╭─ label ─────╮`. Falls
+ * back to the plain border when the label does not fit. `label` arrives
+ * painted; only the rule is colored here.
+ */
+export function labeledTopBorder(width: number, theme: ThemeLike, color: string, label: string): string {
+  const inner = Math.max(2, width - 2);
+  const bc = (s: string) => theme.fg(color, s);
+  const rest = inner - 3 - visibleWidth(label);
+  if (rest < 1) return bc(`╭${"─".repeat(inner)}╮`);
+  return `${bc("╭─ ")}${label}${bc(` ${"─".repeat(rest)}╮`)}`;
+}
+
+/**
  * Draw the rounded frame. Border color tracks tool state:
  *   pending (streaming/executing) → borderMuted (grey)
  *   success                      → success (green)
