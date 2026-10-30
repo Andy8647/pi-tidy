@@ -6,6 +6,13 @@ What changed in each released version of pi-tidy (published as
 
 ## [0.6.1] - 2026-10-30
 
+### Changed
+
+**A row you can click shows a hand.** The band that lights a clickable row under the pointer now comes with the
+pointer shape to match: tidy asks the terminal for a hand (OSC 22) while a row is lit and for the arrow again when
+none is, and puts the arrow back before pi leaves the alt screen. Ghostty, kitty, foot and WezTerm draw it; other
+terminals ignore the sequence.
+
 ### Fixed
 
 **Long sessions scroll smoothly again.** pi's fullscreen mode draws the whole transcript on every frame — every
