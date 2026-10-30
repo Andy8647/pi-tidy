@@ -31,7 +31,8 @@ export interface LineOptions {
    * (`1 line` under `12 lines`, both durations ending at the same cell) and
    * the whole tail sits against the row's right edge.
    */
-  align?: { note?: number; duration?: number };
+  /** Columns to pad the tool-name cell to, so arguments start on one line. */
+  align?: { name?: number; note?: number; duration?: number };
 }
 
 const DEFAULT_MAX_ARG_CHARS = 60;
@@ -308,7 +309,11 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
       : theme.fg("success", "✓");
 
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
-  const head = ` ${status} ${theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`)}`;
+  // One column for the names in a group: the arguments start on the same cell
+  // on every row, whatever the name's length (see groupAlign). The kind icon is
+  // the same width on every row, so only the word is padded.
+  const namePad = Math.max(0, (options.align?.name ?? 0) - visibleWidth(tool.toolName));
+  const head = ` ${status} ${theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`)}${namePad > 0 ? " ".repeat(namePad) : ""}`;
   // A codemode script's “arguments” are its source, which the open box already
   // shows. What a folded row is missing is what the script ran: the nested
   // calls take the arguments' place instead of the script's first line.
@@ -390,7 +395,14 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
   const icon = glyph ? `${glyph} ` : "";
   const label = theme.fg(color, `${icon}thinking`);
   const body = theme.fg("thinkingText", text);
-  const row = ` ${label}  ${body}`;
+  // Inside a group the label sits in the same column as the tool names, so the
+  // thought's text starts where the arguments do (see formatToolLine).
+  const name = options.align?.name;
+  const gap =
+    name === undefined
+      ? 2
+      : Math.max(2, 4 + (options.icons === false ? 0 : 2) + name - 1 - visibleWidth(`${icon}thinking`));
+  const row = ` ${label}${" ".repeat(gap)}${body}`;
   return theme.italic ? theme.italic(row) : row;
 }
 

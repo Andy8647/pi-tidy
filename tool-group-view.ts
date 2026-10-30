@@ -290,22 +290,30 @@ function runningJob(jobs: JobState[]): JobState | undefined {
  * when the group's membership changes, not per row — `summarizeResult` walks a
  * result's whole output, and doing that once per row would be quadratic.
  */
-const alignCache = new WeakMap<readonly object[], { count: number; note: number; duration: number }>();
+const alignCache = new WeakMap<readonly object[], { count: number; name: number; note: number; duration: number }>();
 
-function groupAlign(anchor: object): { note: number; duration: number } {
+function groupAlign(anchor: object): { name: number; note: number; duration: number } {
   const members = groupMembers(anchor);
   const cached = alignCache.get(members);
   if (cached && cached.count === members.length) return cached;
+  let name = 0;
   let note = 0;
   let duration = 0;
   for (const member of members) {
+    name = Math.max(name, visibleWidth(member.toolName));
     note = Math.max(note, visibleWidth(summarizeResult(member.toolName, member.result)));
     duration = Math.max(duration, visibleWidth(formatDuration(member.result?.durationMs ?? 0)));
   }
-  const entry = { count: members.length, note, duration };
+  // One long MCP name would push every argument out of reach; past the cap the
+  // column stops growing and those rows keep one space after their name.
+  name = Math.min(name, NAME_COLUMN_MAX);
+  const entry = { count: members.length, name, note, duration };
   alignCache.set(members, entry);
   return entry;
 }
+
+/** Cells the tool-name column may take before an argument column stops paying off. */
+const NAME_COLUMN_MAX = 14;
 
 /**
  * The rail with a tick: `├─`. Used by an opened call's row, whose output hangs
@@ -573,7 +581,6 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     }
   }
   if (!plan.rows) return { lines };
-  const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS;
   const gutter = groupGutter(theme);
   const hovered = hoverState.tool === component && hoverState.row === "row";
   // `thinkingVisibilityOverrides` is pi's own per-run switch: false = shown, and
@@ -588,11 +595,15 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   // says what it is working on without being opened. The animation lives on the
   // summary line, not here — and the window moves on a tick, not per frame.
   const now = Date.now();
+  const align = groupAlign(component);
+  // The label's column moved with the names, so the live window shrinks by as
+  // much as the padding grew.
+  const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS + Math.max(0, align.name - "thinking".length);
   const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
   const firstRow = lines.length;
   for (const [index, run] of runs.entries()) {
     const text = liveTexts?.[index] ?? previewText(run, width - context);
-    const row = formatThoughtLine(text, theme, { icons, thinkingColor });
+    const row = formatThoughtLine(text, theme, { icons, thinkingColor, align });
     // Open: the row keeps its place and takes a tick, exactly like an opened
     // call — the reasoning hangs under it instead of replacing it.
     const line = open ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;

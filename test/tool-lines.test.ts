@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   formatGroupLine,
+  formatThoughtLine,
   formatToolLine,
   previewText,
   summarizeArgs,
@@ -258,6 +259,34 @@ test("a heredoc's (+N lines) marker is the first thing a narrow row drops", () =
   const tight = text(formatToolLine(heredoc, theme, { icons: false, width: 30 }));
   assert.doesNotMatch(tight, /\(\+2 lines\)/);
   assert.match(tight, /^ ✓ bash cd ~ && python3/);
+});
+
+test("a group's arguments start in one column, whatever the name's length", () => {
+  const align = { name: 8, note: 0, duration: 0 };
+  const cases = [
+    [{ toolName: "codemode", args: { code: "x" }, isPartial: false, result: { durationMs: 1800, details: { calls: [{ name: "bash" }] } } }, "bash×1"],
+    [{ toolName: "process", args: { name: "demo-sleeper" }, isPartial: false, result: { durationMs: 3 } }, "demo-sleeper"],
+    [{ toolName: "read", args: { path: "a.ts" }, isPartial: false, result: { durationMs: 600 } }, "a.ts"],
+  ] as const;
+  const rows = cases.map(([row, arg]) => [text(formatToolLine(row, theme, { ...bare, width: 60, align })), arg] as const);
+  const column = (row: string, needle: string) => visibleWidth(row.slice(0, row.indexOf(needle)));
+  const columns = rows.map(([row, arg]) => column(row, arg));
+  assert.ok(columns.every((c) => c > 0), rows.map(([row]) => row).join("\n"));
+  assert.equal(new Set(columns).size, 1, rows.map(([row]) => row).join("\n"));
+});
+
+test("a thinking row's text starts in the arguments' column", () => {
+  const align = { name: 8 };
+  const thought = text(formatThoughtLine("consider the layout", theme, { icons: true, align }));
+  const tool = text(
+    formatToolLine({ toolName: "read", args: { path: "a.ts" }, isPartial: false, result: { durationMs: 1 } }, theme, {
+      icons: true,
+      align,
+    }),
+  );
+  // Cells, not string indices: a Nerd Font glyph is one cell but two UTF-16 units.
+  const column = (row: string, needle: string) => visibleWidth(row.slice(0, row.indexOf(needle)));
+  assert.equal(column(thought, "consider"), column(tool, "a.ts"), `${thought}\n${tool}`);
 });
 
 test("a group's metrics sit in columns against the row's right edge", () => {
