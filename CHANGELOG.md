@@ -13,15 +13,18 @@ pointer shape to match: tidy asks the terminal for a hand (OSC 22) while a row i
 none is, and puts the arrow back before pi leaves the alt screen. Ghostty, kitty, foot and WezTerm draw it; other
 terminals ignore the sequence.
 
-**A `codemode` box reads as its call list with grouping off, too.** 0.6.0 built the call list into the group:
-with `groupTools: false` the box was still pi's own — ten lines of script, the last eight calls, the head of the
-output and a `Took` row. Now it is the same list in a frame of its own: the row a group would show for the call
+**A `codemode` box reads as its call list with grouping off, too**
+([#27](https://github.com/Andy8647/pi-tidy/issues/27)). 0.6.0 built the call list into the group: with
+`groupTools: false` the box was still pi's own — ten lines of script, the last eight calls, the head of the output
+and a `Took` row. Now it is the same list in a frame of its own: the row a group would show for the call
 (`✓ codemode bash×3 read×1  1 failed · 0.1s`) as its title, every call the script made, and the script and the
 output folded to one row each that open on click and light up under the pointer. `ctrl+o`, or a click anywhere
-else in the box, opens both. The list is drawn from a second, expanded rendering of pi's own renderer, so
-nothing is cut short and pi's box is left as it was. The same goes for a grouped session with `codemode` in
+else in the box, opens both. The list is drawn from a second, expanded rendering of pi's own renderer, so nothing
+is cut short and pi's box is left as it was. The same goes for a grouped session with `codemode` in
 `alwaysShowTools`. Each box keeps its list until something in it changes: 0.6.0 re-decorated every framed
 `codemode` box on every frame, which on a session of 300 scripts cost about 38 ms a frame; it is under 2 ms now.
+Thanks to @indesperate for asking for the call list in the first place and for noticing it was missing with
+grouping off.
 
 **Thinking is tidy's row with grouping off, too.** The thinking row was wired into grouping, so with
 `groupTools: false` every step left pi's bare `Thinking...` floating over its box. The row has nothing to do with
