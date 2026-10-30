@@ -6,7 +6,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { formatGroupLine, formatToolLine, previewText, summarizeArgs, summarizeResult } from "../tool-lines.ts";
+import {
+  formatGroupLine,
+  formatToolLine,
+  previewText,
+  summarizeArgs,
+  summarizeNestedCalls,
+  summarizeResult,
+} from "../tool-lines.ts";
 import { buildGroupSummary } from "../tool-groups.ts";
 
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
@@ -293,4 +300,71 @@ test("a live preview slides on word breaks, and holds still until it overflows",
   const firstWord = tail.slice(1).split(" ")[0] as string;
   assert.ok(text.includes(firstWord), `the window starts at a real word: ${tail}`);
   assert.ok(visibleWidth(tail) <= 24, `${visibleWidth(tail)} <= 24: ${tail}`);
+});
+
+test("nested codemode calls are counted by tool, failures included", () => {
+  const call = (name: string, status: string) => ({ id: `c/${name}`, name, args: "", status });
+  assert.deepEqual(
+    summarizeNestedCalls({ calls: [call("bash", "ok"), call("bash", "ok"), call("read", "ok")] }),
+    { kinds: "bash×2 read×1", failed: 0, total: 3 },
+  );
+  assert.deepEqual(
+    summarizeNestedCalls({ calls: [call("bash", "ok"), call("bash", "error"), call("read", "cancelled")] }),
+    { kinds: "bash×2 read×1", failed: 2, total: 3 },
+  );
+  assert.deepEqual(summarizeNestedCalls(undefined), { kinds: "", failed: 0, total: 0 });
+  assert.deepEqual(summarizeNestedCalls({ calls: [] }), { kinds: "", failed: 0, total: 0 });
+});
+
+test("a codemode row counts its nested calls instead of quoting the script", () => {
+  const details = {
+    calls: [
+      { id: "c/1", name: "bash", args: '{"command":"pwd"}', status: "ok" },
+      { id: "c/2", name: "bash", args: '{"command":"ls"}', status: "ok" },
+      { id: "c/3", name: "read", args: '{"path":"a.ts"}', status: "ok" },
+    ],
+  };
+  const row = formatToolLine(
+    { toolName: "codemode", args: { code: "const commands = ['pwd']" }, isPartial: false, result: { durationMs: 100, content: [], details } },
+    theme,
+    { icons: false },
+  );
+  assert.equal(row, " ✓ codemode bash×2 read×1  0.1s");
+});
+
+test("a nested failure shows on a row whose script still succeeded", () => {
+  const details = {
+    calls: [
+      { id: "c/1", name: "bash", args: "", status: "ok" },
+      { id: "c/2", name: "bash", args: "", status: "error" },
+    ],
+  };
+  const result = { durationMs: 1400, content: [{ type: "text", text: "Script completed" }], details };
+  const row = formatToolLine({ toolName: "codemode", args: { code: "x" }, isPartial: false, result }, theme, { icons: false });
+  assert.equal(row, " ✓ codemode bash×2  1 failed · 1.4s");
+});
+
+test("a running script counts its calls as they land", () => {
+  const details = {
+    calls: [
+      { id: "c/1", name: "bash", args: "", status: "ok" },
+      { id: "c/2", name: "bash", args: "", status: "running" },
+    ],
+  };
+  const row = formatToolLine(
+    { toolName: "codemode", args: { code: "x" }, isPartial: true, result: { details } },
+    theme,
+    { icons: false },
+  );
+  assert.equal(row, " ⋯ codemode bash×2");
+});
+
+test("without nested call details the script's first line comes back", () => {
+  // Older pi, or a script that called no tools at all.
+  const row = formatToolLine(
+    { toolName: "codemode", args: { code: "console.log(1)\nconsole.log(2)" }, isPartial: false, result: { durationMs: 50, content: [] } },
+    theme,
+    { icons: false },
+  );
+  assert.equal(row, " ✓ codemode console.log(1) (+1 lines)  0.1s");
 });
