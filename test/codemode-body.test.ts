@@ -6,6 +6,7 @@
  */
 
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { test } from "node:test";
 import {
   codemodeSections,
@@ -188,6 +189,33 @@ test("a script that called nothing keeps pi's body, with no fold rows", () => {
   const out = composeCodemodeBody(piBody, { calls: [] }, { script: false, output: false }, theme, { icons: true });
   assert.deepEqual(out.toggles, []);
   assert.ok(text(out).some((row) => row.includes("==> text 1/2")), "pi's output rows are kept");
+});
+
+test("the body's own rows take a name column and a duration column", () => {
+  const calls = [
+    { name: "bash", args: '{"command":"pwd"}' },
+    { name: "ds_search", args: '{"query":"typst"}' },
+    { name: "read", args: '{"path":"a.ts"}' },
+  ];
+  const body = [
+    " codemode",
+    " const x = 1;",
+    "",
+    " \x1b[32m✓\x1b[39m bash \x1b[90m{\"command\":\"pwd\"}\x1b[39m 522ms",
+    " \x1b[32m✓\x1b[39m ds_search \x1b[90m{\"query\":\"typst\"}\x1b[39m 5ms",
+    " \x1b[32m✓\x1b[39m read \x1b[90m{\"path\":\"a.ts\"}\x1b[39m 1.8s",
+  ];
+  const out = composeCodemodeBody(body, { calls }, { script: false, output: false }, theme, { icons: false, width: 40 });
+  const rows = out.lines.filter((line) => line.includes("✓")).map(plain);
+  assert.equal(rows.length, 3, out.lines.map(plain).join("\n"));
+  const column = (row: string, needle: string) => visibleWidth(row.slice(0, row.indexOf(needle)));
+  const argsAt = rows.map((row) => column(row, row.includes("pwd") ? "pwd" : row.includes("typst") ? "typst" : "a.ts"));
+  assert.equal(new Set(argsAt).size, 1, rows.join("\n"));
+  for (const row of rows) assert.equal(visibleWidth(row), 40, row);
+  assert.deepEqual(
+    rows.map((row) => row.trimEnd().split(" ").pop()),
+    ["522ms", "5ms", "1.8s"],
+  );
 });
 
 test("the sections are separated by a rule when the body has a width", () => {

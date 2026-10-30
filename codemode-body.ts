@@ -24,6 +24,7 @@
  * summary of several calls; nothing ties an item back to the call that fed it.
  */
 
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { rawIndexOfVisible, visibleText } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
@@ -126,6 +127,37 @@ function addKindIcon(line: string, name: string, lead: number): string {
   return line.slice(0, at) + `${toolKindIcon(name)} ` + line.slice(at);
 }
 
+/** Pad the name cell so every row's arguments start on the same column. */
+function padName(line: string, name: string, lead: number, width: number): string {
+  const pad = width - name.length;
+  if (pad <= 0) return line;
+  const at = rawIndexOfVisible(line, lead + 2 + name.length);
+  if (at < 0) return line;
+  return line.slice(0, at) + " ".repeat(pad) + line.slice(at);
+}
+
+/** The trailing `50ms` / `1.8s` of a call row, if it has one. */
+const DURATION_TAIL = /(\d+(?:\.\d+)?(?:ms|s))$/;
+
+/**
+ * Right-align the duration against the body's width, the way the group's rows
+ * put their metrics on one edge. Rows that already fill the width are left
+ * alone; the frame truncates them anyway.
+ */
+function alignDuration(line: string, width: number | undefined): string {
+  if (!width) return line;
+  const plain = visibleText(line);
+  const match = DURATION_TAIL.exec(plain);
+  if (!match) return line;
+  const at = match.index;
+  const pad = width - visibleWidth(plain);
+  if (pad <= 0) return line;
+  // Two cells of air is the most a row should spend on this.
+  const from = rawIndexOfVisible(line, at);
+  if (from < 0) return line;
+  return line.slice(0, from) + " ".repeat(Math.min(pad, 60)) + line.slice(from);
+}
+
 /**
  * Decorate the rendered rows. A row is a nested call only if it opens with a
  * status glyph and names one of the script's tools, and it is matched to the
@@ -133,7 +165,13 @@ function addKindIcon(line: string, name: string, lead: number): string {
  * arguments — which leaves the script, its output and a multi-line error's
  * continuation rows untouched.
  */
-function decorateRows(lines: readonly string[], calls: NestedCall[], icons: boolean): string[] {
+function decorateRows(
+  lines: readonly string[],
+  calls: NestedCall[],
+  icons: boolean,
+  nameWidth: number,
+  width: number | undefined,
+): string[] {
   let next = 0;
   return lines.map((line) => {
     const plain = visibleText(line);
@@ -151,8 +189,19 @@ function decorateRows(lines: readonly string[], calls: NestedCall[], icons: bool
       const summary = summarizeNestedArgs(name, call.args);
       if (summary) row = replaceArgs(row, call.args, summary);
     }
-    return icons ? addKindIcon(row, name, lead) : row;
+    row = padName(row, name, lead, nameWidth);
+    if (icons) row = addKindIcon(row, name, lead);
+    return alignDuration(row, width);
   });
+}
+
+/** Cells the call rows' name column may take before the arguments stop paying. */
+const NAME_COLUMN_MAX = 14;
+
+function nameColumn(calls: readonly NestedCall[]): number {
+  let width = 0;
+  for (const call of calls) width = Math.max(width, call.name.length);
+  return Math.min(width, NAME_COLUMN_MAX);
 }
 
 /**
@@ -181,6 +230,8 @@ function dropBashTrailers(lines: readonly string[]): string[] {
 export interface CodemodeBodyOptions {
   /** Put the kind icon in front of every nested tool's name. */
   icons: boolean;
+  /** Cells the rows may occupy, for the duration column. */
+  width?: number;
 }
 
 /**
@@ -193,7 +244,7 @@ export function decorateCodemodeBody(
   options: CodemodeBodyOptions,
 ): string[] {
   const calls = nestedCalls(details);
-  const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons) : lines;
+  const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons, nameColumn(calls), options.width) : lines;
   return dropBashTrailers(decorated);
 }
 
@@ -323,14 +374,14 @@ export function composeCodemodeBody(
   details: unknown,
   state: CodemodeSections,
   theme: ThemeLike,
-  options: CodemodeBodyOptions & { width?: number },
+  options: CodemodeBodyOptions,
 ): ComposedCodemodeBody {
   const calls = nestedCalls(details);
   // Split before decorating: the icon is inserted where the tool's name starts,
   // and the name is what tells one call row from the output.
   const regions = splitRegions(lines, calls, "codemode");
   if (!regions) return { lines: decorateCodemodeBody(lines, details, options), toggles: [] };
-  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons));
+  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons, nameColumn(calls), options.width));
   const rule = ruleRow(theme, options.width);
 
   const out: string[] = [];
