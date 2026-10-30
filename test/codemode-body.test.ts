@@ -209,6 +209,26 @@ test("a script that called nothing still folds: the output marker is its anchor"
   assert.deepEqual(composeCodemodeBody(bare, { calls: [] }, { script: false, output: false }, theme, { icons: true }).toggles, []);
 });
 
+test("a row pi wrapped is stitched back and clipped to one line", () => {
+  // What the box actually draws when an argument is longer than the row: the
+  // JSON runs over onto the next physical row, with no rail and no status.
+  const json = '{"pageId":1,"function":"() => ({ title: document.title, h1: document.querySelector(\'h1\')?.textContent?.trim(), links: document.querySelectorAll(\'a\').length })"}';
+  const calls = [{ name: "mcp__chrome_devtools__evaluate_script", args: json }];
+  const wrapped = [
+    " codemode",
+    " const x = 1;",
+    "",
+    ` \x1b[32m✓\x1b[39m mcp__chrome_devtools__evaluate_script \x1b[90m${json.slice(0, 100)}`,
+    `${json.slice(100)} 214ms\x1b[39m`,
+  ];
+  const out = composeCodemodeBody(wrapped, { calls }, { script: false, output: false }, theme, { icons: true, width: 60 });
+  const rows = text(out);
+  const call = rows.find((row) => row.includes("evaluate_script"))!;
+  assert.ok(call.includes("214ms"), rows.join("\n"));
+  assert.ok(!rows.some((row) => row.startsWith("document.querySelectorAll")), "the wrapped row is gone");
+  assert.ok(visibleWidth(call) <= 60, call);
+});
+
 test("one rule separates the script from the output when no calls sit between them", () => {
   const noCalls = [" codemode", " const x = 1;", "", " \x1b[36m==> text 1/1 <==\x1b[39m", " \x1b[36mhi\x1b[39m"];
   const out = composeCodemodeBody(noCalls, { calls: [] }, { script: false, output: false }, theme, { icons: true, width: 40 });

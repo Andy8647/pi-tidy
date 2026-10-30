@@ -175,6 +175,16 @@ const DURATION_GAP = 2;
  * arguments — which leaves the script, its output and a multi-line error's
  * continuation rows untouched.
  */
+/** A row pi wrapped off the end of a call row, rather than a row of its own. */
+function isWrapRow(line: string): boolean {
+  const plain = visibleText(line);
+  const trimmed = plain.trim();
+  if (!trimmed) return false;
+  if (OUTPUT_START.test(trimmed) || TIMER_ROW.test(trimmed) || CONTINUATION.test(plain)) return false;
+  const lead = leadIndex(plain);
+  return !(STATUS_GLYPHS.has(plain[lead] ?? "") && plain[lead + 1] === " ");
+}
+
 function decorateRows(
   lines: readonly string[],
   calls: NestedCall[],
@@ -185,7 +195,8 @@ function decorateRows(
   const built: string[] = [];
   const callRows = new Set<number>();
   let next = 0;
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const plain = visibleText(line);
     const lead = leadIndex(plain);
     if (!STATUS_GLYPHS.has(plain[lead] ?? "") || plain[lead + 1] !== " ") {
@@ -205,15 +216,25 @@ function decorateRows(
     const call = calls[index]!;
     let row = line;
     if (call.args) {
+      // pi's box wraps an argument longer than the row onto the next rows, and a
+      // wrapped argument cannot be found, replaced or clipped. Glue the pieces
+      // back into one logical row first.
+      let guard = 0;
+      while (!visibleText(row).includes(call.args) && guard++ < 4 && lines[i + 1] !== undefined && isWrapRow(lines[i + 1]!)) {
+        row += lines[++i];
+      }
       // What the arguments may use: the row, minus the name (a long one keeps
       // its own cells), the kind icon and the duration column.
-      const budget = Math.max(20, (width ?? 100) - Math.max(nameWidth, name.length) - 14);
+      const budget = Math.max(8, (width ?? 100) - Math.max(nameWidth, name.length) - 14);
       const summary = summarizeNestedArgs(name, call.args, budget);
       // A summary is short by construction; the raw JSON is not, and a 200-cell
       // argument wraps the row inside the box. Clip it the way the outer rows
       // clip a long command.
       const replacement = summary || truncateToWidth(call.args, budget, "…");
       if (replacement) row = replaceArgs(row, call.args, replacement);
+      // Whatever was left over (an argument that never matched, a wrap we could
+      // not stitch back) is clipped rather than allowed a second row.
+      if (width && visibleWidth(visibleText(row)) > width) row = truncateToWidth(row, Math.max(8, width - 1), "…");
     }
     row = padName(row, name, lead, nameWidth);
     if (icons) row = addKindIcon(row, name, lead);
@@ -365,6 +386,14 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
     return finishRegions(lines, plain, -1, start, toolName);
   }
   if (first < 0 || end < 0) return undefined;
+  // pi's box wraps an argument longer than the row onto the rows below it; those
+  // rows belong to that call, not to the output.
+  const last = calls[next - 1];
+  let glued = 0;
+  while (last?.args && end < lines.length && glued++ < 6 && isWrapRow(plain[end]!)) {
+    end++;
+    if (plain.slice(first, end).join("").includes(last.args)) break;
+  }
   // What hangs under a call: its error text, indented by the renderer.
   while (end < lines.length && (plain[end]!.trim() === "" || CONTINUATION.test(plain[end]!))) end++;
   while (end > first && plain[end - 1]!.trim() === "") end--;
