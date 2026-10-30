@@ -4,6 +4,58 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-30
+
+### Changed
+
+**A `codemode` row says what its script ran.** Nested tool calls never become tool rows of their own, so the
+folded row used to show only the script's first line. It counts them now: `codemode bash×3 read×1  0.1s`, growing
+while the script runs, with a red `1 failed` when a call inside the script failed and the script caught it and
+still succeeded.
+
+**Inside the box, the nested calls read like tidy's rows.** pi draws them with the arguments as compact JSON;
+they now carry the same kind icon as the outer rows, and the arguments become the same one-line summary
+(`pwd`, `src/app.ts`, `(+12 lines)` for a multi-line one), read back from `result.details.calls`: JSON when the
+200-character clip survived it, the surviving key when it did not, pi's own text when neither works. bash's
+`Command exited with code N` trailer is dropped from a nested failure, where the error above it already says
+what happened.
+
+**The body opens as a call list.** Inside a group, a `codemode` box no longer dumps the script and the output:
+the script folds to `▸ script · 13 lines` and the output to `▸ output · 4 items`, each opening in place on
+click (and lighting up under the pointer, like every other row), with a dim rule between the sections and a
+rail of its own down the body. The call rows take a name column and a duration column, and a nested
+`process start` hangs inside the body with them. A script that called nothing folds the same way, using the
+output's first marker (`==> text N/M <==`, `<console_output>`, `Script error:`) as the boundary. Nothing wraps
+onto a second row: an argument that does not fit is clipped, and the duration is the part that never gives way.
+pi's `Took` row is gone, since the row above the body carries the time. The output stays one block: a script
+builds its `text()` items from whatever it computed, so an item can be a filtered, merged summary of several
+calls and nothing ties it back to the call that fed it.
+
+**`bash` takes the md-console glyph.** `fa-terminal` is missing from some monospace Nerd Fonts and drew as a
+blank; `\u{f018d}` renders wherever the rest of the set does. The file-type map's `bash` entry was still on
+codicons' terminal glyph, so shell files and the `bash` tool now agree.
+
+**Group rows share a name column.** A call's arguments used to start wherever its name ended, so a list of
+`bash` and `read` and `process` rows had a ragged left edge. The name is padded to the widest one in the group
+(capped at 14 cells, so one long MCP name cannot push everything out of reach), and a thinking row's label
+pads the same way so its text starts in that column too.
+
+### Fixed
+
+**No blank row above a framed message box.** pi inserts a `Spacer(1)` before a user message and before the
+compaction, branch and skill boxes, and the frame added an empty row of its own on top of it: the box floated
+one row below the transcript, and for the summary boxes that turned pi's filled padding row into a second blank
+one. The top border is the first row now, for all four (the user message's `OSC 133` zone marker moved with it).
+Custom messages keep the spacer, because pi puts no spacer in front of those and it is the only separation they
+have.
+
+**A click on message text lands where it is drawn** ([#30](https://github.com/Andy8647/pi-tidy/pull/30), by
+@s5unty). Trimming the message edges and restyling a thinking run changed the layout, but the mouse regions
+kept using the untrimmed one: an interactive Markdown element such as pi-code-render's `[COPY]` had a click
+target a few rows off, and a click outside a thinking run was swallowed instead of reaching the Markdown, which
+left raw code unfoldeable. Rendering and hit testing now go through the same component tree, with one
+coordinate transform for the trimmed rows.
+
 ## [0.5.0] - 2026-10-30
 
 ### Changed

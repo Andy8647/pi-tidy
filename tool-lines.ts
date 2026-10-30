@@ -31,7 +31,8 @@ export interface LineOptions {
    * (`1 line` under `12 lines`, both durations ending at the same cell) and
    * the whole tail sits against the row's right edge.
    */
-  align?: { note?: number; duration?: number };
+  /** Columns to pad the tool-name cell to, so arguments start on one line. */
+  align?: { name?: number; note?: number; duration?: number };
 }
 
 const DEFAULT_MAX_ARG_CHARS = 60;
@@ -216,6 +217,39 @@ function oneLine(value: string): { text: string; suffix: string } {
   return { text: first.trim(), suffix: rest.length > 0 ? ` (+${rest.length} lines)` : "" };
 }
 
+/** A `codemode` script's nested calls, counted by tool. */
+export interface NestedCallSummary {
+  /** `bash×3 read×1` — empty when the script called no tools. */
+  kinds: string;
+  failed: number;
+  total: number;
+}
+
+/**
+ * The nested tool calls of a `codemode` script, from `result.details.calls`.
+ *
+ * A script's calls are not tool rows: they never reach the model as calls, so
+ * pi keeps them as `{ name, status, durationMs, error }` records on the parent
+ * result instead of components. Nothing else in the transcript counts them, so
+ * the folded row is the only place a glance can see what a script ran.
+ */
+export function summarizeNestedCalls(details: unknown): NestedCallSummary {
+  const calls = (details as { calls?: unknown } | undefined)?.calls;
+  if (!Array.isArray(calls) || calls.length === 0) return { kinds: "", failed: 0, total: 0 };
+  const counts = new Map<string, number>();
+  let failed = 0;
+  for (const call of calls as Array<{ name?: unknown; status?: unknown }>) {
+    const name = typeof call?.name === "string" && call.name ? call.name : "call";
+    // `mcp__chrome_devtools__take_screenshot` says less than its server does and
+    // eats the row; one server with three tools is one entry.
+    const key = name.startsWith("mcp__") ? (name.split("__")[1] ?? name) : name;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    if (call?.status === "error" || call?.status === "cancelled") failed++;
+  }
+  const kinds = [...counts].map(([name, count]) => `${name}×${count}`).join(" ");
+  return { kinds, failed, total: calls.length };
+}
+
 /**
  * The one-string description of a call's arguments: a shell command's first
  * line, a file's path, or the first stringish argument it can find.
@@ -278,20 +312,36 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
       : theme.fg("success", "✓");
 
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
-  const head = ` ${status} ${theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`)}`;
-  const { text, suffix } = argParts(tool.args);
+  // One column for the names in a group: the arguments start on the same cell
+  // on every row, whatever the name's length (see groupAlign). The kind icon is
+  // the same width on every row, so only the word is padded.
+  const namePad = Math.max(0, (options.align?.name ?? 0) - visibleWidth(tool.toolName));
+  const head = ` ${status} ${theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`)}${namePad > 0 ? " ".repeat(namePad) : ""}`;
+  // A codemode script's “arguments” are its source, which the open box already
+  // shows. What a folded row is missing is what the script ran: the nested
+  // calls take the arguments' place instead of the script's first line.
+  const nested = tool.toolName === "codemode" ? summarizeNestedCalls(tool.result?.details) : undefined;
+  const { text, suffix } = nested?.kinds ? { text: nested.kinds, suffix: "" } : argParts(tool.args);
 
   // `  12 lines · 0.3s` — what it produced, then how long it took.
   const note = isPartial ? "" : summarizeResult(tool.toolName, tool.result);
+  // A script that caught a nested failure still succeeds, so its row is a green
+  // `✓` with nothing red on it. The count is what says a call inside it failed.
+  const nestedFailed = !isPartial && (nested?.failed ?? 0) > 0;
+  const failedNote = nestedFailed ? `${nested!.failed} failed` : "";
   const durationMs = tool.result?.durationMs;
   const duration = !isPartial && typeof durationMs === "number" && durationMs > 0 ? formatDuration(durationMs) : "";
   const paint = (value: string) => theme.fg(body ?? "muted", value);
+  const shownNote = note || failedNote;
   // Padding is outside the colour, so the columns line up whatever the theme
   // does to the text.
-  const notePad = Math.max(0, (options.align?.note ?? 0) - visibleWidth(note));
+  const notePad = Math.max(0, (options.align?.note ?? 0) - visibleWidth(shownNote));
   const durationPad = Math.max(0, (options.align?.duration ?? 0) - visibleWidth(duration));
   const tail = [
-    note ? " ".repeat(notePad) + paint(note) : "",
+    shownNote
+      ? " ".repeat(notePad) +
+        [note && paint(note), failedNote && theme.fg("error", failedNote)].filter(Boolean).join(theme.fg("muted", " · "))
+      : "",
     duration ? " ".repeat(durationPad) + paint(duration) : "",
   ].filter(Boolean);
   const hint = options.hovered ? theme.fg("muted", "  ›") : "";
@@ -300,7 +350,8 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
   // let `truncateToWidth` cut the end off afterwards — which on a narrow
   // terminal meant the metrics went first and the command kept a ragged stub.
   if (typeof width !== "number") {
-    const detail = text ? theme.fg(body ?? "toolOutput", ` ${summarizeArgs(tool.toolName, tool.args)}`) : "";
+    const argText = nested?.kinds ? `${text}${suffix}` : summarizeArgs(tool.toolName, tool.args);
+    const detail = text ? theme.fg(body ?? "toolOutput", ` ${argText}`) : "";
     const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
     return `${head}${detail}${tailText}${hint}`;
   }
@@ -347,7 +398,14 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
   const icon = glyph ? `${glyph} ` : "";
   const label = theme.fg(color, `${icon}thinking`);
   const body = theme.fg("thinkingText", text);
-  const row = ` ${label}  ${body}`;
+  // Inside a group the label sits in the same column as the tool names, so the
+  // thought's text starts where the arguments do (see formatToolLine).
+  const name = options.align?.name;
+  const gap =
+    name === undefined
+      ? 2
+      : Math.max(2, 4 + (options.icons === false ? 0 : 2) + name - 1 - visibleWidth(`${icon}thinking`));
+  const row = ` ${label}${" ".repeat(gap)}${body}`;
   return theme.italic ? theme.italic(row) : row;
 }
 

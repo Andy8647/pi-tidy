@@ -82,7 +82,7 @@ test("file icon falls back into the prefix when the path is not in the call row"
 test("successful bash gets its tool color and the terminal icon", () => {
   const lines = fakeToolBox("bash", { command: "ls" }).render(60);
   assert.match(lines[0], /^<fg:bashCol>╭─+╮<\/fg>$/);
-  assert.ok(lines[1].includes("\u{f120}"), "terminal icon");
+  assert.ok(lines[1].includes("\u{f018d}"), "console icon");
 });
 
 test("error stays red even for a colored tool", () => {

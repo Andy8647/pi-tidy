@@ -11,13 +11,14 @@
  */
 
 import { stripVTControlCharacters } from "node:util";
-import { MouseRegion, truncateToWidth, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
+import { MouseRegion, truncateToWidth, TuiAltScreen, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import {
   ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobsForTool, noteJobMessage,
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
+import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
 import {
@@ -85,7 +86,7 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type HoverRow = "header" | "row" | `job:${string}`;
+type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
@@ -113,6 +114,13 @@ function clearHover(): void {
   if (!hoverState.tool) return;
   hoverState = { tool: null, row: null, ui: hoverState.ui };
   hoverState.ui?.requestRender?.();
+}
+
+/** A codemode body's fold row the pointer is on, if that is where it is. */
+export function codemodeHover(tool: object): CodemodeSection | undefined {
+  if (hoverState.tool !== tool) return undefined;
+  const row = hoverState.row;
+  return row?.startsWith("codemode:") ? (row.slice("codemode:".length) as CodemodeSection) : undefined;
 }
 
 /** A full-width band behind the row: the whole row is the click target. */
@@ -175,6 +183,7 @@ export function renderGroupedTool(
   // since; re-wrap so the boundaries keep being seen.
   installGroupBoundaries();
   nestedRowSpans.delete(tool);
+  codemodeSpans.delete(tool);
   const job = options.pinned ? undefined : jobForTool(tool);
   const jobs = options.pinned ? [] : jobsForTool(tool);
   if (tool.ui) lastUi = tool.ui;
@@ -207,10 +216,27 @@ export function renderGroupedTool(
     // would be a frame inside a frame. Only the body is drawn, hanging under
     // the row that opened it.
     const body = frameBox(Math.max(4, width - BODY_INDENT), true);
-    for (const line of body) lines.push(`${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`);
+    const base = lines.length;
+    const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
+    for (const [index, line] of body.entries()) {
+      const out = `${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`;
+      const section = toggles.find((toggle) => toggle.row === index)?.section;
+      lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
+    }
+    // A codemode body folds its script and output to one row each; those rows
+    // answer their own clicks (see routeGroupedMouse).
+    codemodeSpans.set(
+      tool,
+      toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as CodemodeSection })),
+    );
   }
   // Nested starts belong to the wrapper, but do not replace its result/error.
   // Keep them below its body so the body's existing click geometry is unchanged.
+  // An opened box hangs them inside the body instead: they are what the script
+  // produced, on the same rail as its call rows and its output.
+  const inBody = plan.full;
+  const rowPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")} ` : `${gutter}  `;
+  const detailPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")}     ` : `${gutter}      `;
   const spans: NestedRowSpan[] = [];
   const open = groupIsOpen(tool);
   for (const nested of jobs) {
@@ -221,11 +247,11 @@ export function renderGroupedTool(
     const hot = hovered === `job:${nested.id}`;
     const arrow = details ? "▾" : hot ? "▶" : "▸";
     const row = formatJobLine({ toolName: "process", isPartial: false }, nested, theme, icons, spinnerFrame(nested, now));
-    const line = `${gutter}  ${theme.fg("muted", arrow)}${row}`;
+    const line = `${rowPad}${theme.fg("muted", arrow)}${row}`;
     lines.push(hot ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
     if (details) {
       for (const body of renderJobDetails(nested, details, theme)) {
-        lines.push(truncateToWidth(`${gutter}      ${body}`, width, "…"));
+        lines.push(truncateToWidth(`${detailPad}${body}`, width, "…"));
       }
     }
     spans.push({ id: nested.id, from, to: lines.length - 1 });
@@ -236,6 +262,13 @@ export function renderGroupedTool(
 
 interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
+
+/** A codemode body's fold labels: one clickable row each. */
+interface CodemodeRowSpan {
+  row: number;
+  section: CodemodeSection;
+}
+const codemodeSpans = new WeakMap<object, CodemodeRowSpan[]>();
 
 /** Logs are plain text here: no cursor moves, OSC payloads, tabs or embedded rows. */
 function jobText(text: string): string {
@@ -268,22 +301,30 @@ function runningJob(jobs: JobState[]): JobState | undefined {
  * when the group's membership changes, not per row — `summarizeResult` walks a
  * result's whole output, and doing that once per row would be quadratic.
  */
-const alignCache = new WeakMap<readonly object[], { count: number; note: number; duration: number }>();
+const alignCache = new WeakMap<readonly object[], { count: number; name: number; note: number; duration: number }>();
 
-function groupAlign(anchor: object): { note: number; duration: number } {
+function groupAlign(anchor: object): { name: number; note: number; duration: number } {
   const members = groupMembers(anchor);
   const cached = alignCache.get(members);
   if (cached && cached.count === members.length) return cached;
+  let name = 0;
   let note = 0;
   let duration = 0;
   for (const member of members) {
+    name = Math.max(name, visibleWidth(member.toolName));
     note = Math.max(note, visibleWidth(summarizeResult(member.toolName, member.result)));
     duration = Math.max(duration, visibleWidth(formatDuration(member.result?.durationMs ?? 0)));
   }
-  const entry = { count: members.length, note, duration };
+  // One long MCP name would push every argument out of reach; past the cap the
+  // column stops growing and those rows keep one space after their name.
+  name = Math.min(name, NAME_COLUMN_MAX);
+  const entry = { count: members.length, name, note, duration };
   alignCache.set(members, entry);
   return entry;
 }
+
+/** Cells the tool-name column may take before an argument column stops paying off. */
+const NAME_COLUMN_MAX = 14;
 
 /**
  * The rail with a tick: `├─`. Used by an opened call's row, whose output hangs
@@ -409,6 +450,22 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   // pi-tui names buttons ("left"); accept the raw SGR code too.
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
+  // A codemode body's fold labels: the script and the output open in place.
+  const fold = typeof y === "number" ? codemodeSpans.get(tool)?.find((span) => y === span.row) : undefined;
+  if (fold) {
+    if (click) {
+      toggleCodemodeSection(tool, fold.section);
+      (tool as { invalidate?(): void }).invalidate?.();
+      tool.ui?.requestRender?.();
+      return { handled: true };
+    }
+    if (event?.type === "move" && hoverTracking) {
+      hoverClaimed = true;
+      if (setHover(tool, `codemode:${fold.section}`, tool.ui)) tool.ui?.requestRender?.();
+    }
+    // Presses and drags stay pi's: the row is text like any other.
+    return undefined;
+  }
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
     if (event?.type === "move" && hoverTracking) {
@@ -539,7 +596,6 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     }
   }
   if (!plan.rows) return { lines };
-  const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS;
   const gutter = groupGutter(theme);
   const hovered = hoverState.tool === component && hoverState.row === "row";
   // `thinkingVisibilityOverrides` is pi's own per-run switch: false = shown, and
@@ -554,11 +610,15 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   // says what it is working on without being opened. The animation lives on the
   // summary line, not here — and the window moves on a tick, not per frame.
   const now = Date.now();
+  const align = groupAlign(component);
+  // The label's column moved with the names, so the live window shrinks by as
+  // much as the padding grew.
+  const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS + Math.max(0, align.name - "thinking".length);
   const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
   const firstRow = lines.length;
   for (const [index, run] of runs.entries()) {
     const text = liveTexts?.[index] ?? previewText(run, width - context);
-    const row = formatThoughtLine(text, theme, { icons, thinkingColor });
+    const row = formatThoughtLine(text, theme, { icons, thinkingColor, align });
     // Open: the row keeps its place and takes a tick, exactly like an opened
     // call — the reasoning hangs under it instead of replacing it.
     const line = open ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
@@ -731,109 +791,104 @@ const BOX_CELLS = 2;
  * run starts hidden here no matter what pi's setting says, so the first click is
  * always "open it".
  */
-/** Rows an expanded run occupies (title + box) on its message component. */
-const THOUGHT_SPANS = Symbol.for("pi-toolbox:thought-spans");
-const RETHINK_MOUSE = Symbol.for("pi-toolbox:rethink-mouse");
+/** The presentation tree from the last frame, not a second hit-test table. */
+const MESSAGE_VIEW = Symbol.for("pi-toolbox:message-view");
+const MESSAGE_MOUSE = Symbol.for("pi-toolbox:message-mouse");
 
-/**
- * pi's own click region covers a thinking child by its *rendered height*, and we
- * changed that height: a one-line label became a title plus a box, and the
- * padding rows around the message were trimmed away. So the toggle is ours: a
- * click on a run's row (or its open box) folds that run, and a click on a
- * collapsed row opens it.
- */
-function installRethinkMouse(component: any): void {
-  if (component[RETHINK_MOUSE]) return;
-  component[RETHINK_MOUSE] = true;
+/** Native child routing, with just one transform for the outer edge trim. */
+class MessageView extends Container {
+  private trimTop = 0;
+  private rawHeight = 0;
+
+  override render(width: number): string[] {
+    const lines = super.render(width);
+    const trimmed = trimMessageEdges(lines);
+    this.trimTop = trimmed.top;
+    this.rawHeight = lines.length;
+    return trimmed.lines;
+  }
+
+  override handleMouse(event: TuiMouseEvent) {
+    return super.handleMouse({ ...event, y: event.y + this.trimTop, height: this.rawHeight });
+  }
+}
+
+function installMessageMouse(component: any): void {
+  if (component[MESSAGE_MOUSE]) return;
+  component[MESSAGE_MOUSE] = true;
   const previous = component.handleMouse;
-  component.handleMouse = (event: any) => {
-    const click = event?.type === "click" && (event.button === "left" || event.button === 0);
-    const spans = (component[THOUGHT_SPANS] ?? []) as Array<{ from: number; to: number; run: number }>;
-    const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
-    const toggle = (run: number) => {
-      // The map is "hidden": toggle whatever it says.
-      const shown = overrides?.get?.(run) === false;
-      overrides?.set?.(run, shown);
-      component.updateContent?.(component.lastMessage);
-      component.invalidate?.();
-      lastUi?.requestRender?.();
-      return { handled: true };
-    };
-    const hit = click ? spans.find((span) => event.y >= span.from && event.y <= span.to) : undefined;
-    if (hit) return toggle(hit.run);
-    // A message that is nothing but thinking has no other content to click: the
-    // whole block belongs to the run, whatever the row arithmetic says.
-    if (click) {
-      const runs = thinkingRuns(component.lastMessage);
-      const content = Array.isArray(component.lastMessage?.content) ? component.lastMessage.content : [];
-      const hasText = content.some((block: any) => block?.type === "text" && typeof block.text === "string" && block.text.trim());
-      if (!hasText && runs.length === 1) return toggle(0);
-      // A click that missed every run is not pi's either: its regions sit on the
-      // *untrimmed* layout, so one row under a run would hit pi's label and
-      // toggle a block nobody aimed at. Our spans cover every run, open or shut.
-      return undefined;
-    }
-    return previous?.call(component, event);
+  component.handleMouse = (event: TuiMouseEvent) => {
+    const view = component[MESSAGE_VIEW] as MessageView | undefined;
+    // An unhandled event belongs to selection/scrolling, not the old layout.
+    return view ? view.handleMouse(event) : previous?.call(component, event);
   };
 }
 
-function restyleThinking(component: any, lines: string[], width: number): string[] {
-  const theme = getTheme();
-  const runs = thinkingRuns(component.lastMessage);
+function restyleThinking(component: any, lines: string[], width: number, rethink: boolean): string[] {
   const kids = component.contentContainer?.children;
-  if (!theme || runs.length === 0 || !Array.isArray(kids) || kids.length === 0) return lines;
+  // If pi's structure changes, keep both its rendering and mouse routing intact.
+  if (!Array.isArray(kids) || kids.length === 0) return lines;
+  const theme = rethink ? getTheme() : undefined;
+  const runs = thinkingRuns(component.lastMessage);
   const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
-  for (let i = 0; i < runs.length; i++) if (!overrides?.has?.(i)) overrides?.set?.(i, true);
+  if (theme) {
+    for (let i = 0; i < runs.length; i++) if (!overrides?.has?.(i)) overrides?.set?.(i, true);
+  }
 
   const icons = iconsEnabled();
   const color = thinkingColorFor();
-  // This row is drawn outside a group, so nothing else on screen can say "still
-  // arriving": the row slides over the tail and wears the spinner itself, the
-  // way the summary does inside a group. It settles on the same three signals.
-  noteThinking(component, runs);
-  const thought = thinkingState(component);
-  if (thought.settlesIn !== undefined) scheduleSettle(component, thought.settlesIn);
+  // Keep the existing live preview/spinner; only its layout ownership changes.
+  if (theme && runs.length > 0) noteThinking(component, runs);
+  const thought = theme && runs.length > 0 ? thinkingState(component) : undefined;
+  if (thought?.settlesIn !== undefined) scheduleSettle(component, thought.settlesIn);
   const budget = Math.max(1, width - THOUGHT_LABEL_CELLS - 1);
-  const liveTexts = thought.live ? liveRowText(component, runs, runs.map(() => budget), Date.now()) : undefined;
-  const spinner = thought.live ? thinkingSpinner(Date.now()) : undefined;
-  const out: string[] = [];
-  /** Rows of every run row plus its box: the click target for toggling it. */
-  const spans: Array<{ from: number; to: number; run: number }> = [];
+  const liveTexts = thought?.live ? liveRowText(component, runs, runs.map(() => budget), Date.now()) : undefined;
+  const spinner = thought?.live ? thinkingSpinner(Date.now()) : undefined;
+  const view = new MessageView();
   let cursor = 0;
   let run = 0;
   for (const kid of kids) {
     const own = kid.render(width) as string[];
     const taken = lines.slice(cursor, cursor + own.length);
     cursor += own.length;
-    if (!(kid instanceof MouseRegion)) {
-      out.push(...(taken.length === own.length ? taken : own));
+    if (!theme || runs.length === 0 || !(kid instanceof MouseRegion)) {
+      // Preserve pi's OSC markers without changing the child's geometry.
+      // MouseRegion forwards to the actual child, retaining its capture/focus
+      // target rather than making this presentation wrapper the target.
+      const rows = taken.length === own.length ? taken : own;
+      const region = new MouseRegion(kid, () => undefined);
+      region.render = () => rows;
+      view.addChild(region);
       continue;
     }
-    const text = liveTexts?.[run] ?? previewText(runs[run] ?? "", budget);
-    const shown = overrides?.get?.(run) === false;
-    run++;
-    // The label stays in both states: outside a group the box is the only frame,
-    // so it needs the title above it to say what it is.
-    out.push(formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner }));
-    const from = out.length - 1;
-    if (!shown) {
-      spans.push({ from, to: from, run: run - 1 });
-      continue;
+    const index = run++;
+    const text = liveTexts?.[index] ?? previewText(runs[index] ?? "", budget);
+    const rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
+    if (overrides?.get?.(index) === false) {
+      const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
+      if (body.length > 0) rows.push(...drawFrame(body, width, theme, color));
     }
-    const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
-    out.push(...(body.length > 0 ? drawFrame(body, width, theme, color) : []));
-    spans.push({ from, to: out.length - 1, run: run - 1 });
+    // A final thinking block carries pi's end-of-message markers too.
+    for (const marker of taken.join("").match(ZONE_MARKERS) ?? []) {
+      if (marker === "\x1b]133;A\x07") rows[0] = marker + rows[0];
+      else rows[rows.length - 1] += marker;
+    }
+    view.addChild(new MouseRegion({ render: () => rows, invalidate() {} }, (event) => {
+      if (event.type !== "click" || event.button !== "left") return undefined;
+      // The title and its entire box are one native click region.
+      overrides?.set?.(index, overrides?.get?.(index) === false);
+      component.updateContent?.(component.lastMessage);
+      component.invalidate?.();
+      lastUi?.requestRender?.();
+      return { handled: true };
+    }));
   }
-  out.push(...lines.slice(cursor));
-  // The wrapper trims pi's padding rows off the edges; the recorded spans have
-  // to move with them, or a click lands on the row above the box.
-  // Escape-aware: the row pi pads with carries the OSC 133 marker, so a plain
-  // `trim()` check thinks it is content and the spans never move.
-  const lead = out.findIndex((line) => line.replace(WITHOUT_ESCAPES, "").trim() !== "");
-  const shift = lead > 0 ? lead : 0;
-  component[THOUGHT_SPANS] = spans.map((span) => ({ ...span, from: span.from - shift, to: span.to - shift }));
-  installRethinkMouse(component);
-  return trimMessageEdges(out);
+  const tail = lines.slice(cursor);
+  if (tail.length > 0) view.addChild({ render: () => tail, invalidate() {} });
+  const rendered = view.render(width);
+  component[MESSAGE_VIEW] = view;
+  installMessageMouse(component);
+  return rendered;
 }
 
 /** A rendered row with every escape sequence gone: what the reader sees. */
@@ -846,20 +901,20 @@ const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
  * markers that sit on them: the terminal uses those to place prompts, so they
  * move onto the rows that survive.
  */
-function trimMessageEdges(lines: string[]): string[] {
+function trimMessageEdges(lines: string[]): { lines: string[]; top: number } {
   const blank = (line: string | undefined) => (line ?? "").replace(WITHOUT_ESCAPES, "").trim() === "";
   let start = 0;
   let end = lines.length;
   while (start < end && blank(lines[start])) start++;
   while (end > start && blank(lines[end - 1])) end--;
-  if (start === 0 && end === lines.length) return lines;
-  if (start === end) return [];
+  if (start === 0 && end === lines.length) return { lines, top: 0 };
+  if (start === end) return { lines: [], top: start };
   const kept = lines.slice(start, end);
   const head = lines.slice(0, start).join("").match(ZONE_MARKERS) ?? [];
   const tail = lines.slice(end).join("").match(ZONE_MARKERS) ?? [];
   if (head.length > 0) kept[0] = head.join("") + kept[0];
   if (tail.length > 0) kept[kept.length - 1] = kept[kept.length - 1] + tail.join("");
-  return kept;
+  return { lines: kept, top: start };
 }
 
 /**
@@ -871,22 +926,19 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
   const render = proto?.render;
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
-    if (!groupingActive()) return render.apply(this, args);
-    const [width, ...rest] = args;
-    // Click geometry is per frame. A component whose role changed (a streaming
-    // step stops being a carrier once its text arrives) must stop answering
-    // clicks at the rows it used to draw.
+    // Reset before even the disabled path: old handlers survive /reload and
+    // streaming carrier/boundary transitions, but their old layout must not.
     this[CARRIER_CLICK] = null;
-    this[THOUGHT_SPANS] = [];
-    const how = view(this, typeof width === "number" ? width : 80);
+    this[MESSAGE_VIEW] = undefined;
+    if (!groupingActive()) return render.apply(this, args);
+    const width = typeof args[0] === "number" ? args[0] : 80;
+    const how = view(this, width);
     if (how === "hidden") return [];
     if (how === "untrimmed") return render.apply(this, args);
-    // Compact assistant/custom message edges around a group. User messages opt
-    // out above so their padding still separates turns.
-    const trim = (lines: string[]) => trimMessageEdges(lines);
-    if (how === "rethink") return trim(restyleThinking(this, render.apply(this, args), typeof width === "number" ? width : 80));
     if (typeof how === "object") return how.lines;
-    return trim(render.apply(this, args));
+    // Both rethink and plain assistant views trim once, through the same
+    // component that routes input. Text-only messages need that transform too.
+    return restyleThinking(this, render.apply(this, args), width, how === "rethink");
   };
   wrapped[BOUNDARY_WRAPPER] = true;
   proto!.render = wrapped;

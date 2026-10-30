@@ -59,6 +59,16 @@ every box gets a rounded transparent frame.
   Each nested process has its own hover and expand target: click to see its command, working directory
   and the last 20 output lines without expanding the script. Open logs update as output arrives;
   processes whose logs are no longer retained still show their saved status
+- **codemode reads as a call list** — the folded row counts what the script ran (`codemode bash×3 read×1`, MCP
+  tools by server, plus a red `1 failed` when a call inside it failed while the script caught it and
+  succeeded), and the opened box shows those calls as tidy rows: kind icon, the same one-line argument summary,
+  one per line, in a name column and a duration column, under a rail of their own. The script and the output
+  each fold to one row (`▸ script · 13 lines`, `▸ output · 4 items`) that opens on click, separated by a dim
+  rule; a script that called nothing folds the same way, using the output's first marker as its boundary. A
+  nested `process start` hangs inside the body with those rows, since it is one of the things the script
+  produced. Arguments are clipped to the row (the duration always survives) instead of wrapping onto a second
+  line. The output stays one block: a script builds its `text()` items from whatever it computed, so an item
+  can be a filtered, merged summary of several calls and nothing ties it back to the call that fed it
 - **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
   plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
   restores the whole command

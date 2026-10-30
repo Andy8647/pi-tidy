@@ -17,6 +17,25 @@ export function stripBackgroundFills(line: string): string {
   return line.replace(BG_FILL_RE, "");
 }
 
+const TRAILING_SGR_RE = /\x1b\[[0-9;:]*m$/;
+
+/** Drop the padding a row was filled out with, keeping the escapes that close its styles. */
+export function trimTrailingSpaces(line: string): string {
+  let body = line;
+  let tail = "";
+  for (;;) {
+    const sgr = TRAILING_SGR_RE.exec(body);
+    if (sgr) {
+      tail = sgr[0] + tail;
+      body = body.slice(0, -sgr[0].length);
+    } else if (body.endsWith(" ")) {
+      body = body.replace(/ +$/, "");
+    } else {
+      return body + tail;
+    }
+  }
+}
+
 export function padToWidth(line: string, width: number): string {
   const w = visibleWidth(line);
   if (w === width) return line;
@@ -73,6 +92,17 @@ export function visibleIndexOf(row: string, needle: string): number {
   const { plain, map } = visibleCharMap(row);
   const pi = plain.lastIndexOf(needle);
   return pi >= 0 ? map[pi] : -1;
+}
+
+/** A row's text with every escape sequence removed. */
+export function visibleText(row: string): string {
+  return visibleCharMap(row).plain;
+}
+
+/** The raw index of the visible character at `plainIndex`, or -1. */
+export function rawIndexOfVisible(row: string, plainIndex: number): number {
+  const { map } = visibleCharMap(row);
+  return plainIndex >= 0 && plainIndex < map.length ? map[plainIndex] : -1;
 }
 
 /**

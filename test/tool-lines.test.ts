@@ -6,7 +6,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { formatGroupLine, formatToolLine, previewText, summarizeArgs, summarizeResult } from "../tool-lines.ts";
+import {
+  formatGroupLine,
+  formatThoughtLine,
+  formatToolLine,
+  previewText,
+  summarizeArgs,
+  summarizeNestedCalls,
+  summarizeResult,
+} from "../tool-lines.ts";
 import { buildGroupSummary } from "../tool-groups.ts";
 
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
@@ -253,6 +261,34 @@ test("a heredoc's (+N lines) marker is the first thing a narrow row drops", () =
   assert.match(tight, /^ ✓ bash cd ~ && python3/);
 });
 
+test("a group's arguments start in one column, whatever the name's length", () => {
+  const align = { name: 8, note: 0, duration: 0 };
+  const cases = [
+    [{ toolName: "codemode", args: { code: "x" }, isPartial: false, result: { durationMs: 1800, details: { calls: [{ name: "bash" }] } } }, "bash×1"],
+    [{ toolName: "process", args: { name: "demo-sleeper" }, isPartial: false, result: { durationMs: 3 } }, "demo-sleeper"],
+    [{ toolName: "read", args: { path: "a.ts" }, isPartial: false, result: { durationMs: 600 } }, "a.ts"],
+  ] as const;
+  const rows = cases.map(([row, arg]) => [text(formatToolLine(row, theme, { ...bare, width: 60, align })), arg] as const);
+  const column = (row: string, needle: string) => visibleWidth(row.slice(0, row.indexOf(needle)));
+  const columns = rows.map(([row, arg]) => column(row, arg));
+  assert.ok(columns.every((c) => c > 0), rows.map(([row]) => row).join("\n"));
+  assert.equal(new Set(columns).size, 1, rows.map(([row]) => row).join("\n"));
+});
+
+test("a thinking row's text starts in the arguments' column", () => {
+  const align = { name: 8 };
+  const thought = text(formatThoughtLine("consider the layout", theme, { icons: true, align }));
+  const tool = text(
+    formatToolLine({ toolName: "read", args: { path: "a.ts" }, isPartial: false, result: { durationMs: 1 } }, theme, {
+      icons: true,
+      align,
+    }),
+  );
+  // Cells, not string indices: a Nerd Font glyph is one cell but two UTF-16 units.
+  const column = (row: string, needle: string) => visibleWidth(row.slice(0, row.indexOf(needle)));
+  assert.equal(column(thought, "consider"), column(tool, "a.ts"), `${thought}\n${tool}`);
+});
+
 test("a group's metrics sit in columns against the row's right edge", () => {
   const one = {
     toolName: "bash",
@@ -293,4 +329,78 @@ test("a live preview slides on word breaks, and holds still until it overflows",
   const firstWord = tail.slice(1).split(" ")[0] as string;
   assert.ok(text.includes(firstWord), `the window starts at a real word: ${tail}`);
   assert.ok(visibleWidth(tail) <= 24, `${visibleWidth(tail)} <= 24: ${tail}`);
+});
+
+test("nested codemode calls are counted by tool, failures included", () => {
+  const call = (name: string, status: string) => ({ id: `c/${name}`, name, args: "", status });
+  assert.deepEqual(
+    summarizeNestedCalls({ calls: [call("bash", "ok"), call("bash", "ok"), call("read", "ok")] }),
+    { kinds: "bash×2 read×1", failed: 0, total: 3 },
+  );
+  assert.deepEqual(
+    summarizeNestedCalls({ calls: [call("bash", "ok"), call("bash", "error"), call("read", "cancelled")] }),
+    { kinds: "bash×2 read×1", failed: 2, total: 3 },
+  );
+  assert.deepEqual(summarizeNestedCalls(undefined), { kinds: "", failed: 0, total: 0 });
+  assert.deepEqual(summarizeNestedCalls({ calls: [] }), { kinds: "", failed: 0, total: 0 });
+  // MCP tools count by server: the tool names alone would fill the row.
+  assert.deepEqual(
+    summarizeNestedCalls({
+      calls: [call("mcp__chrome_devtools__list_pages", "ok"), call("mcp__chrome_devtools__take_screenshot", "ok")],
+    }).kinds,
+    "chrome_devtools×2",
+  );
+});
+
+test("a codemode row counts its nested calls instead of quoting the script", () => {
+  const details = {
+    calls: [
+      { id: "c/1", name: "bash", args: '{"command":"pwd"}', status: "ok" },
+      { id: "c/2", name: "bash", args: '{"command":"ls"}', status: "ok" },
+      { id: "c/3", name: "read", args: '{"path":"a.ts"}', status: "ok" },
+    ],
+  };
+  const row = formatToolLine(
+    { toolName: "codemode", args: { code: "const commands = ['pwd']" }, isPartial: false, result: { durationMs: 100, content: [], details } },
+    theme,
+    { icons: false },
+  );
+  assert.equal(row, " ✓ codemode bash×2 read×1  0.1s");
+});
+
+test("a nested failure shows on a row whose script still succeeded", () => {
+  const details = {
+    calls: [
+      { id: "c/1", name: "bash", args: "", status: "ok" },
+      { id: "c/2", name: "bash", args: "", status: "error" },
+    ],
+  };
+  const result = { durationMs: 1400, content: [{ type: "text", text: "Script completed" }], details };
+  const row = formatToolLine({ toolName: "codemode", args: { code: "x" }, isPartial: false, result }, theme, { icons: false });
+  assert.equal(row, " ✓ codemode bash×2  1 failed · 1.4s");
+});
+
+test("a running script counts its calls as they land", () => {
+  const details = {
+    calls: [
+      { id: "c/1", name: "bash", args: "", status: "ok" },
+      { id: "c/2", name: "bash", args: "", status: "running" },
+    ],
+  };
+  const row = formatToolLine(
+    { toolName: "codemode", args: { code: "x" }, isPartial: true, result: { details } },
+    theme,
+    { icons: false },
+  );
+  assert.equal(row, " ⋯ codemode bash×2");
+});
+
+test("without nested call details the script's first line comes back", () => {
+  // Older pi, or a script that called no tools at all.
+  const row = formatToolLine(
+    { toolName: "codemode", args: { code: "console.log(1)\nconsole.log(2)" }, isPartial: false, result: { durationMs: 50, content: [] } },
+    theme,
+    { icons: false },
+  );
+  assert.equal(row, " ✓ codemode console.log(1) (+1 lines)  0.1s");
 });

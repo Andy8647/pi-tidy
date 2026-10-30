@@ -16,7 +16,14 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { drawFrame, labeledTopBorder, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
+import {
+  drawFrame,
+  labeledTopBorder,
+  sameLines,
+  stripBackgroundFills,
+  trimBlankEdges,
+  trimTrailingSpaces,
+} from "./frame-draw.ts";
 import { MESSAGE_ICONS } from "./icons.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme } from "./theme-access.ts";
@@ -102,7 +109,11 @@ export function patchMessageBoxes(
         )
           return cache.out;
         const padded = content.map((line, i) => (icons && i === 0 ? ` ${icon} ${line}` : ` ${line}`));
-        const out = ["", ...drawFrame(padded, w, theme, borderColor)];
+        // No blank row above the frame: pi puts a `Spacer(1)` in front of a
+        // compaction, branch and skill box already (interactive-mode), and the
+        // border is a separation in itself. A second row read as a stray gap
+        // (issue #29).
+        const out = drawFrame(padded, w, theme, borderColor);
         this.__msgFrameCache = { width: w, sample, icons, lines: content, out };
         return out;
       } catch {
@@ -160,25 +171,6 @@ interface ResolvedContainerOptions {
 }
 
 const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("container-box-options", undefined);
-
-const TRAILING_SGR_RE = /\x1b\[[0-9;:]*m$/;
-
-/** Drop the padding a row was filled out with, keeping the escapes that close its styles. */
-function trimTrailingSpaces(line: string): string {
-  let body = line;
-  let tail = "";
-  for (;;) {
-    const sgr = TRAILING_SGR_RE.exec(body);
-    if (sgr) {
-      tail = sgr[0] + tail;
-      body = body.slice(0, -sgr[0].length);
-    } else if (body.endsWith(" ")) {
-      body = body.replace(/ +$/, "");
-    } else {
-      return body + tail;
-    }
-  }
-}
 
 /**
  * A user message's frame hugs its text: a one-word prompt gets a small box
@@ -245,6 +237,10 @@ export function patchContainerBoxes(
         )
           return cache.out;
 
+        // A leading blank row separates the box from the transcript above it.
+        // Custom messages need it: pi adds no spacer of its own there. A user
+        // message gets a `Spacer(1)` from pi already, and its top border is a
+        // separation in itself, so a second row reads as a stray gap.
         let out: string[];
         if (isUserMessage) {
           // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
@@ -253,7 +249,7 @@ export function patchContainerBoxes(
           const framed = hugContent(content, w, visibleWidth(label));
           const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
           if (label) frame[0] = labeledTopBorder(framed.width, theme, borderColor, label);
-          out = ["", ...frame];
+          out = frame;
         } else {
           out = ["", ...drawFrame(content, w, theme, borderColor)];
         }

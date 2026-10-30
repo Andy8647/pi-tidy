@@ -71,7 +71,7 @@ export const FILE_EXT_ICONS: Record<string, FileIconEntry> = {
 	"azure-pipelines.yaml": { icon: "\u{f14de}", color: "#2088e5" },
 	"azure-pipelines.yml": { icon: "\u{f14de}", color: "#2088e5" },
 	"b": { icon: "\u{f09d1}", color: "#ff4081" },
-	"bash": { icon: "\u{ebca}", color: "#ff7043" },
+	"bash": { icon: "\u{f018d}", color: "#ff7043" },
 	"bat": { icon: "\u{f018d}", color: "#ff7043" },
 	"bats": { icon: "\u{f0b5f}", color: "#d2d2d2" },
 	"bazel": { icon: "\u{e63a}", color: "#44a047" },
@@ -1978,7 +1978,7 @@ export function fileIcon(path: string): string {
 
 // ── Tool kinds ──────────────────────────────────────────────────────────
 export const TOOL_ICONS: Record<string, string> = {
-	bash: "\u{f120}", // fa-terminal
+	bash: "\u{f018d}", // md-console
 	read: "\u{f06e}", // fa-eye
 	edit: "\u{f044}", // fa-edit
 	write: "\u{f0c7}", // fa-floppy-o
