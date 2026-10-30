@@ -38,7 +38,8 @@ const STATUS_GLYPHS = new Set(["✓", "✗", "⊘", "…"]);
  * four spaces. The top-level bash box keeps pi's version: there it is the only
  * report of the exit code.
  */
-const NESTED_BASH_TRAILER = /^ {4}Command (?:exited with code \d+|terminated)\b/;
+// Four cells of pi's error indent, plus the box's own padding when pi draws it.
+const NESTED_BASH_TRAILER = /^ {4,5}Command (?:exited with code \d+|terminated)\b/;
 
 /**
  * The first path-ish argument visible in a clipped JSON string. `args` is cut

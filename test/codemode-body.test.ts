@@ -68,6 +68,22 @@ test("bash's trailer comes off a nested failure, with the blank row above it", (
   assert.ok(out.some((line) => line.includes("read")), "the next call stays");
 });
 
+test("the trailer comes off as pi draws it too: inside its box, under two blank rows", () => {
+  // pi's box pads every row by a cell, and bash's error text ends in "\n\n".
+  const lines = [
+    " \x1b[31m✗\x1b[39m \x1b[36mbash\x1b[39m \x1b[90m{\"command\":\"ls /nope\"}\x1b[39m",
+    "     \x1b[31m\"/nope\": No such file or directory (os error 2)\x1b[39m",
+    " \x1b[31m    ",
+    " \x1b[31m    ",
+    " \x1b[31m    Command exited with code 2\x1b[39m",
+    " \x1b[32m✓\x1b[39m \x1b[36mread\x1b[39m \x1b[90m{\"path\":\"a.ts\"}\x1b[39m",
+  ];
+  const out = decorateCodemodeBody(lines, details, { icons: false });
+  assert.equal(out.length, 3, out.join("\n"));
+  assert.ok(out[1]!.includes("No such file"), "the error itself stays");
+  assert.ok(!out.some((line) => line.includes("Command exited")), "the trailer is gone");
+});
+
 test("a top-level bash trailer (not indented) is not tidy's to remove", () => {
   const lines = ["Command exited with code 1"];
   assert.deepEqual(decorateCodemodeBody(lines, details, { icons: true }), lines);
