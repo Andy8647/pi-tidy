@@ -402,7 +402,11 @@ function splitEditBody(
     // `Text` hands back its own cached array — never write into `raw`.
     const edges = blankEdges(raw);
     let content = edges.start === 0 && edges.end === raw.length ? raw : raw.slice(edges.start, edges.end);
-    if (icons && content.length > 0) {
+    // The kind icon prefixes the call row that pi drew first. A composed codemode
+    // body has no call row: its first row is the script's fold label, which the
+    // row above already introduces, and prefixing it pushed that row off the
+    // body's rail (issue #31 review).
+    if (icons && content.length > 0 && !collapse) {
       let first = content[0];
       // The kind icon already names the tool — drop the redundant word.
       if (PATH_ARG_TOOLS.has(this.toolName)) {

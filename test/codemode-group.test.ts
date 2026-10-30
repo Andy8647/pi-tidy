@@ -164,3 +164,18 @@ test("clicking the output row opens the items, without pi's markers", () => {
   assert.ok(body.includes('#0 ok exit=0 "/tmp"'), "the item is shown");
   assert.ok(!body.includes("==> text 1/1 <=="), "the marker became the count on the row");
 });
+
+test("every body row starts on the same rail, icons on or off", () => {
+  for (const icons of [false, true]) {
+    resetGroups();
+    patchToolBoxFrames({ icons, groupTools: true });
+    const chat = transcript();
+    openBox(chat);
+    const body = frame(chat).filter((line) => line.trim().startsWith("│"));
+    assert.ok(body.length >= 4, body.join("\n"));
+    // ` │   │ <row>`: the group's rail, then the body's. The fold labels used to
+    // take the kind icon in front of them and lose the column.
+    for (const line of body) assert.match(line, /^ │ {3}│ /, line);
+  }
+  patchToolBoxFrames({ icons: false, groupTools: true });
+});
