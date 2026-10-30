@@ -4,6 +4,26 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-10-30
+
+### Changed
+
+**A row you can click shows a hand.** The band that lights a clickable row under the pointer now comes with the
+pointer shape to match: tidy asks the terminal for a hand (OSC 22) while a row is lit and for the arrow again when
+none is, and puts the arrow back before pi leaves the alt screen. Ghostty, kitty, foot and WezTerm draw it; other
+terminals ignore the sequence.
+
+### Fixed
+
+**Long sessions scroll smoothly again.** pi's fullscreen mode draws the whole transcript on every frame — every
+wheel tick, every streamed token, every hover change — and three things tidy draws were rebuilt from scratch each
+time. Edit boxes were the worst: the side-by-side diff had a cache with room for one diff, so with more than one
+edit in the transcript each box pushed out the one before it, and every frame re-parsed and re-highlighted every
+diff in the history. The lag grew with the number of edits, which is why only long sessions felt it. On a
+1,500-message session with 121 edits a scroll frame took about 50 ms (pi on its own: under 1 ms); it takes about
+1.4 ms now. The diff is kept per box, and so are each group's summary line and each message's thinking rows, each
+rebuilt only when what it shows changes. Nothing looks different.
+
 ## [0.6.0] - 2026-10-30
 
 ### Changed

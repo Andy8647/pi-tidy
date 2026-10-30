@@ -89,6 +89,16 @@ interface ToolBoxInternals extends GroupedTool {
     geometry: FrameGeometry;
   };
   __frameGeometry?: FrameGeometry;
+  /** The split diff last built for this box, and what it was built from. */
+  __splitCache?: {
+    diff: string;
+    width: number;
+    maxLines: number | undefined;
+    filePath: string | undefined;
+    sample: string;
+    call: string[];
+    value: { raw: string[]; bgRows: ReadonlySet<number> } | undefined;
+  };
   /** Row indices of the codemode fold labels in the last framed body. */
   __codemodeToggles?: CodemodeToggle[];
 }
@@ -295,24 +305,38 @@ function splitEditBody(
   const diff = typeof preview.diff === "string" ? preview.diff : undefined;
   if (!diff) return undefined;
   const path = (tool.args as { path?: unknown } | undefined)?.path;
-  const body = renderSplitDiff({
-    diff,
-    width: innerWidth,
-    theme,
-    filePath: typeof path === "string" ? path : undefined,
-    // Collapsed, the body is a window on the diff; `ctrl+o` draws all of it.
-    maxLines: tool.expanded ? undefined : diffLines,
-  });
-  if (!body) return undefined;
+  const filePath = typeof path === "string" ? path : undefined;
+  // Collapsed, the body is a window on the diff; `ctrl+o` draws all of it.
+  const maxLines = tool.expanded ? undefined : diffLines;
   // Row 0 is the call row (`edit ~/x.ts`), which keeps pi's rendering so the
   // icon prefix and path shortening still apply; the body starts with its own
   // summary row (`↳ diff +1 -1 [...]`).
   const call = component?.children?.[0]?.render(callWidth) ?? [];
+  // pi renders the whole transcript every frame — every wheel tick, every
+  // streamed token — so each edit box in the history comes through here each
+  // time. Rebuilding (and re-highlighting) its panes is what made scrolling a
+  // long session crawl; the panes only change with these inputs. A theme
+  // switch changes the sample.
+  const sample = theme.fg("toolDiffAdded", "x");
+  const cache = tool.__splitCache;
+  if (
+    cache &&
+    cache.diff === diff &&
+    cache.width === innerWidth &&
+    cache.maxLines === maxLines &&
+    cache.filePath === filePath &&
+    cache.sample === sample &&
+    sameLines(cache.call, call)
+  ) {
+    return cache.value;
+  }
+  const body = renderSplitDiff({ diff, width: innerWidth, theme, filePath, maxLines });
   const offset = call.length;
-  return {
-    raw: [...call, ...body.lines],
-    bgRows: new Set(body.bgRows.map((row) => row + offset)),
-  };
+  const value = body
+    ? { raw: [...call, ...body.lines], bgRows: new Set(body.bgRows.map((row) => row + offset)) }
+    : undefined;
+  tool.__splitCache = { diff, width: innerWidth, maxLines, filePath, sample, call, value };
+  return value;
 }
 
 /** The rounded box at width `w` (what pi would draw, reframed). */

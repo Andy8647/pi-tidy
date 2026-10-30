@@ -277,6 +277,11 @@ clicks on its own rows are taken — presses and drags pass through, so text
 selection works as usual. Without fullscreen there are no clicks: `ctrl+o` still
 toggles every box.
 
+A row you can click lights up under the pointer, and the pointer turns into a hand
+while it is on one (OSC 22: Ghostty, kitty, foot and WezTerm draw it; other
+terminals ignore it). Under tmux, zellij or screen pi only reports motion with a button
+held, so there is no hover there.
+
 The transcript's scrollbar is pi's, and with `fullscreenScrollbar: "auto"` (the
 default) pi paints it over the rightmost column — the one these frames put their
 border in, so it covers the border while it is on screen. Set `"always"` and pi

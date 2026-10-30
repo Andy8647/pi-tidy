@@ -132,22 +132,55 @@ function hoverBand(line: string, width: number, theme: ThemeLike): string {
 const HOVER_HOOK = Symbol.for("pi-toolbox:hover-hook");
 
 /**
+ * OSC 22, the pointer shape, in CSS's cursor names (Ghostty, kitty, foot,
+ * WezTerm). A lit row is a click target, so it gets the hand. `default` is the
+ * arrow a terminal shows while mouse tracking is on — the shape pi runs under —
+ * so it is what the pointer goes back to. Terminals without OSC 22 ignore both.
+ */
+const POINTER_SHAPE = "\x1b]22;pointer\x1b\\";
+const DEFAULT_SHAPE = "\x1b]22;default\x1b\\";
+/** What the terminal was last told, so a move along the same row writes nothing. */
+let pointerShown = false;
+
+type TerminalLike = { write?(data: string): void } | undefined;
+
+function syncPointer(terminal: TerminalLike, lit: boolean): void {
+  if (lit === pointerShown || typeof terminal?.write !== "function") return;
+  pointerShown = lit;
+  terminal.write(lit ? POINTER_SHAPE : DEFAULT_SHAPE);
+}
+
+/**
  * Every mouse packet goes through the alt screen. Watching it is what makes
  * hover honest: a pointer that moves off our rows — onto the editor, a message,
  * the scrollbar — produces no event for us at all, so without this hook the
  * last row would stay lit forever. No hook, no hover.
+ *
+ * The pointer shape follows the band: a hand while a row is lit, the arrow
+ * again once nothing is.
  */
 export function installHoverTracking(): void {
   const proto = (TuiAltScreen as unknown as { prototype?: Record<PropertyKey, any> })?.prototype;
   if (!proto || proto[HOVER_HOOK]) return;
   const original = proto.handleMouseEvent;
   if (typeof original !== "function") return;
-  proto.handleMouseEvent = function (this: unknown, raw: unknown) {
+  proto.handleMouseEvent = function (this: { terminal?: TerminalLike }, raw: unknown) {
     hoverClaimed = false;
     const result = original.call(this, raw);
     if (!hoverClaimed) clearHover();
+    syncPointer(this.terminal, hoverState.tool !== null);
     return result;
   };
+  // Leaving the alt screen (exit, suspend, an external editor) must not leave
+  // the hand behind. It goes first: once pi turns mouse tracking off, Ghostty
+  // puts its own text cursor back, and an arrow written after that would stick.
+  const stop = proto.beforeTerminalStop;
+  if (typeof stop === "function") {
+    proto.beforeTerminalStop = function (this: { terminal?: TerminalLike }, ...args: unknown[]) {
+      syncPointer(this.terminal, false);
+      return stop.apply(this, args);
+    };
+  }
   proto[HOVER_HOOK] = true;
   hoverTracking = true;
 }
@@ -166,6 +199,7 @@ export function disableHoverForTests(): void {
 export function resetHover(): void {
   hoverState = { tool: null, row: null };
   hoverClaimed = false;
+  pointerShown = false;
 }
 
 /**
@@ -362,16 +396,45 @@ function groupHeaderLine(
     now,
   );
   if (!summary) return undefined;
-  const line = formatGroupLine(summary, theme, {
+  // One spinner for the row: a running job, or a thought still arriving.
+  const spinner = summary.thinking ? thinkingSpinner(now) : groupSpinner(jobs);
+  const thinkingColor = thinkingColorFor();
+  // Every group's line is drawn on every frame, and building it costs more
+  // than it looks: `truncateToWidth` walks a styled row with icons grapheme by
+  // grapheme even when it fits. The line is a function of these fields only.
+  const key = [
+    summary.count,
+    summary.breakdown.map(({ name, count }) => `${name}×${count}`).join(" "),
+    summary.thoughts,
+    summary.thinking,
+    summary.durationMs,
+    summary.running ?? "",
+    summary.failed,
+    summary.jobsRunning,
+    header,
+    spinner,
+    hovered,
+    width,
+    icons,
+    thinkingColor,
+    theme.fg("accent", "·"),
+  ].join("\u0000");
+  const cached = headerLines.get(anchor);
+  if (cached?.key === key) return cached.line;
+  const formatted = formatGroupLine(summary, theme, {
     icons,
     open: header === "open",
-    // One spinner for the row: a running job, or a thought still arriving.
-    spinner: summary.thinking ? thinkingSpinner(now) : groupSpinner(jobs),
-    thinkingColor: thinkingColorFor(),
+    spinner,
+    thinkingColor,
     hovered,
   });
-  return hovered ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…");
+  const line = hovered ? hoverBand(formatted, width, theme) : truncateToWidth(formatted, width, "…");
+  headerLines.set(anchor, { key, line });
+  return line;
 }
+
+/** The summary line each anchor drew last, keyed by everything that went into it. */
+const headerLines = new WeakMap<object, { key: string; line: string }>();
 
 /** A quarter-turn frame that follows the wall clock, so any repaint advances it. */
 function thinkingSpinner(now: number): string {
@@ -616,8 +679,8 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS + Math.max(0, align.name - "thinking".length);
   const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
   const firstRow = lines.length;
-  for (const [index, run] of runs.entries()) {
-    const text = liveTexts?.[index] ?? previewText(run, width - context);
+  for (const index of runs.keys()) {
+    const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
     const row = formatThoughtLine(text, theme, { icons, thinkingColor, align });
     // Open: the row keeps its place and takes a tick, exactly like an opened
     // call — the reasoning hangs under it instead of replacing it.
@@ -759,11 +822,27 @@ const liveRows = new Map<object, { at: number; texts: string[] }>();
  * The preview for one live run, held steady between ticks. Text short enough to
  * fit is shown whole and never moves; only an overflowing run slides.
  */
-function liveRowText(component: object, runs: string[], budgets: number[], now: number): string[] {
+function liveRowText(component: object, runs: readonly string[], budgets: number[], now: number): string[] {
   const cached = liveRows.get(component);
   if (cached && now - cached.at < THOUGHT_TICK_MS && cached.texts.length === runs.length) return cached.texts;
   const texts = runs.map((run, i) => previewText(run, budgets[i] ?? 0, true));
   liveRows.set(component, { at: now, texts });
+  return texts;
+}
+
+/**
+ * The settled preview of each run, at one budget. Flattening a run's whitespace
+ * walks all of its text, and every message with thinking asks on every frame;
+ * `thinkingRuns` hands back the same array until the text changes, so the
+ * previews are kept against it.
+ */
+const settledRows = new WeakMap<readonly string[], { budget: number; texts: string[] }>();
+
+function settledRowText(runs: readonly string[], budget: number): string[] {
+  const cached = settledRows.get(runs);
+  if (cached?.budget === budget) return cached.texts;
+  const texts = runs.map((run) => previewText(run, budget));
+  settledRows.set(runs, { budget, texts });
   return texts;
 }
 
@@ -862,7 +941,7 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
       continue;
     }
     const index = run++;
-    const text = liveTexts?.[index] ?? previewText(runs[index] ?? "", budget);
+    const text = liveTexts?.[index] ?? settledRowText(runs, budget)[index] ?? "";
     const rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
     if (overrides?.get?.(index) === false) {
       const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
