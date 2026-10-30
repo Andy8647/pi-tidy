@@ -18,6 +18,7 @@ import {
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
+import { tidyEnabled } from "./live.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
@@ -1013,7 +1014,12 @@ function trimMessageEdges(lines: string[]): { lines: string[]; top: number } {
  * decides per render: draw as usual, draw nothing, draw under the group
  * gutter (two cells narrower, `│` in front), or draw its own rows.
  */
-function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (component: any, width: number) => BoundaryDraw): void {
+function wrapBoundaryRender(
+  proto: { render?: RenderFn } | undefined,
+  view: (component: any, width: number) => BoundaryDraw,
+  /** How it draws with grouping off; pi's own render when absent. */
+  ungrouped?: BoundaryDraw,
+): void {
   const render = proto?.render;
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
@@ -1021,9 +1027,8 @@ function wrapBoundaryRender(proto: { render?: RenderFn } | undefined, view: (com
     // streaming carrier/boundary transitions, but their old layout must not.
     this[CARRIER_CLICK] = null;
     this[MESSAGE_VIEW] = undefined;
-    if (!groupingActive()) return render.apply(this, args);
     const width = typeof args[0] === "number" ? args[0] : 80;
-    const how = view(this, width);
+    const how = groupingActive() ? view(this, width) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
     if (how === "hidden") return [];
     if (how === "untrimmed") return render.apply(this, args);
     if (typeof how === "object") return how.lines;
@@ -1061,7 +1066,10 @@ export function installGroupBoundaries(): void {
     // label is the same thing our rows are, so it wears the same format, right
     // above the text. It is not one of the group's rows, so it is not counted.
     return "rethink";
-  });
+    // Grouping off there is nothing to fold a step into, but its thinking is
+    // still tidy's row rather than a bare `Thinking...` floating over the box:
+    // the row has nothing to do with folding calls.
+  }, "rethink");
   wrapBoundaryRender((UserMessageComponent as any)?.prototype, (component) => {
     noteBoundary(component);
     return "untrimmed";

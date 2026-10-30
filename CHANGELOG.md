@@ -23,6 +23,12 @@ nothing is cut short and pi's box is left as it was. The same goes for a grouped
 `alwaysShowTools`. Each box keeps its list until something in it changes: 0.6.0 re-decorated every framed
 `codemode` box on every frame, which on a session of 300 scripts cost about 38 ms a frame; it is under 2 ms now.
 
+**Thinking is tidy's row with grouping off, too.** The thinking row was wired into grouping, so with
+`groupTools: false` every step left pi's bare `Thinking...` floating over its box. The row has nothing to do with
+folding calls: with grouping off each step's thinking is now the same `thinking` row a message that writes text
+gets inside a group — the brain, one line of what it thought, a click to open it in its box — and the step loses
+pi's padding rows the way it does with grouping on.
+
 ### Fixed
 
 **bash's `Command exited with code N` trailer comes off a failed call inside a script.** 0.6.0 said so, but

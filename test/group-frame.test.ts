@@ -313,10 +313,20 @@ test("options are live: a re-patch (what /reload does) and enabled=false take ef
     const lines = frame(chat);
     assert.equal(lines.filter((line) => line.includes("╭")).length, 3, "every call is a box again");
     assert.ok(!lines.some((line) => line.includes("calls")));
-    assert.ok(lines.some((line) => line.includes("Thinking...")), "carriers render as pi draws them");
+    // Nothing to fold a step into, but its thinking is still tidy's row, not a
+    // bare label floating over the boxes.
+    assert.ok(!lines.some((line) => line.includes("Thinking...")), lines.join("\n"));
+    assert.ok(lines.some((line) => /thinking {2}\S/.test(line)), `a step's thinking is a row:\n${lines.join("\n")}`);
+    // And the row opens into its box on a click, as it does inside a group.
+    click(chat, "thinking  ");
+    assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 4, `the run opens:\n${frame(chat).join("\n")}`);
+    click(chat, "thinking  ");
+    assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 3, "and folds back");
 
     tidyEnabled.set(false);
-    assert.equal(frame(chat).filter((line) => line.includes("╭")).length, 0, "pi's own unframed boxes");
+    const off = frame(chat);
+    assert.equal(off.filter((line) => line.includes("╭")).length, 0, "pi's own unframed boxes");
+    assert.ok(off.some((line) => line.includes("Thinking...")), "and pi's own thinking label");
   } finally {
     tidyEnabled.set(true);
     patchToolBoxFrames(OPTIONS);
