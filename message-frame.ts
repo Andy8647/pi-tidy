@@ -102,7 +102,11 @@ export function patchMessageBoxes(
         )
           return cache.out;
         const padded = content.map((line, i) => (icons && i === 0 ? ` ${icon} ${line}` : ` ${line}`));
-        const out = ["", ...drawFrame(padded, w, theme, borderColor)];
+        // No blank row above the frame: pi puts a `Spacer(1)` in front of a
+        // compaction, branch and skill box already (interactive-mode), and the
+        // border is a separation in itself. A second row read as a stray gap
+        // (issue #29).
+        const out = drawFrame(padded, w, theme, borderColor);
         this.__msgFrameCache = { width: w, sample, icons, lines: content, out };
         return out;
       } catch {

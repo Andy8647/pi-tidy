@@ -8,10 +8,11 @@ What changed in each released version of pi-tidy (published as
 
 ### Fixed
 
-**No blank row above a framed user message.** pi already inserts a spacer before a user message, and the frame
-added its own empty row on top of it, so the box floated one row below the transcript. The top border is the
-first row now (its `OSC 133` zone marker moved with it). Custom messages keep the spacer: pi puts a user
-message in a `Spacer(1)` of its own, but no spacer in front of a custom message.
+**No blank row above a framed message box.** pi inserts a `Spacer(1)` before a user message and before the
+compaction, branch and skill boxes, and the frame added an empty row of its own on top of it — the box floated one
+row below the transcript, and for the summary boxes that turned pi's filled padding row into a second blank one.
+The top border is the first row now, for all four (the user message's `OSC 133` zone marker moved with it).
+Custom messages keep the spacer: pi puts no spacer in front of those, so it is the only separation they have.
 
 ## [0.5.0] - 2026-10-30
 

@@ -52,10 +52,10 @@ for (const [name, Component, arg, color, icon] of [
     const component = new (Component as any)(arg);
     const lines: string[] = component.render(60);
 
-    assert.ok(lines.length >= 4, "blank spacer + frame top + content + frame bottom");
-    assert.match(lines[1], new RegExp(`^<fg:${color}>╭─+╮</fg>$`), "rounded top border in kind color");
+    assert.ok(lines.length >= 3, "frame top + content + frame bottom");
+    assert.match(lines[0], new RegExp(`^<fg:${color}>╭─+╮</fg>$`), "rounded top border in kind color, no blank row above it");
     assert.match(lines.at(-1)!, new RegExp(`^<fg:${color}>╰─+╯</fg>$`), "rounded bottom border in kind color");
-    for (const line of lines.slice(2, -1)) {
+    for (const line of lines.slice(1, -1)) {
       assert.match(line, new RegExp(`^<fg:${color}>│</fg>`), "left border");
       assert.match(line, new RegExp(`<fg:${color}>│</fg>$`), "right border");
     }
@@ -64,7 +64,7 @@ for (const [name, Component, arg, color, icon] of [
       body.includes("[compaction]") || body.includes("[branch]") || body.includes("[skill]"),
       "label kept",
     );
-    assert.ok(lines[2].includes(icon), "kind icon on the first content line");
+    assert.ok(lines[1].includes(icon), "kind icon on the first content line");
     if (name === "compaction") assert.ok(body.includes("357,695"), "token count kept");
     assert.ok(!BG_FILL_RE.test(body), "no background fill escapes");
   });
@@ -76,7 +76,7 @@ test("expanded compaction box renders its summary inside the frame", () => {
   component.setExpanded(true);
   const lines: string[] = component.render(60);
   const body = lines.join("\n");
-  assert.match(lines[1], new RegExp(`^<fg:${COLORS.compaction}>╭─+╮</fg>$`), "still framed when expanded");
+  assert.match(lines[0], new RegExp(`^<fg:${COLORS.compaction}>╭─+╮</fg>$`), "still framed when expanded");
   assert.ok(body.includes("summary text"), "summary kept");
 });
 
