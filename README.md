@@ -68,7 +68,10 @@ every box gets a rounded transparent frame.
   nested `process start` hangs inside the body with those rows, since it is one of the things the script
   produced. Arguments are clipped to the row (the duration always survives) instead of wrapping onto a second
   line. The output stays one block: a script builds its `text()` items from whatever it computed, so an item
-  can be a filtered, merged summary of several calls and nothing ties it back to the call that fed it
+  can be a filtered, merged summary of several calls and nothing ties it back to the call that fed it.
+  With `groupTools: false` (or `codemode` in `alwaysShowTools`) the box is the same list in a frame of its
+  own, titled with the row a group would show for it; all of the calls are listed, not just pi's last eight.
+  `ctrl+o`, or a click anywhere else in the box, opens the script and the output together
 - **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
   plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
   restores the whole command
@@ -197,7 +200,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
-| `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box |
+| `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box (a `codemode` box still reads as its call list) |
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
 | `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
 | `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep their own box (with the diff) and end the group before them, so later calls start a new one. Set `[]` to fold edits and writes into the group like everything else — click their row for the box |

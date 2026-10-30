@@ -124,7 +124,7 @@ export function codemodeHover(tool: object): CodemodeSection | undefined {
 }
 
 /** A full-width band behind the row: the whole row is the click target. */
-function hoverBand(line: string, width: number, theme: ThemeLike): string {
+export function hoverBand(line: string, width: number, theme: ThemeLike): string {
   const padded = padToWidth(line, width);
   return theme.bg ? theme.bg("selectedBg", padded) : padded;
 }
@@ -298,11 +298,36 @@ interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
 
 /** A codemode body's fold labels: one clickable row each. */
-interface CodemodeRowSpan {
+export interface CodemodeRowSpan {
   row: number;
   section: CodemodeSection;
 }
 const codemodeSpans = new WeakMap<object, CodemodeRowSpan[]>();
+
+/** The fold row at `y`, if there is one. */
+export function codemodeFoldAt(rows: readonly CodemodeRowSpan[] | undefined, y: unknown): CodemodeRowSpan | undefined {
+  return typeof y === "number" ? rows?.find((span) => span.row === y) : undefined;
+}
+
+/**
+ * A packet on a codemode fold row, grouped or framed: a click opens or shuts
+ * that section, motion lights the row. Presses and drags stay pi's: the row is
+ * text like any other.
+ */
+export function routeCodemodeFold(tool: GroupedTool, event: any, section: CodemodeSection): unknown {
+  const click = event?.type === "click" && (event.button === "left" || event.button === 0);
+  if (click) {
+    toggleCodemodeSection(tool, section);
+    (tool as { invalidate?(): void }).invalidate?.();
+    tool.ui?.requestRender?.();
+    return { handled: true };
+  }
+  if (event?.type === "move" && hoverTracking) {
+    hoverClaimed = true;
+    if (setHover(tool, `codemode:${section}`, tool.ui)) tool.ui?.requestRender?.();
+  }
+  return undefined;
+}
 
 /** Logs are plain text here: no cursor moves, OSC payloads, tabs or embedded rows. */
 function jobText(text: string): string {
@@ -514,21 +539,8 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
   // A codemode body's fold labels: the script and the output open in place.
-  const fold = typeof y === "number" ? codemodeSpans.get(tool)?.find((span) => y === span.row) : undefined;
-  if (fold) {
-    if (click) {
-      toggleCodemodeSection(tool, fold.section);
-      (tool as { invalidate?(): void }).invalidate?.();
-      tool.ui?.requestRender?.();
-      return { handled: true };
-    }
-    if (event?.type === "move" && hoverTracking) {
-      hoverClaimed = true;
-      if (setHover(tool, `codemode:${fold.section}`, tool.ui)) tool.ui?.requestRender?.();
-    }
-    // Presses and drags stay pi's: the row is text like any other.
-    return undefined;
-  }
+  const fold = codemodeFoldAt(codemodeSpans.get(tool), y);
+  if (fold) return routeCodemodeFold(tool, event, fold.section);
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
     if (event?.type === "move" && hoverTracking) {
