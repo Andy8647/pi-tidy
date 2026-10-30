@@ -87,6 +87,13 @@ test("user message gets a frame in the user color and keeps its OSC133 zone mark
 
   assert.match(lines[0], /^\x1b\]133;A\x07/, "zone start on first line");
   assert.match(lines.at(-1)!, /^\x1b\]133;B\x07\x1b\]133;C\x07/, "zone end+final on last line");
+  // Issue #29: pi already puts a `Spacer(1)` in front of a user message, so
+  // tidy must not add a blank row of its own above the frame.
+  assert.match(
+    lines[0].replace("\x1b]133;A\x07", ""),
+    new RegExp(`^<fg:${COLORS.user}>╭─ `),
+    "the top border is the first line",
+  );
   assert.ok(lines.some((l) => l.includes(`<fg:${COLORS.user}>╭`)), "rounded top border in user color");
   assert.ok(lines.some((l) => l.includes(`<fg:${COLORS.user}>╰`)), "rounded bottom border in user color");
   assert.ok(lines.join("\n").includes("\u{f007}"), "user icon present");
@@ -106,22 +113,23 @@ test("a framed user message hugs its text and carries the user icon in its top b
   try {
     patchContainerBoxes(COLORS, { icons: false, includeUser: true });
     const plain = (line: string) => line.replace(/\x1b\][^\x07]*\x07/g, "").replace(/\x1b\[[0-9;]*m/g, "");
-    // No icons: a plain top border, one-cell inset each side of the text.
+    // No blank row above the frame: pi puts a `Spacer(1)` in front of a user
+    // message already, and a second one read as a stray gap (issue #29).
     const short = new UserMessageComponent("hi" as never).render(60).map(plain);
-    assert.deepEqual(short.slice(1), ["╭────╮", "│ hi │", "╰────╯"]);
+    assert.deepEqual(short, ["╭────╮", "│ hi │", "╰────╯"]);
 
     // With icons the icon sits in the top border, not on the text's row, and
     // the box is never narrower than it needs.
     patchContainerBoxes(COLORS, { icons: true, includeUser: true });
     const iconedShort = new UserMessageComponent("hi" as never).render(60).map(plain);
-    assert.deepEqual(iconedShort.slice(1), ["╭─ \u{f007} ─╮", "│ hi  │", "╰─────╯"]);
+    assert.deepEqual(iconedShort, ["╭─ \u{f007} ─╮", "│ hi  │", "╰─────╯"]);
     const iconed = new UserMessageComponent("hello there" as never).render(60).map(plain);
-    assert.deepEqual(iconed.slice(1), ["╭─ \u{f007} ─────────╮", "│ hello there │", "╰─────────────╯"]);
+    assert.deepEqual(iconed, ["╭─ \u{f007} ─────────╮", "│ hello there │", "╰─────────────╯"]);
     patchContainerBoxes(COLORS, { icons: false, includeUser: true });
 
     // A long one wraps, and the frame hugs the widest wrapped row, never past 60.
     const long = new UserMessageComponent("word ".repeat(40) as never).render(60).map(plain);
-    const widths = long.slice(1).map((line) => [...line].length);
+    const widths = long.map((line) => [...line].length);
     assert.ok(widths[0] <= 60 && widths[0] > 50, String(widths[0]));
     assert.ok(widths.every((width) => width === widths[0]), "every row the frame's width");
     assert.ok(long.length > 4, "wrapped onto several rows");

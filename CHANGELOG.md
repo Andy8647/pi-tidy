@@ -4,6 +4,15 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-30
+
+### Fixed
+
+**No blank row above a framed user message.** pi already inserts a spacer before a user message, and the frame
+added its own empty row on top of it, so the box floated one row below the transcript. The top border is the
+first row now (its `OSC 133` zone marker moved with it). Custom messages keep the spacer: pi puts a user
+message in a `Spacer(1)` of its own, but no spacer in front of a custom message.
+
 ## [0.5.0] - 2026-10-30
 
 ### Changed

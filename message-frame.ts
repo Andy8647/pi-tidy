@@ -245,6 +245,10 @@ export function patchContainerBoxes(
         )
           return cache.out;
 
+        // A leading blank row separates the box from the transcript above it.
+        // Custom messages need it: pi adds no spacer of its own there. A user
+        // message gets a `Spacer(1)` from pi already, and its top border is a
+        // separation in itself, so a second row reads as a stray gap.
         let out: string[];
         if (isUserMessage) {
           // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
@@ -253,7 +257,7 @@ export function patchContainerBoxes(
           const framed = hugContent(content, w, visibleWidth(label));
           const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
           if (label) frame[0] = labeledTopBorder(framed.width, theme, borderColor, label);
-          out = ["", ...frame];
+          out = frame;
         } else {
           out = ["", ...drawFrame(content, w, theme, borderColor)];
         }
