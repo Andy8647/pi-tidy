@@ -41,8 +41,8 @@ test("nested call rows take the kind icon, the script and its output do not", ()
   ];
   const out = decorateCodemodeBody(lines, details, { icons: true });
   assert.equal(out.length, lines.length);
-  assert.equal(out[2], "\x1b[32m✓\x1b[39m \x1b[36m\u{f018d} bash\x1b[39m \x1b[90mpwd\x1b[39m\x1b[90m 50ms\x1b[39m");
-  assert.equal(out[3], "\x1b[32m✓\x1b[39m \x1b[36m\u{f06e} read\x1b[39m \x1b[90ma.ts\x1b[39m\x1b[90m 1ms\x1b[39m");
+  assert.equal(out[2], "\x1b[32m✓\x1b[39m \x1b[36m\u{f018d} bash\x1b[39m \x1b[90mpwd\x1b[39m\x1b[90m   50ms\x1b[39m");
+  assert.equal(out[3], "\x1b[32m✓\x1b[39m \x1b[36m\u{f06e} read\x1b[39m \x1b[90ma.ts\x1b[39m\x1b[90m  1ms\x1b[39m");
   assert.equal(out[0], lines[0], "script row untouched");
   assert.equal(out[6], lines[6], "output row untouched");
 });
@@ -149,8 +149,8 @@ test("a closed body is a call list: script and output one row each", () => {
   const out = composeCodemodeBody(piBody, twoCalls, { script: false, output: false }, theme, { icons: false });
   assert.deepEqual(text(out), [
     "▸ script · 2 lines",
-    "✓ bash pwd       50ms",
-    "✓ read src/app.ts 1ms",
+    "✓ bash pwd         50ms",
+    "✓ read src/app.ts  1ms",
     "▸ output · 2 items",
   ]);
   assert.deepEqual(out.toggles.map((t) => [t.section, t.row]), [
@@ -165,7 +165,7 @@ test("an open script keeps its rows under the label, above the calls", () => {
     "▾ script · 2 lines",
     "const a = await tools.bash({ command: 'pwd' });",
     "const b = await tools.read({ path: 'src/app.ts' });",
-    "✓ bash pwd       50ms",
+    "✓ bash pwd         50ms",
   ]);
 });
 
@@ -211,7 +211,11 @@ test("the body's own rows take a name column and a duration column", () => {
   const column = (row: string, needle: string) => visibleWidth(row.slice(0, row.indexOf(needle)));
   const argsAt = rows.map((row) => column(row, row.includes("pwd") ? "pwd" : row.includes("typst") ? "typst" : "a.ts"));
   assert.equal(new Set(argsAt).size, 1, rows.join("\n"));
-  for (const row of rows) assert.equal(visibleWidth(row), 40, row);
+  // The durations share a column too, two cells past the longest arguments
+  // rather than out at the box's edge.
+  const durationsAt = rows.map((row) => column(row, row.trimEnd().split(" ").pop()!));
+  assert.equal(new Set(durationsAt).size, 1, rows.join("\n"));
+  assert.ok(durationsAt[0]! < 40 - 3, "with the arguments, not out at the box's edge");
   assert.deepEqual(
     rows.map((row) => row.trimEnd().split(" ").pop()),
     ["522ms", "5ms", "1.8s"],

@@ -139,26 +139,34 @@ function padName(line: string, name: string, lead: number, width: number): strin
 /** The trailing `50ms` / `1.8s` of a call row, if it has one. */
 const DURATION_TAIL = /(\d+(?:\.\d+)?(?:ms|s))$/;
 
-/**
- * Right-align a row's duration to `target`, the column the call rows end on.
- * pi pads its rows to the box's width, so in practice that is the row's own
- * edge; measuring the region keeps the column even when it does not pad.
- */
-function alignDuration(line: string, target: number): string {
-  const plain = visibleText(line);
-  const body = plain.replace(/\s+$/, "");
+/** The text of a call row without the padding pi gave it, and without its duration. */
+function argumentsWidth(line: string): number {
+  const body = visibleText(line).replace(/\s+$/, "");
   const match = DURATION_TAIL.exec(body);
+  return match ? visibleWidth(body.slice(0, match.index)) : visibleWidth(body);
+}
+
+/**
+ * Put a row's duration in the column the call rows share, `gap` cells past the
+ * longest arguments.
+ *
+ * Not against the body's right edge: these rows cannot be clicked and never
+ * show a hover hint, so on a wide terminal a duration pinned to the far edge
+ * reads as part of another column, a screen away from the log it belongs to.
+ */
+function alignDuration(line: string, target: number, gap: number): string {
+  const plain = visibleText(line);
+  const match = DURATION_TAIL.exec(plain.replace(/\s+$/, ""));
   if (!match) return line;
-  // One of this goes to the space between the arguments and the duration, which
-  // the trim below takes with the padding.
-  const pad = target - visibleWidth(body) + 1;
+  const pad = target + gap - argumentsWidth(line);
   if (pad <= 0) return line;
   const from = rawIndexOfVisible(line, match.index);
   if (from < 0) return line;
-  // The row's own trailing pad goes with it: the frame's padding is the
-  // column's right edge, and two pads would push the duration past it.
   return trimTrailingSpaces(line.slice(0, from)) + " ".repeat(pad) + trimTrailingSpaces(line.slice(from));
 }
+
+/** Cells between the longest arguments and the duration column. */
+const DURATION_GAP = 2;
 
 /**
  * Decorate the rendered rows. A row is a nested call only if it opens with a
@@ -172,7 +180,6 @@ function decorateRows(
   calls: NestedCall[],
   icons: boolean,
   nameWidth: number,
-  targetWidth: number | undefined,
 ): string[] {
   const built: string[] = [];
   const callRows = new Set<number>();
@@ -205,11 +212,11 @@ function decorateRows(
     built.push(row);
   }
 
-  // One right edge for the durations: the body's width when the caller knows
-  // it, otherwise the widest call row.
-  let target = targetWidth ?? 0;
-  for (const index of callRows) target = Math.max(target, visibleWidth(visibleText(built[index]!).replace(/\s+$/, "")));
-  return built.map((row, index) => (callRows.has(index) ? alignDuration(row, target) : row));
+  // One column for the durations: as far right as the longest arguments reach,
+  // plus two cells of air.
+  let target = 0;
+  for (const index of callRows) target = Math.max(target, argumentsWidth(built[index]!));
+  return built.map((row, index) => (callRows.has(index) ? alignDuration(row, target, DURATION_GAP) : row));
 }
 
 /** Cells the call rows' name column may take before the arguments stop paying. */
@@ -261,7 +268,7 @@ export function decorateCodemodeBody(
   options: CodemodeBodyOptions,
 ): string[] {
   const calls = nestedCalls(details);
-  const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons, nameColumn(calls), options.width) : lines;
+  const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons, nameColumn(calls)) : lines;
   return dropBashTrailers(decorated);
 }
 
@@ -398,7 +405,7 @@ export function composeCodemodeBody(
   // and the name is what tells one call row from the output.
   const regions = splitRegions(lines, calls, "codemode");
   if (!regions) return { lines: decorateCodemodeBody(lines, details, options), toggles: [] };
-  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons, nameColumn(calls), options.width));
+  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons, nameColumn(calls)));
   const rule = ruleRow(theme, options.width);
 
   const out: string[] = [];
