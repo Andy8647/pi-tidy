@@ -9,9 +9,15 @@
  * Configuration (settings.json → "tidy"; the pre-rename "toolbox" key still works):
  *   enabled: boolean        — enable/disable the extension (default: true)
  *   highlightBash: boolean  — syntax-highlight bash commands (default: true)
- *   frameMessages: boolean  — rounded frame on message boxes (default: true)
- *   frameUserMessages: boolean — also frame user messages (default: false;
- *     pi-starline already restyles them and two render patches would fight)
+ *   frameMessages: boolean  — rounded frame on message boxes and on the user's
+ *     own `!` / `!!` bash runs (default: true)
+ *   userMessageStyle: "frame" | "rail" | "off" — user messages in a rounded
+ *     frame hugging the text with the user icon in its top border, as rules
+ *     plus an accent rail, or pi's own (default: frame)
+ *   userMessagePaddingY: number — rail-only rows around a "rail" message's
+ *     text (default: 1, at most 3)
+ *   userMessageColors: { rail, rule } — theme color names or #rrggbb
+ *     (defaults accent / borderMuted)
  *   icons: boolean          — Nerd Font icons on boxes (default: true)
  *   groupTools: boolean     — fold each segment's tool calls into one summary
  *     line; click for one row per call, a row for its box (default: true)
@@ -43,6 +49,8 @@ import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./fr
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
 import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
+import { patchBashExecutions } from "./bash-mode-frame.ts";
+import { patchUserMessages } from "./user-message.ts";
 import { formatWriteCallText } from "./write-preview.ts";
 import { connectJobs, registerNestedJobs, type EventBusLike } from "./background-jobs.ts";
 import type { ThemeLike } from "./theme-access.ts";
@@ -237,8 +245,22 @@ export default function (pi: ExtensionAPI): void {
     patchMessageBoxes(config.messageBorderColors, config.icons, config.frameMessages);
     patchContainerBoxes(config.messageBorderColors, {
       icons: config.icons,
-      includeUser: config.frameUserMessages,
+      includeUser: config.userMessageStyle === "frame",
       enabled: config.frameMessages,
+    });
+    patchUserMessages({
+      style: config.userMessageStyle,
+      railColor: config.userMessageColors.rail,
+      ruleColor: config.userMessageColors.rule,
+      paddingY: config.userMessagePaddingY,
+      icons: config.icons,
+    });
+    patchBashExecutions({
+      enabled: config.frameMessages,
+      icons: config.icons,
+      // The user's own commands wear the user's color, whichever style draws them.
+      color:
+        config.userMessageStyle === "rail" ? config.userMessageColors.rail : config.messageBorderColors.user,
     });
   } catch (error) {
     console.debug("[pi-tidy] message box frame patch failed:", error);

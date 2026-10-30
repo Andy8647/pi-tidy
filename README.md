@@ -14,7 +14,9 @@ every box gets a rounded transparent frame.
 
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's default ┌┐└┘
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents, and any other extension's tools all get the same frame
-- **Every message box** — compaction and branch summaries, skill invocations, and extension custom messages get the same frame, each kind in its own border color (user messages are left to pi-starline by default)
+- **Every message box** — compaction and branch summaries, skill invocations, and extension custom messages get the same frame, each kind in its own border color
+- **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front), or pi's own look
+- **Your own `!` commands, marked as yours** — a `!` / `!!` run gets the rounded frame too, with the user icon, the `!` you typed and the user message color, so it never passes for the agent's bash box
 - **Per-tool border colors** — successful boxes take their tool's color (bash/read/edit/write/… configurable); pending stays grey, errors stay red
 - **Nerd Font icons** — every box gets a kind icon; file tools show the target file's nvim-web-devicons glyph right in front of the path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Side-by-side edit diffs** — an edit's diff renders as two panes (`old │ new`) with line numbers
@@ -143,7 +145,9 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "enabled": true,
     "highlightBash": true,
     "frameMessages": true,
-    "frameUserMessages": false,
+    "userMessageStyle": "frame",
+    "userMessagePaddingY": 1,
+    "userMessageColors": { "rail": "accent", "rule": "borderMuted" },
     "icons": true,
     "bashResultLines": 1,
     "writeLines": 10,
@@ -178,8 +182,10 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 |-----|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable the extension |
 | `highlightBash` | boolean | `true` | Syntax-highlight bash commands |
-| `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes |
-| `frameUserMessages` | boolean | `false` | Also frame user messages — off by default because pi-starline already restyles `UserMessageComponent`, and two render patches on one prototype fight over the output. Enable only without pi-starline |
+| `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
+| `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
+| `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
+| `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
 | `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box |
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
@@ -207,11 +213,18 @@ pi builds one `ToolExecutionComponent` per tool call, no matter which extension
 registered the tool. pi-tidy patches that component's `render` to frame the whole
 box — which is why MCP and subagent boxes are framed too. Message boxes (compaction, branch
 summary, skill invocation, extension custom message) never go through that
-component; their own prototypes get the same treatment, with two exceptions
-that keep their native styling: custom messages rendered by an
-extension-provided renderer, and `!` bash-mode executions, which already draw
-their own border. User messages are skipped by default because pi-starline
-patches the same prototype.
+component; their own prototypes get the same treatment, with one exception
+that keeps its native styling: custom messages rendered by an
+extension-provided renderer. `!` bash-mode runs are framed as the user's
+rather than as a tool's: the agent's bash box changes color with its state,
+while the user's keeps the user messages' color (`messageBorderColors.user`, or
+`userMessageColors.rail` under the rail) and lets pi's own rows (`Running...`,
+`(exit 1)`) say how it went. Both user message styles render pi's own Markdown
+child narrower and swap only its chrome, so markdown
+transformers registered by other extensions (pi-ide-context's selection
+references, for one) keep working. With pi-starline 0.9 and later, tidy is the
+only extension that styles user messages; earlier pi-starline versions draw
+their own over it.
 
 Tidy registers **no tools at all**. Everything it changes about `bash` and `write`
 (the highlighted command row, the collapsed output budgets, the write preview)

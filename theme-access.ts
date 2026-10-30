@@ -15,6 +15,8 @@ export interface ThemeLike {
   /** Present on the live theme; every built-in theme implements it. */
   bg?(color: string, text: string): string;
   italic?(text: string): string;
+  /** `"truecolor"` or `"256color"`; absent on test fixtures. */
+  getColorMode?(): string;
 }
 
 export function getTheme(): ThemeLike | undefined {

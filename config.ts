@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { UserMessageStyle } from "./user-message.ts";
 
 export interface MessageBorderColors {
   user: string;
@@ -15,8 +16,16 @@ export interface TidyConfig {
   highlightBash: boolean;
   /** Give message boxes the same rounded transparent frame as tool boxes. */
   frameMessages: boolean;
-  /** Frame user messages too — off by default because pi-starline owns them. */
-  frameUserMessages: boolean;
+  /**
+   * How user messages look: "frame" (the rounded message frame, hugging the
+   * text, the user icon in its top border), "rail" (rules above and below, an
+   * accent `│` in front of the text) or "off" (pi's own).
+   */
+  userMessageStyle: UserMessageStyle;
+  /** Rail-only rows between each rule and the text of a "rail" user message. */
+  userMessagePaddingY: number;
+  /** "rail" user message colors: theme color names or `#rrggbb`. */
+  userMessageColors: { rail: string; rule: string };
   /** Prepend Nerd Font icons (tool kind / file type / message kind). */
   icons: boolean;
   /**
@@ -91,7 +100,9 @@ const DEFAULTS: TidyConfig = {
   enabled: true,
   highlightBash: true,
   frameMessages: true,
-  frameUserMessages: false,
+  userMessageStyle: "frame",
+  userMessagePaddingY: 1,
+  userMessageColors: { rail: "accent", rule: "borderMuted" },
   icons: true,
   bashResultLines: 1,
   writeLines: PI_WRITE_PREVIEW_LINES,
@@ -113,6 +124,21 @@ const DEFAULTS: TidyConfig = {
   toolColors: DEFAULT_TOOL_COLORS,
 };
 
+const USER_MESSAGE_STYLES: readonly UserMessageStyle[] = ["rail", "frame", "off"];
+
+// The pre-0.5 `frameUserMessages` needs no reading: `true` asked for the frame,
+// which is the default now, and `false` meant "leave them to pi-starline",
+// which no longer draws them.
+function userMessageStyle(toolbox: any): UserMessageStyle {
+  const style = toolbox?.userMessageStyle;
+  return USER_MESSAGE_STYLES.includes(style) ? style : DEFAULTS.userMessageStyle;
+}
+
+function stringEntries(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
 function readSettings(): any {
   const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
   return JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8"));
@@ -127,7 +153,15 @@ export function loadConfig(): TidyConfig {
       enabled: toolbox?.enabled ?? DEFAULTS.enabled,
       highlightBash: toolbox?.highlightBash ?? DEFAULTS.highlightBash,
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
-      frameUserMessages: toolbox?.frameUserMessages ?? DEFAULTS.frameUserMessages,
+      userMessageStyle: userMessageStyle(toolbox),
+      userMessagePaddingY:
+        Number.isInteger(toolbox?.userMessagePaddingY) && toolbox.userMessagePaddingY >= 0
+          ? Math.min(3, toolbox.userMessagePaddingY)
+          : DEFAULTS.userMessagePaddingY,
+      userMessageColors: {
+        ...DEFAULTS.userMessageColors,
+        ...stringEntries(toolbox?.userMessageColors),
+      },
       icons: toolbox?.icons ?? DEFAULTS.icons,
       bashResultLines: typeof toolbox?.bashResultLines === "number" ? toolbox.bashResultLines : DEFAULTS.bashResultLines,
       writeLines: typeof toolbox?.writeLines === "number" ? toolbox.writeLines : DEFAULTS.writeLines,

@@ -70,3 +70,28 @@ test("no settings file: defaults", () => {
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("user messages default to the frame; an unknown style falls back to it", () => {
+  withSettings({ tidy: {} }, () => {
+    const config = loadConfig();
+    assert.equal(config.userMessageStyle, "frame");
+    assert.equal(config.userMessagePaddingY, 1);
+    assert.deepEqual(config.userMessageColors, { rail: "accent", rule: "borderMuted" });
+  });
+  withSettings({ tidy: { userMessageStyle: "rail" } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
+  withSettings({ tidy: { userMessageStyle: "off" } }, () => assert.equal(loadConfig().userMessageStyle, "off"));
+  // pre-0.5: `false` left user messages to pi-starline, which no longer draws them.
+  withSettings({ tidy: { frameUserMessages: false } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
+  withSettings({ tidy: { userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
+});
+
+test("user message padding is clamped and colors merge over the defaults", () => {
+  withSettings({ tidy: { userMessagePaddingY: 0, userMessageColors: { rail: "#cba6f7", rule: 3 } } }, () => {
+    const config = loadConfig();
+    assert.equal(config.userMessagePaddingY, 0);
+    assert.deepEqual(config.userMessageColors, { rail: "#cba6f7", rule: "borderMuted" });
+  });
+  withSettings({ tidy: { userMessagePaddingY: 9 } }, () => assert.equal(loadConfig().userMessagePaddingY, 3));
+  withSettings({ tidy: { userMessagePaddingY: -1 } }, () => assert.equal(loadConfig().userMessagePaddingY, 1));
+  withSettings({ tidy: { userMessagePaddingY: 1.5 } }, () => assert.equal(loadConfig().userMessagePaddingY, 1));
+});

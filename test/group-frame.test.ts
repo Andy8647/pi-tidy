@@ -388,8 +388,9 @@ test("user padding separates a folded group without shifting its click targets",
 });
 
 test("user-message boundary survives a predecessor-skipping render patch on top", () => {
-  // pi-starline replaces UserMessageComponent.prototype.render and only calls
-  // the predecessor as a fallback. It loads after toolbox, so it lands on top.
+  // A restyle — tidy's own rail, or another extension's patch installed after
+  // tidy's — replaces UserMessageComponent.prototype.render and only calls the
+  // predecessor as a fallback, so it lands on top of the boundary wrapper.
   const proto = UserMessageComponent.prototype as any;
   const previous = proto.render;
   const userLines = ["\x1b]133;A\x07", "> user", "\x1b[48;2;40;40;40m    \x1b[0m\x1b]133;B\x07"];

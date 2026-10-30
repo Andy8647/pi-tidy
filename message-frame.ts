@@ -1,7 +1,7 @@
 /**
  * Rounded transparent frames for the message boxes pi draws outside tool
  * calls: compaction / branch / skill summaries, extension custom messages and
- * (opt-in) user messages.
+ * user messages in the "frame" style.
  *
  * Options live in global slots (see live.ts): every call updates them, and only
  * the first one installs the prototype patches, so a `/reload` with different
@@ -15,7 +15,8 @@ import {
   SkillInvocationMessageComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { drawFrame, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { drawFrame, labeledTopBorder, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
 import { MESSAGE_ICONS } from "./icons.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme } from "./theme-access.ts";
@@ -129,7 +130,7 @@ interface ContainerBoxInternals {
   /** Set when an extension renderer supplies its own styled component. */
   customComponent?: unknown;
   render(width: number): string[];
-  __msgFrameCache?: { width: number; sample: string; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; icons: boolean; lines: string[]; out: string[] };
 }
 
 /**
@@ -142,10 +143,9 @@ interface ContainerBoxInternals {
 export interface ContainerBoxOptions {
   icons?: boolean;
   /**
-   * Frame user messages too. Default false: pi-starline already restyles
-   * UserMessageComponent.prototype.render, and two render patches on the
-   * same prototype fight over the output. Enable only without pi-starline.
-   * While false, UserMessageComponent is not patched at all.
+   * Frame user messages too (`userMessageStyle: "frame"`). The default
+   * "rail" style is drawn by user-message.ts. While false, this patch leaves
+   * UserMessageComponent alone (and is not installed if it never was).
    */
   includeUser?: boolean;
   /** False turns installed patches into pass-throughs and installs nothing new. */
@@ -160,6 +160,38 @@ interface ResolvedContainerOptions {
 }
 
 const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("container-box-options", undefined);
+
+const TRAILING_SGR_RE = /\x1b\[[0-9;:]*m$/;
+
+/** Drop the padding a row was filled out with, keeping the escapes that close its styles. */
+function trimTrailingSpaces(line: string): string {
+  let body = line;
+  let tail = "";
+  for (;;) {
+    const sgr = TRAILING_SGR_RE.exec(body);
+    if (sgr) {
+      tail = sgr[0] + tail;
+      body = body.slice(0, -sgr[0].length);
+    } else if (body.endsWith(" ")) {
+      body = body.replace(/ +$/, "");
+    } else {
+      return body + tail;
+    }
+  }
+}
+
+/**
+ * A user message's frame hugs its text: a one-word prompt gets a small box
+ * instead of a full-width one, and a long one still stops at the full width.
+ * The text keeps the one-cell inset it has on the left on its right as well,
+ * and the box is never narrower than the icon in its top border.
+ */
+function hugContent(content: string[], width: number, labelWidth: number): { lines: string[]; width: number } {
+  const lines = content.map(trimTrailingSpaces);
+  const widest = lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
+  const floor = labelWidth > 0 ? labelWidth + 6 : 0;
+  return { lines, width: Math.min(width, Math.max(widest + 3, floor)) };
+}
 
 export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
@@ -193,24 +225,43 @@ export function patchContainerBoxes(
         const { icons } = live;
         const borderColor = live.borderColors[kind];
         const w = Math.max(4, width);
-        // Icons take two cells of the first row; rendering the box narrower
-        // keeps every line lossless.
-        const raw = box.render(icons ? w - 4 : w - 2).map(stripBackgroundFills);
+        // A custom message's icon takes two cells of its first row; rendering
+        // the box narrower keeps every line lossless. A user message carries
+        // its icon in the label instead.
+        const iconInRow = icons && !isUserMessage;
+        const raw = box.render(iconInRow ? w - 4 : w - 2).map(stripBackgroundFills);
         const content = trimBlankEdges(raw);
         if (content.length === 0) return [];
-        if (icons) content[0] = ` ${icon} ${content[0].replace(/^ +/, "")}`;
+        if (iconInRow) content[0] = ` ${icon} ${content[0].replace(/^ +/, "")}`;
 
         const sample = theme.fg(borderColor, "·");
         const cache = this.__msgFrameCache;
-        if (cache && cache.width === w && cache.sample === sample && sameLines(cache.lines, content))
+        if (
+          cache &&
+          cache.width === w &&
+          cache.sample === sample &&
+          cache.icons === icons &&
+          sameLines(cache.lines, content)
+        )
           return cache.out;
 
-        const out = ["", ...drawFrame(content, w, theme, borderColor)];
+        let out: string[];
+        if (isUserMessage) {
+          // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
+          // row and copies without it. No icons, no label: a plain top border.
+          const label = icons ? theme.fg(borderColor, icon) : "";
+          const framed = hugContent(content, w, visibleWidth(label));
+          const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
+          if (label) frame[0] = labeledTopBorder(framed.width, theme, borderColor, label);
+          out = ["", ...frame];
+        } else {
+          out = ["", ...drawFrame(content, w, theme, borderColor)];
+        }
         if (isUserMessage) {
           out[0] = OSC133_ZONE_START + out[0];
           out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
         }
-        this.__msgFrameCache = { width: w, sample, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, icons, lines: content, out };
         return out;
       } catch {
         return originalRender.call(this, width);
