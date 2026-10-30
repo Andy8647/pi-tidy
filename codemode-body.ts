@@ -25,7 +25,7 @@
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { rawIndexOfVisible, visibleText } from "./frame-draw.ts";
+import { rawIndexOfVisible, trimTrailingSpaces, visibleText } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
 import { summarizeArgs } from "./tool-lines.ts";
@@ -140,22 +140,24 @@ function padName(line: string, name: string, lead: number, width: number): strin
 const DURATION_TAIL = /(\d+(?:\.\d+)?(?:ms|s))$/;
 
 /**
- * Right-align the duration against the body's width, the way the group's rows
- * put their metrics on one edge. Rows that already fill the width are left
- * alone; the frame truncates them anyway.
+ * Right-align a row's duration to `target`, the column the call rows end on.
+ * pi pads its rows to the box's width, so in practice that is the row's own
+ * edge; measuring the region keeps the column even when it does not pad.
  */
-function alignDuration(line: string, width: number | undefined): string {
-  if (!width) return line;
+function alignDuration(line: string, target: number): string {
   const plain = visibleText(line);
-  const match = DURATION_TAIL.exec(plain);
+  const body = plain.replace(/\s+$/, "");
+  const match = DURATION_TAIL.exec(body);
   if (!match) return line;
-  const at = match.index;
-  const pad = width - visibleWidth(plain);
+  // One of this goes to the space between the arguments and the duration, which
+  // the trim below takes with the padding.
+  const pad = target - visibleWidth(body) + 1;
   if (pad <= 0) return line;
-  // Two cells of air is the most a row should spend on this.
-  const from = rawIndexOfVisible(line, at);
+  const from = rawIndexOfVisible(line, match.index);
   if (from < 0) return line;
-  return line.slice(0, from) + " ".repeat(Math.min(pad, 60)) + line.slice(from);
+  // The row's own trailing pad goes with it: the frame's padding is the
+  // column's right edge, and two pads would push the duration past it.
+  return trimTrailingSpaces(line.slice(0, from)) + " ".repeat(pad) + trimTrailingSpaces(line.slice(from));
 }
 
 /**
@@ -170,18 +172,27 @@ function decorateRows(
   calls: NestedCall[],
   icons: boolean,
   nameWidth: number,
-  width: number | undefined,
+  targetWidth: number | undefined,
 ): string[] {
+  const built: string[] = [];
+  const callRows = new Set<number>();
   let next = 0;
-  return lines.map((line) => {
+  for (const line of lines) {
     const plain = visibleText(line);
     const lead = leadIndex(plain);
-    if (!STATUS_GLYPHS.has(plain[lead] ?? "") || plain[lead + 1] !== " ") return line;
+    if (!STATUS_GLYPHS.has(plain[lead] ?? "") || plain[lead + 1] !== " ") {
+      built.push(line);
+      continue;
+    }
     const name = plain.slice(lead + 2).split(" ")[0] ?? "";
     let index = next;
     while (index < calls.length && calls[index]!.name !== name) index++;
-    if (index >= calls.length) return line;
+    if (index >= calls.length) {
+      built.push(line);
+      continue;
+    }
     next = index + 1;
+    callRows.add(built.length);
 
     const call = calls[index]!;
     let row = line;
@@ -191,8 +202,14 @@ function decorateRows(
     }
     row = padName(row, name, lead, nameWidth);
     if (icons) row = addKindIcon(row, name, lead);
-    return alignDuration(row, width);
-  });
+    built.push(row);
+  }
+
+  // One right edge for the durations: the body's width when the caller knows
+  // it, otherwise the widest call row.
+  let target = targetWidth ?? 0;
+  for (const index of callRows) target = Math.max(target, visibleWidth(visibleText(built[index]!).replace(/\s+$/, "")));
+  return built.map((row, index) => (callRows.has(index) ? alignDuration(row, target) : row));
 }
 
 /** Cells the call rows' name column may take before the arguments stop paying. */

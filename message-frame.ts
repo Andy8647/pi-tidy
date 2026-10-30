@@ -16,7 +16,14 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { drawFrame, labeledTopBorder, sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
+import {
+  drawFrame,
+  labeledTopBorder,
+  sameLines,
+  stripBackgroundFills,
+  trimBlankEdges,
+  trimTrailingSpaces,
+} from "./frame-draw.ts";
 import { MESSAGE_ICONS } from "./icons.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme } from "./theme-access.ts";
@@ -164,25 +171,6 @@ interface ResolvedContainerOptions {
 }
 
 const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("container-box-options", undefined);
-
-const TRAILING_SGR_RE = /\x1b\[[0-9;:]*m$/;
-
-/** Drop the padding a row was filled out with, keeping the escapes that close its styles. */
-function trimTrailingSpaces(line: string): string {
-  let body = line;
-  let tail = "";
-  for (;;) {
-    const sgr = TRAILING_SGR_RE.exec(body);
-    if (sgr) {
-      tail = sgr[0] + tail;
-      body = body.slice(0, -sgr[0].length);
-    } else if (body.endsWith(" ")) {
-      body = body.replace(/ +$/, "");
-    } else {
-      return body + tail;
-    }
-  }
-}
 
 /**
  * A user message's frame hugs its text: a one-word prompt gets a small box

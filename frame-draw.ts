@@ -17,6 +17,25 @@ export function stripBackgroundFills(line: string): string {
   return line.replace(BG_FILL_RE, "");
 }
 
+const TRAILING_SGR_RE = /\x1b\[[0-9;:]*m$/;
+
+/** Drop the padding a row was filled out with, keeping the escapes that close its styles. */
+export function trimTrailingSpaces(line: string): string {
+  let body = line;
+  let tail = "";
+  for (;;) {
+    const sgr = TRAILING_SGR_RE.exec(body);
+    if (sgr) {
+      tail = sgr[0] + tail;
+      body = body.slice(0, -sgr[0].length);
+    } else if (body.endsWith(" ")) {
+      body = body.replace(/ +$/, "");
+    } else {
+      return body + tail;
+    }
+  }
+}
+
 export function padToWidth(line: string, width: number): string {
   const w = visibleWidth(line);
   if (w === width) return line;

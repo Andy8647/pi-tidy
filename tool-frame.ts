@@ -19,7 +19,7 @@
 import { homedir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
+import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf, visibleText } from "./frame-draw.ts";
 import { composeCodemodeBody, codemodeSections, decorateCodemodeBody, type CodemodeToggle } from "./codemode-body.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
@@ -355,7 +355,7 @@ function splitEditBody(
     let raw: string[];
     if (collapse) {
       const body = source.render(sourceWidth - railCells);
-      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, { icons, width: sourceWidth - railCells - 1 });
+      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, { icons, width: sourceWidth - railCells });
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
       codemodeRows.push(...composed.toggles);

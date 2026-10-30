@@ -41,8 +41,8 @@ test("nested call rows take the kind icon, the script and its output do not", ()
   ];
   const out = decorateCodemodeBody(lines, details, { icons: true });
   assert.equal(out.length, lines.length);
-  assert.equal(out[2], "\x1b[32m✓\x1b[39m \x1b[36m\u{f018d} bash\x1b[39m \x1b[90mpwd\x1b[39m \x1b[90m50ms\x1b[39m");
-  assert.equal(out[3], "\x1b[32m✓\x1b[39m \x1b[36m\u{f06e} read\x1b[39m \x1b[90ma.ts\x1b[39m \x1b[90m1ms\x1b[39m");
+  assert.equal(out[2], "\x1b[32m✓\x1b[39m \x1b[36m\u{f018d} bash\x1b[39m \x1b[90mpwd\x1b[39m\x1b[90m 50ms\x1b[39m");
+  assert.equal(out[3], "\x1b[32m✓\x1b[39m \x1b[36m\u{f06e} read\x1b[39m \x1b[90ma.ts\x1b[39m\x1b[90m 1ms\x1b[39m");
   assert.equal(out[0], lines[0], "script row untouched");
   assert.equal(out[6], lines[6], "output row untouched");
 });
@@ -149,7 +149,7 @@ test("a closed body is a call list: script and output one row each", () => {
   const out = composeCodemodeBody(piBody, twoCalls, { script: false, output: false }, theme, { icons: false });
   assert.deepEqual(text(out), [
     "▸ script · 2 lines",
-    "✓ bash pwd 50ms",
+    "✓ bash pwd       50ms",
     "✓ read src/app.ts 1ms",
     "▸ output · 2 items",
   ]);
@@ -165,7 +165,7 @@ test("an open script keeps its rows under the label, above the calls", () => {
     "▾ script · 2 lines",
     "const a = await tools.bash({ command: 'pwd' });",
     "const b = await tools.read({ path: 'src/app.ts' });",
-    "✓ bash pwd 50ms",
+    "✓ bash pwd       50ms",
   ]);
 });
 
