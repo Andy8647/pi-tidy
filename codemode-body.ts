@@ -232,20 +232,48 @@ function decorateRows(
       // clip a long command.
       const replacement = summary || truncateToWidth(call.args, budget, "…");
       if (replacement) row = replaceArgs(row, call.args, replacement);
-      // Whatever was left over (an argument that never matched, a wrap we could
-      // not stitch back) is clipped rather than allowed a second row.
-      if (width && visibleWidth(visibleText(row)) > width) row = truncateToWidth(row, Math.max(8, width - 1), "…");
     }
     row = padName(row, name, lead, nameWidth);
     if (icons) row = addKindIcon(row, name, lead);
+    // The duration is the last thing on the row and the reason it is there: clip
+    // the arguments until everything fits, never the duration.
+    if (width) row = clipRow(row, width);
     built.push(row);
   }
 
   // One column for the durations: as far right as the longest arguments reach,
-  // plus two cells of air.
+  // plus two cells of air — but never so far that the longest duration would sit
+  // past the row.
   let target = 0;
-  for (const index of callRows) target = Math.max(target, argumentsWidth(built[index]!));
-  return built.map((row, index) => (callRows.has(index) ? alignDuration(row, target, DURATION_GAP) : row));
+  let widestDuration = 0;
+  for (const index of callRows) {
+    target = Math.max(target, argumentsWidth(built[index]!));
+    const plain = visibleText(built[index]!).replace(/\s+$/, "");
+    const match = DURATION_TAIL.exec(plain);
+    if (match) widestDuration = Math.max(widestDuration, visibleWidth(match[1]!));
+  }
+  if (width) target = Math.min(target, Math.max(8, width - DURATION_GAP - widestDuration));
+  return built.map((row, index) => {
+    if (!callRows.has(index)) return row;
+    const aligned = alignDuration(row, target, DURATION_GAP);
+    return width ? clipRow(aligned, width) : aligned;
+  });
+}
+
+/**
+ * Make a row fit `width` while keeping its duration: the arguments give way,
+ * and two cells of air stay in front of the metrics.
+ */
+function clipRow(line: string, width: number): string {
+  const plain = visibleText(line);
+  const body = plain.replace(/\s+$/, "");
+  if (visibleWidth(body) <= width) return line;
+  const match = DURATION_TAIL.exec(body);
+  const from = match ? rawIndexOfVisible(line, match.index) : -1;
+  if (from < 0) return truncateToWidth(line, width, "…");
+  const tail = trimTrailingSpaces(line.slice(from));
+  const room = Math.max(8, width - visibleWidth(visibleText(tail)) - 2);
+  return `${truncateToWidth(line.slice(0, from).replace(/\s+$/, ""), room, "…")}  ${tail}`;
 }
 
 /** Cells the call rows' name column may take before the arguments stop paying. */

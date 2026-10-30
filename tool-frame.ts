@@ -366,7 +366,7 @@ function splitEditBody(
       codemodeRows.push(...composed.toggles);
     } else {
       raw = codemode
-        ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons })
+        ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons, width: sourceWidth })
         : split
           ? split.raw
           : source.render(sourceWidth);
