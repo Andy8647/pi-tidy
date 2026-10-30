@@ -253,7 +253,7 @@ export function renderGroupedTool(
     const base = lines.length;
     const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
     for (const [index, line] of body.entries()) {
-      const out = `${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`;
+      const out = `${gutter}${BODY_PAD}${line.trimEnd()}`;
       const section = toggles.find((toggle) => toggle.row === index)?.section;
       lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
     }

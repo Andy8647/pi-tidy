@@ -213,7 +213,7 @@ interface CollapsedCommand {
  */
 export function collapseBashCommand(command: string, maxChars: number = COLLAPSED_COMMAND_CHARS): CollapsedCommand {
   const lines = command.split("\n");
-  let head = (lines[0] ?? "").replace(/\s+$/, "");
+  let head = (lines[0] ?? "").trimEnd();
   const hiddenLines = lines.length - 1;
   let truncatedChars = false;
   if (head.length > maxChars) {
