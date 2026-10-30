@@ -355,7 +355,7 @@ function splitEditBody(
     let raw: string[];
     if (collapse) {
       const body = source.render(sourceWidth - railCells);
-      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, { icons });
+      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, { icons, width: sourceWidth - railCells - 1 });
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
       codemodeRows.push(...composed.toggles);

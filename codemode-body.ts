@@ -314,13 +314,16 @@ export interface ComposedCodemodeBody {
  * The body a grouped `codemode` call shows: its call rows, with the script and
  * the output folded to one row each. Opening a section is done by clicking its
  * row; the state lives in `codemodeSections`.
+ *
+ * `width` is the cells the body's own content may use, for the rules that
+ * separate the three sections.
  */
 export function composeCodemodeBody(
   lines: string[],
   details: unknown,
   state: CodemodeSections,
   theme: ThemeLike,
-  options: CodemodeBodyOptions,
+  options: CodemodeBodyOptions & { width?: number },
 ): ComposedCodemodeBody {
   const calls = nestedCalls(details);
   // Split before decorating: the icon is inserted where the tool's name starts,
@@ -328,6 +331,7 @@ export function composeCodemodeBody(
   const regions = splitRegions(lines, calls, "codemode");
   if (!regions) return { lines: decorateCodemodeBody(lines, details, options), toggles: [] };
   const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons));
+  const rule = ruleRow(theme, options.width);
 
   const out: string[] = [];
   const toggles: CodemodeToggle[] = [];
@@ -335,15 +339,23 @@ export function composeCodemodeBody(
     toggles.push({ row: out.length, section: "script" });
     out.push(foldRow(state.script, "script", plural(regions.script.length, "line"), theme));
     if (state.script) out.push(...regions.script);
+    if (rule) out.push(rule);
   }
   out.push(...callRows);
   if (regions.output.length > 0) {
+    if (rule) out.push(rule);
     toggles.push({ row: out.length, section: "output" });
     out.push(foldRow(state.output, "output", plural(itemCount(regions.output), "item"), theme));
     if (state.output) out.push(...separateItems(regions.output));
   }
   // pi's `Took 0.1s` row says what the row above the body already says.
   return { lines: out.length > 0 ? out : lines, toggles };
+}
+
+/** A dim rule across the body, so the sections read as sections. */
+function ruleRow(theme: ThemeLike, width: number | undefined): string | undefined {
+  if (!width || width < 6) return undefined;
+  return ` ${theme.fg("borderMuted", "─".repeat(Math.max(1, width - 1)))}`;
 }
 
 /**

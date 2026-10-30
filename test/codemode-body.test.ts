@@ -189,3 +189,13 @@ test("a script that called nothing keeps pi's body, with no fold rows", () => {
   assert.deepEqual(out.toggles, []);
   assert.ok(text(out).some((row) => row.includes("==> text 1/2")), "pi's output rows are kept");
 });
+
+test("the sections are separated by a rule when the body has a width", () => {
+  const out = composeCodemodeBody(piBody, twoCalls, { script: false, output: false }, theme, { icons: false, width: 40 });
+  const rows = text(out);
+  const rules = rows.map((row, i) => (row.startsWith("─") ? i : -1)).filter((i) => i >= 0);
+  assert.deepEqual(rules, [1, rows.length - 2], rows.join("\n"));
+  assert.equal(rows[1], "─".repeat(39), "one row of the body width, minus its leading pad");
+  // No width (a plain unit call, or a box too narrow to divide) means no rules.
+  assert.ok(!text(composeCodemodeBody(piBody, twoCalls, { script: false, output: false }, theme, { icons: false })).some((row) => row.startsWith("─")));
+});

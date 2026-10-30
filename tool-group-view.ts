@@ -221,6 +221,11 @@ export function renderGroupedTool(
   }
   // Nested starts belong to the wrapper, but do not replace its result/error.
   // Keep them below its body so the body's existing click geometry is unchanged.
+  // An opened box hangs them inside the body instead: they are what the script
+  // produced, on the same rail as its call rows and its output.
+  const inBody = plan.full;
+  const rowPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")} ` : `${gutter}  `;
+  const detailPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")}     ` : `${gutter}      `;
   const spans: NestedRowSpan[] = [];
   const open = groupIsOpen(tool);
   for (const nested of jobs) {
@@ -231,11 +236,11 @@ export function renderGroupedTool(
     const hot = hovered === `job:${nested.id}`;
     const arrow = details ? "▾" : hot ? "▶" : "▸";
     const row = formatJobLine({ toolName: "process", isPartial: false }, nested, theme, icons, spinnerFrame(nested, now));
-    const line = `${gutter}  ${theme.fg("muted", arrow)}${row}`;
+    const line = `${rowPad}${theme.fg("muted", arrow)}${row}`;
     lines.push(hot ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
     if (details) {
       for (const body of renderJobDetails(nested, details, theme)) {
-        lines.push(truncateToWidth(`${gutter}      ${body}`, width, "…"));
+        lines.push(truncateToWidth(`${detailPad}${body}`, width, "…"));
       }
     }
     spans.push({ id: nested.id, from, to: lines.length - 1 });
