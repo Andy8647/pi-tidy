@@ -18,7 +18,15 @@ they now carry the same kind icon as the outer rows, and the arguments become th
 (`pwd`, `src/app.ts`, `(+12 lines)` for a multi-line one), read back from `result.details.calls`: JSON when the
 200-character clip survived it, the surviving key when it did not, pi's own text when neither works. bash's
 `Command exited with code N` trailer is dropped from a nested failure, where the error above it already says
-what happened. The script, the output and pi's layout are untouched.
+what happened.
+
+**The body opens as a call list.** Inside a group, a `codemode` box no longer dumps the script and the output:
+the script folds to `▸ script · 13 lines` and the output to `▸ output · 4 items`, each opening in place on
+click, and every body row sits under a rail of its own so the nesting reads at a glance. pi's
+`==> text N/M <==` markers became the count on the output row, and its `Took` row is gone, since the row above
+the body carries the time. The output stays one block: a script builds its `text()` items from whatever it
+computed, so an item can be a filtered, merged summary of several calls and nothing ties it back to the call
+that fed it.
 
 **`bash` takes the md-console glyph.** `fa-terminal` is missing from some monospace Nerd Fonts and drew as a
 blank; `\u{f018d}` renders wherever the rest of the set does. The file-type map's `bash` entry was still on

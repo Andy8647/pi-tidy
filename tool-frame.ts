@@ -20,7 +20,7 @@ import { homedir } from "node:os";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf } from "./frame-draw.ts";
-import { decorateCodemodeBody } from "./codemode-body.ts";
+import { composeCodemodeBody, codemodeSections, decorateCodemodeBody, type CodemodeToggle } from "./codemode-body.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
@@ -88,6 +88,8 @@ interface ToolBoxInternals extends GroupedTool {
     geometry: FrameGeometry;
   };
   __frameGeometry?: FrameGeometry;
+  /** Row indices of the codemode fold labels in the last framed body. */
+  __codemodeToggles?: CodemodeToggle[];
 }
 
 export interface ToolFrameOptions {
@@ -342,13 +344,29 @@ function splitEditBody(
     const iconCells = (kindPrefix ? visibleWidth(kindPrefix) : 0) + (fileGlyph ? visibleWidth(fileGlyph) + 1 : 0);
     const sourceWidth = w - 2 - iconCells;
     const split = splitEditBody(this, w - 2, sourceWidth, theme);
-    // A codemode body is pi's rows: its nested calls get tidy's kind icons and
-    // lose bash's trailer, nothing else moves (see codemode-body.ts).
-    const raw = this.toolName === "codemode"
-      ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons })
-      : split
-        ? split.raw
-        : source.render(sourceWidth);
+    // Inside a group a codemode body is a call list: the script and the output
+    // fold to one row each (they open on click, see tool-group-view.ts), and
+    // every row sits one rail deeper than the call it belongs to. A bordered
+    // box has no click routing of its own, so it keeps pi's layout.
+    const codemode = this.toolName === "codemode";
+    const collapse = codemode && unframed;
+    const railCells = collapse ? 2 : 0;
+    const codemodeRows: CodemodeToggle[] = [];
+    let raw: string[];
+    if (collapse) {
+      const body = source.render(sourceWidth - railCells);
+      const composed = composeCodemodeBody(body, this.result?.details, codemodeSections(this), theme, { icons });
+      const rail = `${theme.fg("borderMuted", "│")} `;
+      raw = composed.lines.map((line) => rail + line);
+      codemodeRows.push(...composed.toggles);
+    } else {
+      raw = codemode
+        ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons })
+        : split
+          ? split.raw
+          : source.render(sourceWidth);
+    }
+    this.__codemodeToggles = codemodeRows;
 
     // The whole returned array is cached, not just the framed body.
     // pi-powerline-footer's compositor re-renders the entire root on every
@@ -411,7 +429,9 @@ function splitEditBody(
     }
     // Unframed means the call row is already the row above it: the body is the
     // output, not the command again. The blank row that separated them goes too.
-    if (unframed && content.length > 0) {
+    // A composed codemode body has already dropped pi's call row, and its first
+    // row is the script's fold label, which is the body's to keep.
+    if (unframed && content.length > 0 && !collapse) {
       content = content.slice(1);
       const rest = blankEdges(content);
       content = rest.start === 0 && rest.end === content.length ? content : content.slice(rest.start, rest.end);

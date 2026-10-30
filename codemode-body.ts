@@ -15,14 +15,18 @@
  * - bash's own `Command exited with code N` trailer is dropped from a nested
  *   failure, where the error text above it already says what happened.
  *
- * Everything else — the script, its output, pi's layout — is left alone. A
- * diff for a nested `edit`, or a sub-call that opens on click, needs data the
- * result does not carry: `args` is a clipped string, there is no per-call
- * output, and no component to hang a hit area on.
+ * Everything else, the script and its output, is pi's own rows. A diff for a
+ * nested `edit`, or a sub-call that opens on click, needs data the result does
+ * not carry: `args` is a clipped string and there is no per-call output.
+ *
+ * The output is one blob on purpose. A script builds its `text()` items from
+ * whatever it computed, so an item can be a filtered, merged, re-encoded
+ * summary of several calls; nothing ties an item back to the call that fed it.
  */
 
 import { rawIndexOfVisible, visibleText } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
+import type { ThemeLike } from "./theme-access.ts";
 import { summarizeArgs } from "./tool-lines.ts";
 
 /** pi's nested-call status glyphs, before the tool's name. */
@@ -105,9 +109,19 @@ function replaceArgs(line: string, argsText: string, summary: string): string {
   return line.slice(0, from) + summary + escapes + line.slice(end);
 }
 
+/**
+ * Where a row's own text starts: pi's box pads every row with `outputPad`
+ * cells, so the status glyph is not at index 0.
+ */
+function leadIndex(plain: string): number {
+  let i = 0;
+  while (i < plain.length && plain[i] === " ") i++;
+  return i;
+}
+
 /** `✓ bash …` → `✓ 󰆍 bash …`, inserted inside the name's own colour span. */
-function addKindIcon(line: string, name: string): string {
-  const at = rawIndexOfVisible(line, 2);
+function addKindIcon(line: string, name: string, lead: number): string {
+  const at = rawIndexOfVisible(line, lead + 2);
   if (at < 0) return line;
   return line.slice(0, at) + `${toolKindIcon(name)} ` + line.slice(at);
 }
@@ -123,8 +137,9 @@ function decorateRows(lines: readonly string[], calls: NestedCall[], icons: bool
   let next = 0;
   return lines.map((line) => {
     const plain = visibleText(line);
-    if (!STATUS_GLYPHS.has(plain[0] ?? "") || plain[1] !== " ") return line;
-    const name = plain.slice(2).split(" ")[0] ?? "";
+    const lead = leadIndex(plain);
+    if (!STATUS_GLYPHS.has(plain[lead] ?? "") || plain[lead + 1] !== " ") return line;
+    const name = plain.slice(lead + 2).split(" ")[0] ?? "";
     let index = next;
     while (index < calls.length && calls[index]!.name !== name) index++;
     if (index >= calls.length) return line;
@@ -136,7 +151,7 @@ function decorateRows(lines: readonly string[], calls: NestedCall[], icons: bool
       const summary = summarizeNestedArgs(name, call.args);
       if (summary) row = replaceArgs(row, call.args, summary);
     }
-    return icons ? addKindIcon(row, name) : row;
+    return icons ? addKindIcon(row, name, lead) : row;
   });
 }
 
@@ -153,7 +168,7 @@ function dropBashTrailers(lines: readonly string[]): string[] {
     if (NESTED_BASH_TRAILER.test(visibleText(line))) {
       let back = out.length - 1;
       while (back >= 0 && visibleText(out[back]!).trim() === "") back--;
-      if (back >= 0 && /^ {4}\S/.test(visibleText(out[back]!))) {
+      if (back >= 0 && /^\s{4,}\S/.test(visibleText(out[back]!))) {
         while (out.length > 0 && visibleText(out[out.length - 1]!).trim() === "") out.pop();
         continue;
       }
@@ -180,4 +195,170 @@ export function decorateCodemodeBody(
   const calls = nestedCalls(details);
   const decorated = calls.length > 0 ? decorateRows(lines, calls, options.icons) : lines;
   return dropBashTrailers(decorated);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Folding the body down to its calls
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The two parts of a codemode body that open on their own row. */
+export type CodemodeSection = "script" | "output";
+
+/** Which sections the reader has opened. Closed is the default: a call list. */
+export interface CodemodeSections {
+  script: boolean;
+  output: boolean;
+}
+
+// Per tool box, so a `/reload` or a re-render does not reset what the reader opened.
+const sectionState = new WeakMap<object, CodemodeSections>();
+
+/** The open/closed state of a box's folded sections. */
+export function codemodeSections(tool: object): CodemodeSections {
+  let state = sectionState.get(tool);
+  if (!state) {
+    state = { script: false, output: false };
+    sectionState.set(tool, state);
+  }
+  return state;
+}
+
+/** Flip one section. Returns its new state. */
+export function toggleCodemodeSection(tool: object, section: CodemodeSection): boolean {
+  const state = codemodeSections(tool);
+  state[section] = !state[section];
+  return state[section];
+}
+
+/** A row the reader can click: the fold label of one section. */
+export interface CodemodeToggle {
+  /** Index in the composed lines. */
+  row: number;
+  section: CodemodeSection;
+}
+
+const TIMER_ROW = /^\s*(?:Took|Elapsed)\s+\d/;
+const CONTINUATION = /^\s{4,}\S/;
+const TEXT_ITEM = /^==> text \d+\/\d+ <==$/;
+
+/** The rows pi drew for one call, plus the indented error text under it. */
+interface Regions {
+  script: string[];
+  calls: string[];
+  output: string[];
+}
+
+/**
+ * Split a decorated body into the script, the call rows and the output.
+ *
+ * The call rows are the anchors: pi draws one per `details.calls` entry, in
+ * order, so matching them in sequence locates both boundaries without knowing
+ * anything else about the layout. Without a call row there is nothing to anchor
+ * on and the body is left as it is.
+ */
+function splitRegions(lines: readonly string[], calls: readonly NestedCall[], toolName: string): Regions | undefined {
+  if (calls.length === 0) return undefined;
+  const plain = lines.map(visibleText);
+  let next = 0;
+  let first = -1;
+  let end = -1;
+  for (let i = 0; i < lines.length && next < calls.length; i++) {
+    const row = plain[i]!;
+    const lead = leadIndex(row);
+    if (!STATUS_GLYPHS.has(row[lead] ?? "") || row[lead + 1] !== " ") continue;
+    if ((row.slice(lead + 2).split(" ")[0] ?? "") !== calls[next]!.name) continue;
+    if (first < 0) first = i;
+    next++;
+    end = i + 1;
+  }
+  if (first < 0 || end < 0) return undefined;
+  // What hangs under a call: its error text, indented by the renderer.
+  while (end < lines.length && (plain[end]!.trim() === "" || CONTINUATION.test(plain[end]!))) end++;
+  while (end > first && plain[end - 1]!.trim() === "") end--;
+
+  const head = lines.slice(0, first).filter((line) => visibleText(line).trim() !== "");
+  // pi's call renderer titles the block with the tool's name, which the row
+  // above the body already says.
+  while (head.length > 0 && visibleText(head[0]!).trim() === toolName) head.shift();
+
+  // pi's elapsed row closes the body; the row above the body carries the time.
+  const tail = lines.slice(end).filter((line) => visibleText(line).trim() !== "");
+  while (tail.length > 0 && TIMER_ROW.test(visibleText(tail[tail.length - 1]!).trim())) tail.pop();
+
+  return { script: head, calls: lines.slice(first, end), output: tail };
+}
+
+/**
+ * `▸ script · 13 lines` / `▾ output · 4 items`. The leading cell matches the
+ * pad pi's own rows carry, so the fold glyph lines up under a call's status.
+ */
+function foldRow(open: boolean, label: string, meta: string, theme: ThemeLike): string {
+  const glyph = theme.fg("accent", open ? "▾" : "▸");
+  const rest = `${theme.fg("muted", label)}${theme.fg("dim", ` · ${meta}`)}`;
+  return ` ${glyph} ${rest}`;
+}
+
+function itemCount(output: readonly string[]): number {
+  const items = output.filter((line) => TEXT_ITEM.test(visibleText(line).trim())).length;
+  return items > 0 ? items : 1;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+export interface ComposedCodemodeBody {
+  lines: string[];
+  toggles: CodemodeToggle[];
+}
+
+/**
+ * The body a grouped `codemode` call shows: its call rows, with the script and
+ * the output folded to one row each. Opening a section is done by clicking its
+ * row; the state lives in `codemodeSections`.
+ */
+export function composeCodemodeBody(
+  lines: string[],
+  details: unknown,
+  state: CodemodeSections,
+  theme: ThemeLike,
+  options: CodemodeBodyOptions,
+): ComposedCodemodeBody {
+  const calls = nestedCalls(details);
+  // Split before decorating: the icon is inserted where the tool's name starts,
+  // and the name is what tells one call row from the output.
+  const regions = splitRegions(lines, calls, "codemode");
+  if (!regions) return { lines: decorateCodemodeBody(lines, details, options), toggles: [] };
+  const callRows = dropBashTrailers(decorateRows(regions.calls, calls, options.icons));
+
+  const out: string[] = [];
+  const toggles: CodemodeToggle[] = [];
+  if (regions.script.length > 0) {
+    toggles.push({ row: out.length, section: "script" });
+    out.push(foldRow(state.script, "script", plural(regions.script.length, "line"), theme));
+    if (state.script) out.push(...regions.script);
+  }
+  out.push(...callRows);
+  if (regions.output.length > 0) {
+    toggles.push({ row: out.length, section: "output" });
+    out.push(foldRow(state.output, "output", plural(itemCount(regions.output), "item"), theme));
+    if (state.output) out.push(...separateItems(regions.output));
+  }
+  // pi's `Took 0.1s` row says what the row above the body already says.
+  return { lines: out.length > 0 ? out : lines, toggles };
+}
+
+/**
+ * Drop pi's `==> text N/M <==` markers, which the count on the fold row now
+ * carries, and use a blank row between the items instead. Everything else in
+ * the output, including a `<console_output>` block, is the script's own text.
+ */
+function separateItems(output: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const line of output) {
+    if (TEXT_ITEM.test(visibleText(line).trim())) {
+      if (out.length > 0) out.push("");
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
 }

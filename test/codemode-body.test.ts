@@ -7,7 +7,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decorateCodemodeBody } from "../codemode-body.ts";
+import {
+  codemodeSections,
+  composeCodemodeBody,
+  decorateCodemodeBody,
+  toggleCodemodeSection,
+} from "../codemode-body.ts";
 
 const theme = {
   fg: (_token: string, text: string) => `\x1b[36m${text}\x1b[39m`,
@@ -113,4 +118,74 @@ test("a call whose arguments are not in the row is left as pi drew it", () => {
   const lines = ["\x1b[32m✓\x1b[39m bash {\"command\":\"pw…"];
   const out = decorateCodemodeBody(lines, { calls: [{ name: "bash", args: '{"command":"pwd"}' }] }, { icons: false });
   assert.deepEqual(out, lines);
+});
+
+// ─── the fold ───────────────────────────────────────────────────────────────
+
+const call = (name: string, args: string) => ({ name, args, status: "ok" });
+
+/** What pi renders for a script that ran two calls and printed two items. */
+const piBody = [
+  " codemode",
+  " const a = await tools.bash({ command: 'pwd' });",
+  " const b = await tools.read({ path: 'src/app.ts' });",
+  "",
+  " \x1b[32m✓\x1b[39m bash \x1b[90m{\"command\":\"pwd\"}\x1b[39m 50ms",
+  " \x1b[32m✓\x1b[39m read \x1b[90m{\"path\":\"src/app.ts\"}\x1b[39m 1ms",
+  "",
+  " \x1b[36m==> text 1/2 <==\x1b[39m",
+  " \x1b[36m#0 ok exit=0 \"/tmp\"\x1b[39m",
+  " \x1b[36m==> text 2/2 <==\x1b[39m",
+  " \x1b[36m#1 ok exit=0 \"app\"\x1b[39m",
+  "",
+  " Took 0.1s",
+];
+const twoCalls = { calls: [call("bash", '{"command":"pwd"}'), call("read", '{"path":"src/app.ts"}')] };
+
+const text = (out: { lines: string[] }) => out.lines.map(plain).map((line) => line.trim());
+
+test("a closed body is a call list: script and output one row each", () => {
+  const out = composeCodemodeBody(piBody, twoCalls, { script: false, output: false }, theme, { icons: false });
+  assert.deepEqual(text(out), [
+    "▸ script · 2 lines",
+    "✓ bash pwd 50ms",
+    "✓ read src/app.ts 1ms",
+    "▸ output · 2 items",
+  ]);
+  assert.deepEqual(out.toggles.map((t) => [t.section, t.row]), [
+    ["script", 0],
+    ["output", 3],
+  ]);
+});
+
+test("an open script keeps its rows under the label, above the calls", () => {
+  const out = composeCodemodeBody(piBody, twoCalls, { script: true, output: false }, theme, { icons: false });
+  assert.deepEqual(text(out).slice(0, 4), [
+    "▾ script · 2 lines",
+    "const a = await tools.bash({ command: 'pwd' });",
+    "const b = await tools.read({ path: 'src/app.ts' });",
+    "✓ bash pwd 50ms",
+  ]);
+});
+
+test("an open output drops pi's markers and separates the items", () => {
+  const out = composeCodemodeBody(piBody, twoCalls, { script: false, output: true }, theme, { icons: false });
+  const rows = text(out);
+  assert.ok(rows.includes("▾ output · 2 items"), rows.join("\n"));
+  assert.ok(!rows.some((row) => row.includes("==> text")), "the count on the label is the marker now");
+  assert.deepEqual(rows.slice(rows.indexOf("▾ output · 2 items") + 1), ['#0 ok exit=0 "/tmp"', "", '#1 ok exit=0 "app"']);
+});
+
+test("the fold state is per box and survives a re-render", () => {
+  const box = {};
+  assert.equal(codemodeSections(box).script, false);
+  assert.equal(toggleCodemodeSection(box, "script"), true);
+  assert.equal(codemodeSections(box).script, true);
+  assert.equal(codemodeSections({}).script, false, "another box starts closed");
+});
+
+test("a script that called nothing keeps pi's body, with no fold rows", () => {
+  const out = composeCodemodeBody(piBody, { calls: [] }, { script: false, output: false }, theme, { icons: true });
+  assert.deepEqual(out.toggles, []);
+  assert.ok(text(out).some((row) => row.includes("==> text 1/2")), "pi's output rows are kept");
 });

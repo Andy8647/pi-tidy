@@ -18,6 +18,7 @@ import {
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
+import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
 import {
@@ -175,6 +176,7 @@ export function renderGroupedTool(
   // since; re-wrap so the boundaries keep being seen.
   installGroupBoundaries();
   nestedRowSpans.delete(tool);
+  codemodeSpans.delete(tool);
   const job = options.pinned ? undefined : jobForTool(tool);
   const jobs = options.pinned ? [] : jobsForTool(tool);
   if (tool.ui) lastUi = tool.ui;
@@ -207,7 +209,15 @@ export function renderGroupedTool(
     // would be a frame inside a frame. Only the body is drawn, hanging under
     // the row that opened it.
     const body = frameBox(Math.max(4, width - BODY_INDENT), true);
+    const base = lines.length;
     for (const line of body) lines.push(`${gutter}${BODY_PAD}${line.replace(/\s+$/, "")}`);
+    // A codemode body folds its script and output to one row each; those rows
+    // answer their own clicks (see routeGroupedMouse).
+    const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
+    codemodeSpans.set(
+      tool,
+      toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as CodemodeSection })),
+    );
   }
   // Nested starts belong to the wrapper, but do not replace its result/error.
   // Keep them below its body so the body's existing click geometry is unchanged.
@@ -236,6 +246,13 @@ export function renderGroupedTool(
 
 interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
+
+/** A codemode body's fold labels: one clickable row each. */
+interface CodemodeRowSpan {
+  row: number;
+  section: CodemodeSection;
+}
+const codemodeSpans = new WeakMap<object, CodemodeRowSpan[]>();
 
 /** Logs are plain text here: no cursor moves, OSC payloads, tabs or embedded rows. */
 function jobText(text: string): string {
@@ -409,6 +426,18 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   // pi-tui names buttons ("left"); accept the raw SGR code too.
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
+  // A codemode body's fold labels: the script and the output open in place.
+  const fold = typeof y === "number" ? codemodeSpans.get(tool)?.find((span) => y === span.row) : undefined;
+  if (fold) {
+    if (click) {
+      toggleCodemodeSection(tool, fold.section);
+      (tool as { invalidate?(): void }).invalidate?.();
+      tool.ui?.requestRender?.();
+      return { handled: true };
+    }
+    // Motion and drags stay pi's: the row is text like any other.
+    return undefined;
+  }
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
     if (event?.type === "move" && hoverTracking) {
