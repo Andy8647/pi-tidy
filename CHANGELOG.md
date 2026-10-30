@@ -4,6 +4,20 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-10-30
+
+### Fixed
+
+**A script's call whose arguments wrap reads as its summary, not as raw JSON.** Inside an open `codemode` box pi
+writes each call's arguments as compact JSON, and wraps a row longer than the box onto the rows below it. tidy glued
+those rows back together to find the arguments and put the summary in their place, but pi's box pads each row out to
+its width, indents the next one and drops the space it broke at, so the glued text never matched the arguments and
+the row kept pi's JSON, clipped with `…`. Below about 200 columns that was every `write` and `edit` and any long
+`bash` command. The rows are now glued back with the one space pi dropped, and matched with spaces let through, so
+the row shows the path or the command like the others, and its duration lines up with theirs again. A row that does
+get clipped keeps its duration's colour: the clip used to take the colour with the arguments and leave the duration
+white.
+
 ## [0.6.1] - 2026-10-30
 
 ### Changed
