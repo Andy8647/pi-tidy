@@ -21,9 +21,10 @@ import { padToWidth } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { drawFrame, trimBlankEdges } from "./frame-draw.ts";
+import { drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
 import {
   formatGroupLine,
+  formatThoughtLabel,
   formatThoughtLine,
   formatToolLine,
   formatJobLine,
@@ -954,11 +955,17 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
       continue;
     }
     const index = run++;
-    const text = liveTexts?.[index] ?? settledRowText(runs, budget)[index] ?? "";
-    const rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
-    if (overrides?.get?.(index) === false) {
-      const body = trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]);
-      if (body.length > 0) rows.push(...drawFrame(body, width, theme, color));
+    const open = overrides?.get?.(index) === false;
+    const body = open ? trimBlankEdges(kid.render(Math.max(4, width - BOX_CELLS)) as string[]) : [];
+    let rows: string[];
+    if (body.length > 0) {
+      // Open, the box carries the label in its top border (`╭─ 󰧑 thinking ──╮`):
+      // the row it opened from would only repeat the first words of the box.
+      rows = drawFrame(body, width, theme, color);
+      rows[0] = labeledTopBorder(width, theme, color, formatThoughtLabel(theme, { icons, thinkingColor: color, spinner }));
+    } else {
+      const text = liveTexts?.[index] ?? settledRowText(runs, budget)[index] ?? "";
+      rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
     }
     // A final thinking block carries pi's end-of-message markers too.
     for (const marker of taken.join("").match(ZONE_MARKERS) ?? []) {

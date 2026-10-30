@@ -48,8 +48,8 @@ every box gets a rounded transparent frame.
   to a short head preview capped at 56 cells — a glance, not a paragraph. pi's `hideThinkingBlock`
   setting is ignored on purpose: the row is the same whether thinking is configured on or off, and the
   click is the one way to read it. A message that both thinks and writes gets the same row for its
-  label (clicking it opens the same box), and its run stays out of the group's count — it renders above
-  the text, not as a row in the list. With `groupTools: false` there is no group to fold into, but every
+  label (clicking it opens the same box, with `󰧑 thinking` set into its top border in place of the row),
+  and its run stays out of the group's count — it renders above the text, not as a row in the list. With `groupTools: false` there is no group to fold into, but every
   step's thinking is still that row, above the box it belongs to
 - **Background jobs** — a call that starts a long-running process (pi-processes' `process start`) shows
   the *process's* state on its row: `◐ process ticker  running 12s · READY matched`, then

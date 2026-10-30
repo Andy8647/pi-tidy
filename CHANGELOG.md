@@ -29,6 +29,11 @@ folding calls: with grouping off each step's thinking is now the same `thinking`
 gets inside a group — the brain, one line of what it thought, a click to open it in its box — and the step loses
 pi's padding rows the way it does with grouping on.
 
+**An open thinking box carries its label in the border.** Opening a message's thinking used to keep the
+`󰧑 thinking  Now demo…` row above the box, repeating the box's first words. The row now folds into the box's
+top border, `╭─ 󰧑 thinking ───╮`, so the open box is one row shorter and still says what it holds; a click
+anywhere on it, the border included, folds it back into the row.
+
 ### Fixed
 
 **bash's `Command exited with code N` trailer comes off a failed call inside a script.** 0.6.0 said so, but
