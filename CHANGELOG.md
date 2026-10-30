@@ -4,15 +4,34 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.1] - 2026-10-30
+## [0.6.0] - 2026-10-30
+
+### Changed
+
+**A `codemode` row says what its script ran.** Nested tool calls never become tool rows of their own, so the
+folded row used to show only the script's first line. It counts them now: `codemode bash×3 read×1  0.1s`, growing
+while the script runs, with a red `1 failed` when a call inside the script failed and the script caught it and
+still succeeded.
+
+**Inside the box, the nested calls read like tidy's rows.** pi draws them with the arguments as compact JSON;
+they now carry the same kind icon as the outer rows, and the arguments become the same one-line summary
+(`pwd`, `src/app.ts`, `(+12 lines)` for a multi-line one), read back from `result.details.calls`: JSON when the
+200-character clip survived it, the surviving key when it did not, pi's own text when neither works. bash's
+`Command exited with code N` trailer is dropped from a nested failure, where the error above it already says
+what happened. The script, the output and pi's layout are untouched.
+
+**`bash` takes the md-console glyph.** `fa-terminal` is missing from some monospace Nerd Fonts and drew as a
+blank; `\u{f018d}` renders wherever the rest of the set does. The file-type map's `bash` entry was still on
+codicons' terminal glyph, so shell files and the `bash` tool now agree.
 
 ### Fixed
 
 **No blank row above a framed message box.** pi inserts a `Spacer(1)` before a user message and before the
-compaction, branch and skill boxes, and the frame added an empty row of its own on top of it — the box floated one
-row below the transcript, and for the summary boxes that turned pi's filled padding row into a second blank one.
-The top border is the first row now, for all four (the user message's `OSC 133` zone marker moved with it).
-Custom messages keep the spacer: pi puts no spacer in front of those, so it is the only separation they have.
+compaction, branch and skill boxes, and the frame added an empty row of its own on top of it: the box floated
+one row below the transcript, and for the summary boxes that turned pi's filled padding row into a second blank
+one. The top border is the first row now, for all four (the user message's `OSC 133` zone marker moved with it).
+Custom messages keep the spacer, because pi puts no spacer in front of those and it is the only separation they
+have.
 
 ## [0.5.0] - 2026-10-30
 
