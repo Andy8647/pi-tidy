@@ -34,7 +34,7 @@ import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.t
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { noteSetExpanded } from "./tool-groups.ts";
+import { noteSetExpanded, setGroupOpenDefault } from "./tool-groups.ts";
 import { formatToolLine } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
@@ -160,6 +160,11 @@ export interface ToolFrameOptions {
    * full box. Click a line to step down a level; `ctrl+o` still expands all.
    */
   groupTools?: boolean;
+  /**
+   * Start each new group open (`▾` header, one row per call) instead of folded
+   * to its summary line; a click on the header or `ctrl+o` still folds it.
+   */
+  groupOpen?: boolean;
   /** Tools that never fold into a group (default edit/write: the diff is the point). */
   alwaysShowTools?: string[];
   /**
@@ -183,6 +188,7 @@ interface ResolvedToolFrameOptions {
   icons: boolean;
   toolColors: Record<string, string>;
   groupTools: boolean;
+  groupOpen: boolean;
   alwaysShow: Set<string>;
   splitDiff: boolean;
   splitDiffMinWidth: number;
@@ -194,6 +200,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   icons: false,
   toolColors: {},
   groupTools: true,
+  groupOpen: false,
   alwaysShow: new Set(["edit", "write"]),
   splitDiff: true,
   splitDiffMinWidth: 72,
@@ -218,6 +225,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     icons = false,
     toolColors = {},
     groupTools = true,
+    groupOpen = false,
     alwaysShowTools = ["edit", "write"],
     backgroundJobs = true,
     hideJobNotifications = true,
@@ -230,6 +238,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     icons,
     toolColors,
     groupTools,
+    groupOpen,
     alwaysShow: new Set(alwaysShowTools),
     splitDiff,
     splitDiffMinWidth,
@@ -237,6 +246,9 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
+  // Value, not a closure: the patch runs again on `/reload`, which is what
+  // pushes a changed `groupOpen` down to the grouping state machine.
+  setGroupOpenDefault(groupOpen);
 
   const proto = ToolExecutionComponent.prototype as unknown as ToolBoxInternals & {
     render(width: number): string[];

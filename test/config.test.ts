@@ -71,6 +71,14 @@ test("no settings file: defaults", () => {
   }
 });
 
+test("groupOpen defaults to false, passes true through, and ignores a non-boolean", () => {
+  withSettings({ tidy: {} }, () => assert.equal(loadConfig().groupOpen, false));
+  withSettings({ tidy: { groupOpen: true } }, () => assert.equal(loadConfig().groupOpen, true));
+  withSettings({ tidy: { groupOpen: false } }, () => assert.equal(loadConfig().groupOpen, false));
+  withSettings({ tidy: { groupOpen: "yes" } }, () => assert.equal(loadConfig().groupOpen, false));
+  withSettings({ tidy: { groupOpen: 1 } }, () => assert.equal(loadConfig().groupOpen, false));
+});
+
 test("user messages default to the frame; an unknown style falls back to it", () => {
   withSettings({ tidy: {} }, () => {
     const config = loadConfig();

@@ -38,3 +38,10 @@ export const tidyEnabled = liveSlot("enabled", true);
  * patches from the old one keep rendering, and both have to see the same value.
  */
 export const agentRunning = liveSlot("agent-running", false);
+
+/**
+ * `tidy.groupOpen`: whether a new tool group is born open. A slot for the same
+ * reason: `/reload` pushes the setting from a fresh module instance, while the
+ * render patch installed by the previous one is what asks for new groups.
+ */
+export const groupOpen = liveSlot("group-open", false);

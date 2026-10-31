@@ -168,6 +168,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "diffLines": 20,
     "thinkingColor": "warning",
     "groupTools": true,
+    "groupOpen": false,
     "alwaysShowTools": ["edit", "write"],
     "backgroundJobs": true,
     "hideJobNotifications": true,
@@ -202,6 +203,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
 | `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box (a `codemode` box still reads as its call list) |
+| `groupOpen` | boolean | `false` | A group's *initial* level: `true` starts each new group open (`▾` header, one row per call) instead of folded to its summary line. Only the level it is born with — clicking the `▾` header or `ctrl+o`'s collapse-all stays folded, and nothing is persisted |
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
 | `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
 | `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep their own box (with the diff) and end the group before them, so later calls start a new one. Set `[]` to fold edits and writes into the group like everything else — click their row for the box |
