@@ -4,6 +4,17 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-10-31
+
+### Added
+
+**Tool groups can start open.** Set `tidy.groupOpen: true` to start each new group with its `▾` header
+and one row per call, without opening the calls' full outputs. The default is `false`, so existing
+setups stay unchanged. Clicking the header or using `ctrl+o`'s collapse-all keeps the group folded;
+the setting only decides its initial state. Changes apply to new groups after `/reload`, and fold
+state is not persisted across session restores. Thanks to @dreanzy for the proposal and implementation
+([#37](https://github.com/Andy8647/pi-tidy/pull/37)).
+
 ## [0.6.2] - 2026-10-30
 
 ### Fixed
