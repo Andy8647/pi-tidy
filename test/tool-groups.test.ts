@@ -22,6 +22,7 @@ import {
   planFor,
   resetGroups,
   RUNNING_ROW_DELAY_MS,
+  setGroupOpenDefault,
   summaryFor,
   takeLateJoin,
   THOUGHT_LIVE_MS,
@@ -382,6 +383,64 @@ test("a box born while ctrl+o is on opens its group", () => {
   // component is unknown then, so the flag is picked up when it joins.
   const a = tool("bash", { expanded: true });
   assert.deepEqual(frame([boundary(), a]), ["text", "V1", "|box:bash"]);
+});
+
+test("groupOpen: a new group starts open on its first frame, and a fold sticks", () => {
+  resetGroups();
+  setGroupOpenDefault(true);
+  try {
+    // One render pass is all it takes: the `▾` header sits on the group's first
+    // member, so nothing has to be folded first — and no repaint is asked for.
+    assert.deepEqual(renderPass([boundary(), tool("bash")]), ["text", "V1", "|B:bash"]);
+    assert.equal(takeLateJoin(), false, "the first frame is already right");
+
+    resetGroups();
+    const [b, c] = [tool("bash"), tool("read")];
+    const transcript: Entry[] = [boundary(), b, carrier(c), c];
+    assert.deepEqual(
+      renderPass(transcript),
+      ["text", "V1", "|B:bash", "|thinking", "|B:read"],
+      "the header is there before the count has caught up",
+    );
+    assert.deepEqual(frame(transcript), ["text", "V2", "|B:bash", "|thinking", "|B:read"]);
+
+    // Folded by hand: the level belongs to the group now, so the next frames
+    // must not re-open it from the setting.
+    clickHeader(b);
+    assert.deepEqual(frame(transcript), ["text", "C2"]);
+    assert.deepEqual(frame(transcript), ["text", "C2"], "no repaint pops it back open");
+
+    // Same for ctrl+o: expanding all then collapsing all leaves it folded.
+    ctrlO(transcript, true);
+    assert.deepEqual(frame(transcript), ["text", "V2", "|box:bash", "|thinking", "|box:read"]);
+    ctrlO(transcript, false);
+    assert.deepEqual(frame(transcript), ["text", "C2"]);
+    assert.deepEqual(frame(transcript), ["text", "C2"]);
+
+    // A group that starts later is born open again: only the initial level is set.
+    const d = tool("grep");
+    assert.deepEqual(frame([...transcript, boundary(), d]), ["text", "C2", "text", "V1", "|B:grep"]);
+  } finally {
+    setGroupOpenDefault(false);
+    resetGroups();
+  }
+});
+
+test("groupOpen leaves no header behind when every call is always-shown", () => {
+  resetGroups();
+  setGroupOpenDefault(true);
+  try {
+    // An edit-only step: the edit keeps pi's own box and never joins a group, so
+    // the group stays empty — an open one would wear a `▾` header over nothing.
+    const e = pinned("edit");
+    const step = carrier(e);
+    const transcript: Entry[] = [boundary(), step, e];
+    assert.equal(carrierPlan(step, { ids: step.ids, runs: step.runs }).header, null);
+    assert.deepEqual(frame(transcript), ["text", "box:edit"]);
+  } finally {
+    setGroupOpenDefault(false);
+    resetGroups();
+  }
 });
 
 test("a tool joining after its group's summary drew asks for one more frame", () => {

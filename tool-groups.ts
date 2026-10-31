@@ -267,8 +267,25 @@ interface Group {
   counted: Map<object, number>;
 }
 
+/**
+ * Whether a new group starts open (`groupOpen`): header `▾` plus one row per
+ * call instead of the folded summary line. Only the level a group is *born*
+ * with — `openGroup`/`closeGroup`/`noteSetExpanded` still own it afterwards, so
+ * an explicitly folded group stays folded.
+ */
+let groupOpenDefault = false;
+
+/** Set `groupOpen`; the frame patch calls this on every load, `/reload` included. */
+export function setGroupOpenDefault(open: boolean): void {
+  groupOpenDefault = open;
+  // `current` is built at import time, before any setting is read: a transcript
+  // that renders a tool before its first boundary would otherwise keep the old
+  // level. Only an untouched, empty group is re-levelled.
+  if (current.members.length === 0 && current.headerCarrier === null) current.level = open ? 1 : 0;
+}
+
 const newGroup = (): Group => ({
-  level: 0,
+  level: groupOpenDefault ? 1 : 0,
   members: [],
   thoughts: 0,
   headerCarrier: null,
@@ -404,7 +421,10 @@ export function carrierPlan(component: object, input: CarrierInput = {}): Carrie
     // under the summary shows what it is working on without opening anything.
     // Once the tokens stop the row goes: a `thinking` line next to nothing is
     // worse than the count that replaced it.
-    rows: (runs?.length ?? 0) > 0 && (group.level === 1 || live),
+    // An opened group with no members at all (`groupOpen` and a step whose only
+    // call is always-shown, an edit say) lists nothing: its rows would hang
+    // under a header that never materialised.
+    rows: (runs?.length ?? 0) > 0 && ((group.level === 1 && group.members.length > 0) || live),
     // The gap belongs to the opened list only; it is what makes steps read as
     // blocks there. Folded there is nothing but that one live row.
     // Rhythm only where it earns its keep: a two-row group reads fine tight, and

@@ -44,6 +44,12 @@ export interface TidyConfig {
    */
   groupTools: boolean;
   /**
+   * Start each new tool group open (`▾` header, one row per call) instead of
+   * folded to its summary line. Only the group's first level: clicking the
+   * header or `ctrl+o`'s collapse-all stays folded.
+   */
+  groupOpen: boolean;
+  /**
    * Tools that never fold into a group and keep pi's own box (edit/write by
    * default: the diff is the point). They also end the group before them.
    */
@@ -107,6 +113,7 @@ const DEFAULTS: TidyConfig = {
   bashResultLines: 1,
   writeLines: PI_WRITE_PREVIEW_LINES,
   groupTools: true,
+  groupOpen: false,
   alwaysShowTools: ["edit", "write"],
   backgroundJobs: true,
   hideJobNotifications: true,
@@ -166,6 +173,7 @@ export function loadConfig(): TidyConfig {
       bashResultLines: typeof toolbox?.bashResultLines === "number" ? toolbox.bashResultLines : DEFAULTS.bashResultLines,
       writeLines: typeof toolbox?.writeLines === "number" ? toolbox.writeLines : DEFAULTS.writeLines,
       groupTools: typeof toolbox?.groupTools === "boolean" ? toolbox.groupTools : DEFAULTS.groupTools,
+      groupOpen: typeof toolbox?.groupOpen === "boolean" ? toolbox.groupOpen : DEFAULTS.groupOpen,
       alwaysShowTools: Array.isArray(toolbox?.alwaysShowTools)
         ? toolbox.alwaysShowTools.filter((name: unknown): name is string => typeof name === "string")
         : DEFAULTS.alwaysShowTools,

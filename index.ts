@@ -21,6 +21,8 @@
  *   icons: boolean          — Nerd Font icons on boxes (default: true)
  *   groupTools: boolean     — fold each segment's tool calls into one summary
  *     line; click for one row per call, a row for its box (default: true)
+ *   groupOpen: boolean      — each new group starts open: `▾` header, one row
+ *     per call (default: false)
  *   alwaysShowTools: string[] — tools that never fold (default: edit, write)
  *   backgroundJobs: boolean — a call that started a pi-processes job shows the
  *     job's live state on its row (default: true)
@@ -224,6 +226,7 @@ export default function (pi: ExtensionAPI): void {
       icons: config.icons,
       toolColors: config.toolColors,
       groupTools: config.groupTools,
+      groupOpen: config.groupOpen,
       alwaysShowTools: config.alwaysShowTools,
       backgroundJobs: config.backgroundJobs,
       hideJobNotifications: config.hideJobNotifications,
