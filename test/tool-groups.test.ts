@@ -443,6 +443,31 @@ test("groupOpen leaves no header behind when every call is always-shown", () => 
   }
 });
 
+test("groupOpen set by a reloaded module reaches the patches already installed", async () => {
+  resetGroups();
+  setGroupOpenDefault(false);
+  try {
+    // `/reload` loads this module a second time and pushes the setting from
+    // there, while the render patch the first load installed keeps calling this
+    // instance's `newGroup()`. Only a shared slot bridges the two. The query is
+    // what makes node hand out a second instance.
+    const freshModule = "../tool-groups.ts?reload=1";
+    const reloaded = (await import(freshModule)) as typeof import("../tool-groups.ts");
+    assert.notEqual(reloaded, await import("../tool-groups.ts"), "the point is a second module instance");
+    reloaded.setGroupOpenDefault(true);
+
+    resetGroups();
+    assert.deepEqual(renderPass([boundary(), tool("bash")]), ["text", "V1", "|B:bash"]);
+
+    reloaded.setGroupOpenDefault(false);
+    resetGroups();
+    assert.deepEqual(renderPass([boundary(), tool("bash")]), ["text", "C1"]);
+  } finally {
+    setGroupOpenDefault(false);
+    resetGroups();
+  }
+});
+
 test("a tool joining after its group's summary drew asks for one more frame", () => {
   resetGroups();
   const [a, b] = [tool("bash"), tool("read")];

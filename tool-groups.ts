@@ -32,7 +32,7 @@
  */
 
 import type { JobStatus } from "./background-jobs.ts";
-import { agentRunning } from "./live.ts";
+import { agentRunning, groupOpen } from "./live.ts";
 
 export interface GroupMember {
   toolName: string;
@@ -268,16 +268,17 @@ interface Group {
 }
 
 /**
- * Whether a new group starts open (`groupOpen`): header `▾` plus one row per
- * call instead of the folded summary line. Only the level a group is *born*
+ * `groupOpen`: whether a new group starts open (header `▾` plus one row per
+ * call) instead of the folded summary line. Only the level a group is *born*
  * with — `openGroup`/`closeGroup`/`noteSetExpanded` still own it afterwards, so
- * an explicitly folded group stays folded.
+ * an explicitly folded group stays folded. The frame patch calls this on every
+ * load, `/reload` included.
  */
-let groupOpenDefault = false;
-
-/** Set `groupOpen`; the frame patch calls this on every load, `/reload` included. */
 export function setGroupOpenDefault(open: boolean): void {
-  groupOpenDefault = open;
+  // The slot, not a module variable: `/reload` loads this module a second time
+  // and pushes the value from there, while the patch the previous load installed
+  // is the one that keeps calling `newGroup()`.
+  groupOpen.set(open);
   // `current` is built at import time, before any setting is read: a transcript
   // that renders a tool before its first boundary would otherwise keep the old
   // level. Only an untouched, empty group is re-levelled.
@@ -285,7 +286,7 @@ export function setGroupOpenDefault(open: boolean): void {
 }
 
 const newGroup = (): Group => ({
-  level: groupOpenDefault ? 1 : 0,
+  level: groupOpen.get() ? 1 : 0,
   members: [],
   thoughts: 0,
   headerCarrier: null,
