@@ -14,6 +14,11 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # The table is posted back as one comment that each run overwrites. A
+      # token from a fork is read-only, so the step below skips instead.
+      pull-requests: write
     steps:
       - name: Checkout PR
         uses: actions/checkout@v5
@@ -45,7 +50,24 @@ jobs:
       - name: Compare transcript rendering
         env:
           BENCH_OUTPUT: ${{ runner.temp }}/render-benchmark.json
+          BENCH_COMMENT: ${{ runner.temp }}/render-benchmark.md
         run: pnpm bench .local/benchmark-base
+
+      - name: Comment the table on the PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          BODY: ${{ runner.temp }}/render-benchmark.md
+        run: |
+          set -euo pipefail
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- pi-tidy-bench -->")) | .id' | head -n1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@"$BODY" >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$BODY" >/dev/null
+          fi
 
       - name: Upload timing samples
         uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -18,7 +19,9 @@ const { patchToolBoxFrames, patchContainerBoxes } = await load("frame.ts");
 const { tidyEnabled, agentRunning } = await load("live.ts");
 const { resetGroups } = await load("tool-groups.ts");
 const { codemodeSections } = await load("codemode-body.ts");
-const { turnStore, turnOptions } = await load("turn-state.ts");
+// Turn folding arrived in 0.7.0: a base that predates it still has to render
+// folded and expanded, so the module is optional and only `turns` insists.
+const turnModule = existsSync(resolve(root, "turn-state.ts")) ? await load("turn-state.ts") : undefined;
 initTheme("dark");
 tidyEnabled.set(true);
 agentRunning.set(false);
@@ -38,18 +41,18 @@ const scripts: ToolExecutionComponent[] = [];
 // The fixture also feeds a turn store, the way pi's events do: `turns` mode folds
 // on top of it, and the other modes simply never enable the fold. Timestamps are
 // the message identity, so every message gets its own.
-const store = turnStore.get();
+const store = turnModule?.turnStore.get();
 let clock = 1_760_000_000_000;
 const stamp = () => ({ timestamp: (clock += 1000), provider: "anthropic", model: "claude-sonnet-4.5", durationMs: 900 });
 const assistant = (content: any[], stopReason = "stop") => {
   const message = { role: "assistant", content, stopReason, ...stamp() };
-  store.note(message as any);
+  store?.note(message as any);
   return new AssistantMessageComponent(message as any, true);
 };
 for (let turn = 0; turn < count / 10; turn++) {
   const path = `${cwd}/src/module-${turn}.ts`;
-  store.begin();
-  store.note({ role: "user", content: [{ type: "text", text: `Check module ${turn}` }], ...stamp() } as any);
+  store?.begin();
+  store?.note({ role: "user", content: [{ type: "text", text: `Check module ${turn}` }], ...stamp() } as any);
   chat.addChild(new UserMessageComponent(`Check module ${turn}, inspect its tests, then fix the result. 检查边界情况。`));
   chat.addChild(assistant([{ type: "text", text: `## Module ${turn}\n\nI will inspect the implementation and its tests.` }]));
   for (const name of ["read", "bash", "codemode", "edit"]) {
@@ -80,13 +83,13 @@ for (let turn = 0; turn < count / 10; turn++) {
       isError: failed, durationMs: 125,
       details,
     });
-    store.note({ role: "toolResult", toolCallId: id, toolName: name, isError: failed, content: [], details, ...stamp() } as any);
+    store?.note({ role: "toolResult", toolCallId: id, toolName: name, isError: failed, content: [], details, ...stamp() } as any);
     tools.push(tool);
     if (name === "codemode") scripts.push(tool);
     chat.addChild(tool);
   }
   chat.addChild(assistant([{ type: "text", text: `Updated module ${turn}.\n\n- Checked the implementation\n- Compared the test output` }]));
-  store.settle(false);
+  store?.settle(false);
 }
 if (chat.children.length !== count) throw new Error("Fixture component count changed");
 const width = 120;
@@ -96,7 +99,10 @@ if (mode === "expanded") {
   // Nested script/output sections have independent toggles inside a group.
   for (const script of scripts) Object.assign(codemodeSections(script), { script: true, output: true });
 }
-if (mode === "turns") turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: false, icons: true });
+if (mode === "turns") {
+  if (!turnModule) throw new Error(`turns: turn folding is not in ${root}`);
+  turnModule.turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: false, icons: true });
+}
 for (let frame = 0; frame < 20; frame++) chat.render(width);
 const preview = chat.render(width).join("\n");
 const markers = mode === "folded" ? ["3 calls", "diff"]
