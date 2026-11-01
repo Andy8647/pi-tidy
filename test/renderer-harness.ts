@@ -20,6 +20,8 @@ export function harness() {
   const resolvers: ToolRendererResolver[] = [];
   const handlers = new Map<string, ((...args: any[]) => any)[]>();
   const conflicts: string[] = [];
+  const commands = new Map<string, any>();
+  const entries: Array<{ type: string; customType: string; data: unknown }> = [];
   const pi = {
     registerTool(tool: ToolDefinition) {
       if (tools.has(tool.name)) {
@@ -28,6 +30,8 @@ export function harness() {
       }
       tools.set(tool.name, tool);
     },
+    registerCommand(name: string, definition: any) { commands.set(name, definition); },
+    appendEntry(customType: string, data: unknown) { entries.push({ type: "custom", customType, data }); },
     registerToolRenderer(resolver: ToolRendererResolver) {
       resolvers.push(resolver);
     },
@@ -41,7 +45,7 @@ export function harness() {
       index < resolvers.length ? resolvers[index]!(name, () => visit(index + 1)) : (base ?? tools.get(name));
     return visit(0);
   }
-  return { pi, tools, resolvers, handlers, conflicts, resolve };
+  return { pi, tools, resolvers, handlers, conflicts, commands, entries, resolve };
 }
 
 /** Load Tidy's entry point against `pi`, with a throwaway settings.json. */

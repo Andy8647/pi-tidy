@@ -19,6 +19,8 @@ import {
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
+import { presentTurn, TURN_LAYOUT } from "./turn-view.ts";
+import { folded, turnFor, turnOptions } from "./turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
@@ -88,7 +90,7 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
+export type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
@@ -112,10 +114,35 @@ function setHover(tool: object | null, row: HoverRow | null, ui?: Renderer): boo
 }
 
 /** The pointer left our rows (or the app): drop the band and repaint it away. */
-function clearHover(): void {
-  if (!hoverState.tool) return;
+function clearHover(): boolean {
+  if (!hoverState.tool) return false;
   hoverState = { tool: null, row: null, ui: hoverState.ui };
   hoverState.ui?.requestRender?.();
+  return true;
+}
+
+/** The alt screen that routes the packets: its renderer is the one that repaints. */
+let hoverRenderer: { requestRender?(): void } | undefined;
+
+/** Repaint after the pointer entered or left a row that is not a tool row. */
+export function requestHoverRender(): void {
+  lastUi?.requestRender?.();
+  hoverRenderer?.requestRender?.();
+}
+
+/**
+ * Turn rows share this state with the tool rows: one source for the band, the
+ * hand and the clear-on-leave hook. Only claim while move tracking is live.
+ */
+export function claimHover(target: object | null, row: HoverRow | null): boolean {
+  if (!hoverTracking) return false;
+  if (row) hoverClaimed = true;
+  return setHover(row ? target : null, row);
+}
+
+/** Whether the pointer is on this component's row, after the leave hook ran. */
+export function isRowHovered(target: object, row: HoverRow): boolean {
+  return hoverState.tool === target && hoverState.row === row;
 }
 
 /** A codemode body's fold row the pointer is on, if that is where it is. */
@@ -166,10 +193,11 @@ export function installHoverTracking(): void {
   if (!proto || proto[HOVER_HOOK]) return;
   const original = proto.handleMouseEvent;
   if (typeof original !== "function") return;
-  proto.handleMouseEvent = function (this: { terminal?: TerminalLike }, raw: unknown) {
+  proto.handleMouseEvent = function (this: { terminal?: TerminalLike; requestRender?(): void }, raw: unknown) {
+    hoverRenderer = this;
     hoverClaimed = false;
     const result = original.call(this, raw);
-    if (!hoverClaimed) clearHover();
+    if (!hoverClaimed && clearHover()) requestHoverRender();
     syncPointer(this.terminal, hoverState.tool !== null);
     return result;
   };
@@ -917,10 +945,10 @@ function installMessageMouse(component: any): void {
   };
 }
 
-function restyleThinking(component: any, lines: string[], width: number, rethink: boolean): string[] {
+function restyleThinking(component: any, lines: string[] | undefined, width: number, rethink: boolean, hideThinking = false): string[] {
   const kids = component.contentContainer?.children;
   // If pi's structure changes, keep both its rendering and mouse routing intact.
-  if (!Array.isArray(kids) || kids.length === 0) return lines;
+  if (!Array.isArray(kids) || kids.length === 0) return lines ?? [];
   const theme = rethink ? getTheme() : undefined;
   const runs = thinkingRuns(component.lastMessage);
   const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
@@ -938,11 +966,21 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
   const liveTexts = thought?.live ? liveRowText(component, runs, runs.map(() => budget), Date.now()) : undefined;
   const spinner = thought?.live ? thinkingSpinner(Date.now()) : undefined;
   const view = new MessageView();
+  const hiddenMarkers: string[] | undefined = hideThinking ? [] : undefined;
   let cursor = 0;
   let run = 0;
   for (const kid of kids) {
+    if (hideThinking && kid instanceof MouseRegion && run < runs.length) {
+      run++;
+      if (lines) {
+        const count = (kid.render(width) as string[]).length;
+        hiddenMarkers!.push(...(lines.slice(cursor, cursor + count).join("").match(ZONE_MARKERS) ?? []));
+        cursor += count;
+      }
+      continue;
+    }
     const own = kid.render(width) as string[];
-    const taken = lines.slice(cursor, cursor + own.length);
+    const taken = lines?.slice(cursor, cursor + own.length) ?? own;
     cursor += own.length;
     if (!theme || runs.length === 0 || !(kid instanceof MouseRegion)) {
       // Preserve pi's OSC markers without changing the child's geometry.
@@ -982,9 +1020,17 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
       return { handled: true };
     }));
   }
-  const tail = lines.slice(cursor);
+  const tail = lines?.slice(cursor) ?? [];
   if (tail.length > 0) view.addChild({ render: () => tail, invalidate() {} });
   const rendered = view.render(width);
+  if (!lines && rendered.length) {
+    rendered[0] = "\x1b]133;A\x07" + rendered[0];
+    rendered[rendered.length - 1] = "\x1b]133;B\x07\x1b]133;C\x07" + rendered[rendered.length - 1];
+  }
+  if (rendered.length && hiddenMarkers) for (const marker of hiddenMarkers) {
+    if (marker === "\x1b]133;A\x07") rendered[0] = marker + rendered[0];
+    else rendered[rendered.length - 1] += marker;
+  }
   component[MESSAGE_VIEW] = view;
   installMessageMouse(component);
   return rendered;
@@ -1029,6 +1075,7 @@ function wrapBoundaryRender(
 ): void {
   const render = proto?.render;
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
+  const assistant = proto === AssistantMessageComponent.prototype;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
     // Reset before even the disabled path: old handlers survive /reload and
     // streaming carrier/boundary transitions, but their old layout must not.
@@ -1036,12 +1083,28 @@ function wrapBoundaryRender(
     this[MESSAGE_VIEW] = undefined;
     const width = typeof args[0] === "number" ? args[0] : 80;
     const how = groupingActive() ? view(this, width) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
-    if (how === "hidden") return [];
-    if (how === "untrimmed") return render.apply(this, args);
-    if (typeof how === "object") return how.lines;
-    // Both rethink and plain assistant views trim once, through the same
-    // component that routes input. Text-only messages need that transform too.
-    return restyleThinking(this, render.apply(this, args), width, how === "rethink");
+    const options = assistant ? turnOptions.get() : undefined;
+    if (!options || (options.collapseTurns === "off" && !options.frameFinalReply)) {
+      if (this[TURN_LAYOUT]) this[TURN_LAYOUT] = undefined;
+      if (how === "hidden") return [];
+      if (how === "untrimmed") return render.apply(this, args);
+      if (typeof how === "object") return how.lines;
+      // `plain` is a step whose call pi draws itself (an expanded pinned
+      // edit) or a message with nothing to fold. Its thinking is still our
+      // row: leaving it bare makes pi's `Thinking...` float over the box.
+      return restyleThinking(this, render.apply(this, args), width, how === "rethink" || how === "plain");
+    }
+    const draw = (room: number, hideThinking = false) => {
+      if (how === "hidden") return [];
+      if (how === "untrimmed") return render.call(this, room, ...args.slice(1));
+      if (typeof how === "object") return how.lines;
+      // The same native view owns both rendering and mouse geometry.
+      const turn = turnOptions.get().collapseTurns !== "off" ? turnFor(this.lastMessage) : undefined;
+      const foldedTurn = !!turn && folded(turn);
+      const skipThinking = hideThinking || (foldedTurn && Array.isArray(this.contentContainer?.children));
+      return restyleThinking(this, skipThinking ? undefined : render.call(this, room, ...args.slice(1)), room, how === "rethink" || how === "plain", hideThinking || foldedTurn);
+    };
+    return presentTurn(this, width, draw);
   };
   wrapped[BOUNDARY_WRAPPER] = true;
   proto!.render = wrapped;
@@ -1087,6 +1150,6 @@ export function installGroupBoundaries(): void {
   // message is pi's `Box(1, 1, customMessageBg)` too, so the same trim that ate
   // the user message's padding was eating its inset as well.
   wrapBoundaryRender((CustomMessageComponent as any)?.prototype, (component) =>
-    noteJobMessage(component.message) ? "hidden" : "untrimmed",
+    noteJobMessage(component.message) && turnOptions.get().collapseTurns === "off" ? "hidden" : "untrimmed",
   );
 }

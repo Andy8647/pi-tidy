@@ -19,7 +19,7 @@
 import { homedir } from "node:os";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf, visibleText } from "./frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "./frame-draw.ts";
 import {
   composeCodemodeBody,
   codemodeSections,
@@ -28,10 +28,11 @@ import {
   type CodemodeToggle,
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
-import { sliceByColumn } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
+import { expandTurnForTool, hideTurnTool } from "./turn-state.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { noteSetExpanded, setGroupOpenDefault } from "./tool-groups.ts";
@@ -73,6 +74,7 @@ interface FrameGeometry {
 }
 
 interface ToolBoxInternals extends GroupedTool {
+  __tidyTurnRendered?: boolean;
   hideComponent: boolean;
   toolName: string;
   result?: { isError: boolean; durationMs?: number; content?: unknown; details?: unknown };
@@ -327,6 +329,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
+    if (hideTurnTool(this.toolCallId)) return undefined;
     if (grouping()) {
       const routed = routeGroupedMouse(this, event, {
         pinned: toolOptions.get().alwaysShow.has(this.toolName),
@@ -340,6 +343,9 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   // ctrl+o 与 pi 自己的展开都走 setExpanded:先改层级,再让 pi 记自己的状态
   anyProto.setExpanded = function (this: ToolBoxInternals, expanded: boolean) {
+    if (tidyEnabled.get() && pointerDepth === 0 && (this.__tidyTurnRendered || expanded)) {
+      expandTurnForTool(this.toolCallId, expanded);
+    }
     if (grouping()) {
       if (!expanded && pointerDepth === 0 && !toolOptions.get().alwaysShow.has(this.toolName)) {
         closeJobDetails(jobsForTool(this).map((job) => job.id));
@@ -698,6 +704,21 @@ function composeFramedCodemode(
       const rest = blankEdges(content);
       content = rest.start === 0 && rest.end === content.length ? content : content.slice(rest.start, rest.end);
     }
+    // A file tool's call row is a title (`󰛦 󰈔 path`), not body: the frame's top
+    // border is where a title belongs. Only framed boxes have one; inside a
+    // group the row above already carries the call.
+    const title = !unframed && !collapse && !listed && PATH_ARG_TOOLS.has(this.toolName) && content.length > 1
+      ? trimTrailingSpaces(stripBackgroundFills(content[0])).trim()
+      : "";
+    let titleShift = 0;
+    if (title) {
+      // The write preview puts a blank row between its title and the text;
+      // the border already separates them, so the body never starts with one.
+      let lead = 1;
+      while (lead < content.length && !visibleText(content[lead]).trim()) lead++;
+      content = content.slice(lead);
+      titleShift = lead;
+    }
     // The fold row under the pointer wears the hover band, inside the frame.
     let banded: ReadonlySet<number> | undefined;
     const bandRow = hovered ? listed?.toggles.find((toggle) => toggle.section === hovered)?.row : undefined;
@@ -710,10 +731,14 @@ function composeFramedCodemode(
     if (content.length > 0) {
       // Split-diff rows carry their own tint, as does a hovered fold row;
       // everything else stays transparent.
-      const bgRows = banded ?? (split && edges.start > 0
+      const splitBg = split && edges.start > 0
         ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
-        : split?.bgRows);
+        : split?.bgRows;
+      const bgRows = banded ?? (splitBg && titleShift
+        ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
+        : splitBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
+      if (title) framed[0] = labeledTopBorder(w, theme, color, truncateToWidth(title, Math.max(1, w - 6), "…"));
       // Unframed: the row above already carries the frame of reference (the
       // group rail), so only the body is drawn — borders dropped, cells kept.
       if (unframed) {
@@ -732,7 +757,7 @@ function composeFramedCodemode(
     // so the body starts on the first line.
     const geometry: FrameGeometry = unframed
       ? { top: -(edges.start + 1), height: raw.length, width: sourceWidth - 2, bordered: false }
-      : { top: 1 - edges.start, height: raw.length, width: sourceWidth };
+      : { top: 1 - edges.start - titleShift, height: raw.length, width: sourceWidth };
     this.__frameGeometry = content.length > 0 ? geometry : undefined;
     // Images stay outside the frame: their lines carry terminal graphics
     // payloads that padding/truncation would corrupt.
@@ -755,7 +780,8 @@ function composeFramedCodemode(
       return originalRender.call(this, width);
     }
     try {
-      if (this.hideComponent) return [];
+      this.__tidyTurnRendered = true;
+      if (this.hideComponent || hideTurnTool(this.toolCallId)) return [];
       const w = Math.max(4, width);
       if (grouping()) {
         const { icons, alwaysShow } = toolOptions.get();

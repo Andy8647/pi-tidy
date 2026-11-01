@@ -17,6 +17,23 @@ export function stripBackgroundFills(line: string): string {
   return line.replace(BG_FILL_RE, "");
 }
 
+/** Local clock; the date appears only when the message is not from today. */
+export function formatMessageTime(timestamp: number, now = Date.now()): string {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return date.toDateString() === new Date(now).toDateString()
+    ? clock
+    : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+}
+
+/** Muted and italic: the timestamp belongs to the border, not to the message. */
+export function italicDim(theme: ThemeLike, text: string): string {
+  const dim = theme.fg("dim", text);
+  return theme.italic ? theme.italic(dim) : dim;
+}
+
 const TRAILING_SGR_RE = /\x1b\[[0-9;:]*m$/;
 
 /** Drop the padding a row was filled out with, keeping the escapes that close its styles. */

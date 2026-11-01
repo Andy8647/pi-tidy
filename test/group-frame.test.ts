@@ -278,6 +278,30 @@ test("edit keeps pi's own box, splits the group, and its box takes clicks", () =
   assert.equal(e.component.expanded, true);
 });
 
+test("an edit's path moves into the top border, leaving the diff as the body", () => {
+  const chat = new Container();
+  const e = edit("/tmp/x.ts");
+  chat.addChild(step(e.id, "edit"));
+  chat.addChild(e.component);
+  const lines = visible(frame(chat));
+  assert.ok(lines.some((line) => /^╭─ .*x\.ts ─+╮$/.test(line)), lines.join("\n"));
+  assert.ok(!lines.some((line) => /│ .*edit \/tmp\/x\.ts/.test(line)), "the title is not a body row");
+  assert.ok(lines.some((line) => line.includes("↳ diff")), "the diff is still the first body row");
+});
+
+test("an expanded pinned edit no longer leaves pi's bare thinking label", () => {
+  const chat = new Container();
+  const e = edit("/tmp/x.ts");
+  chat.addChild(step(e.id, "edit"));
+  chat.addChild(e.component);
+  frame(chat);
+  click(chat, "const a = 2;", 6);
+  assert.equal(e.component.expanded, true);
+  const lines = visible(frame(chat));
+  assert.ok(!lines.some((line) => line.includes("Thinking...")), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("thinking") && line.includes("…")), lines.join("\n"));
+});
+
 test("ctrl+o expands every box and folds back to the C line", () => {
   const { chat } = threeBash();
   frame(chat);
