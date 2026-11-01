@@ -7,7 +7,8 @@ import { disableHoverForTests, enableHoverForTests, resetHover } from "../tool-g
 import { resetGroups } from "../tool-groups.ts";
 import { formatMessageTime, visibleText } from "../frame-draw.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../turn-state.ts";
-import { replyLabel } from "../turn-view.ts";
+import { replyLabel, summaryLine } from "../turn-view.ts";
+import { getTheme } from "../theme-access.ts";
 
 initTheme("dark");
 const cwd = process.cwd();
@@ -59,6 +60,21 @@ function click(chat: Container, predicate: (line: string) => boolean, last = fal
   assert.notEqual(y, undefined, lines.join("\n"));
   return chat.handleMouse({ type: "click", button: "left", x: 4, y: y!, screenX: 4, screenY: y!, width: W, height: lines.length, shift: false, alt: false, ctrl: false });
 }
+
+test("the summary line is cached per frame but rebuilt when a second passes or the turn moves", () => {
+  const { store } = fixture("afterRun", false);
+  const turn = store.current!;
+  const theme = getTheme()!;
+  const early = summaryLine(turn, theme, W, false, 2500);
+  // 1500 ms and 1600 ms of wall time both read "2s", so the cache may serve.
+  assert.equal(summaryLine(turn, theme, W, false, 2600), early);
+  assert.notEqual(summaryLine(turn, theme, W, false, 3500), early, "a later second repaints");
+  const before = summaryLine(turn, theme, W, false, 4000);
+  store.note({ role: "toolResult", toolCallId: "a", toolName: "read", isError: true, content: [], timestamp: 1650 } as any);
+  const after = summaryLine(turn, theme, W, false, 4000);
+  assert.ok(after.includes("1 failed"), after);
+  assert.notEqual(after, before, "a failure the turn gained lands on the next frame");
+});
 
 test("outer fold hides all process including thinking and always-shown edits; summary stays before final reply", () => {
   const { chat } = fixture();
