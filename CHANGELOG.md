@@ -4,6 +4,35 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-11-01
+
+A rendering release: nothing changes on screen, the frame costs a fraction of what it did.
+
+### Changed
+
+**A row is measured before it is truncated.** pi-tui's `truncateToWidth` segments the whole string whether or not
+anything is cut — 17 µs for a styled 100-cell row against 90 ns for `visibleWidth` — and every drawn row went through
+it. Rows that already fit now skip it entirely; at 500 components with every tool output open that was 78% of the
+frame. Measured on the benchmark fixture with every tool output open: 5.5 ms → 0.8 ms at 500 components, 21.2 ms →
+2.6 ms at 1500.
+
+**A settled tool's rows are drawn once.** An opened call rebuilt its body rows every frame — concatenation, trim and a
+format per row — from a box that had not changed. They are now cached and rebuilt when the group, the pointer, the
+tool's own result or the box under it moves. An active run, a partial call, a background job or a scheduled reveal all
+still draw fresh, so streaming is unchanged.
+
+**A turn summary is built once per turn, not once per frame.** Folding a run is now the cheapest state to render
+instead of the most expensive: 3.8 ms → 0.53 ms per frame at 1500 components, where the summary used to iterate the
+turn's messages and tools four times per turn per frame. It is rebuilt when the turn moves or a second passes.
+
+### Added
+
+**The render benchmark folds runs, and reports on the pull request.** `pnpm bench` now measures three states — tool
+outputs closed, runs folded, tool outputs open — because turn folding is a different path, not a smaller version of
+the other two. CI rewrites a single comment on the PR with the table, found by a marker in its body so every run
+patches it rather than stacking a new one. Pull requests from forks skip that step, and a base older than 0.7.0
+reports the PR's own numbers for the state it cannot render.
+
 ## [0.7.0] - 2026-11-01
 
 ### Experimental (opt-in)
