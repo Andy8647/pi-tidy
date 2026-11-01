@@ -141,7 +141,7 @@ interface ContainerBoxInternals {
   /** Set when an extension renderer supplies its own styled component. */
   customComponent?: unknown;
   render(width: number): string[];
-  __msgFrameCache?: { width: number; sample: string; icons: boolean; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; lines: string[]; out: string[] };
 }
 
 /**
@@ -159,6 +159,8 @@ export interface ContainerBoxOptions {
    * UserMessageComponent alone (and is not installed if it never was).
    */
   includeUser?: boolean;
+  /** Align the framed user message and its label; other message kinds stay left. */
+  userAlign?: "left" | "right";
   /** False turns installed patches into pass-throughs and installs nothing new. */
   enabled?: boolean;
 }
@@ -168,6 +170,7 @@ interface ResolvedContainerOptions {
   borderColors: { user: string; custom: string };
   icons: boolean;
   includeUser: boolean;
+  userAlign: "left" | "right";
 }
 
 const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("container-box-options", undefined);
@@ -189,8 +192,8 @@ export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
 ): void {
-  const { icons = false, includeUser = false, enabled = true } = options;
-  containerOptions.set({ enabled, borderColors, icons, includeUser });
+  const { icons = false, includeUser = false, enabled = true, userAlign = "left" } = options;
+  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign });
   if (!enabled) return;
 
   const patch = (cls: { prototype: unknown }, kind: "user" | "custom") => {
@@ -215,6 +218,7 @@ export function patchContainerBoxes(
         if (!box) return originalRender.call(this, width);
 
         const { icons } = live;
+        const align = isUserMessage ? live.userAlign : "left";
         const borderColor = live.borderColors[kind];
         const w = Math.max(4, width);
         // A custom message's icon takes two cells of its first row; rendering
@@ -233,6 +237,7 @@ export function patchContainerBoxes(
           cache.width === w &&
           cache.sample === sample &&
           cache.icons === icons &&
+          cache.align === align &&
           sameLines(cache.lines, content)
         )
           return cache.out;
@@ -248,8 +253,9 @@ export function patchContainerBoxes(
           const label = icons ? theme.fg(borderColor, icon) : "";
           const framed = hugContent(content, w, visibleWidth(label));
           const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
-          if (label) frame[0] = labeledTopBorder(framed.width, theme, borderColor, label);
-          out = frame;
+          if (label) frame[0] = labeledTopBorder(framed.width, theme, borderColor, label, align);
+          const indent = align === "right" ? " ".repeat(w - framed.width) : "";
+          out = indent ? frame.map((line) => indent + line) : frame;
         } else {
           out = ["", ...drawFrame(content, w, theme, borderColor)];
         }
@@ -257,7 +263,7 @@ export function patchContainerBoxes(
           out[0] = OSC133_ZONE_START + out[0];
           out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
         }
-        this.__msgFrameCache = { width: w, sample, icons, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, icons, align, lines: content, out };
         return out;
       } catch {
         return originalRender.call(this, width);

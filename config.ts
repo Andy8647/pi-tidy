@@ -22,6 +22,8 @@ export interface TidyConfig {
    * accent `│` in front of the text) or "off" (pi's own).
    */
   userMessageStyle: UserMessageStyle;
+  /** Alignment of a framed user message and its border icon. */
+  userMessageAlign: "left" | "right";
   /** Rail-only rows between each rule and the text of a "rail" user message. */
   userMessagePaddingY: number;
   /** "rail" user message colors: theme color names or `#rrggbb`. */
@@ -107,6 +109,7 @@ const DEFAULTS: TidyConfig = {
   highlightBash: true,
   frameMessages: true,
   userMessageStyle: "frame",
+  userMessageAlign: "left",
   userMessagePaddingY: 1,
   userMessageColors: { rail: "accent", rule: "borderMuted" },
   icons: true,
@@ -161,6 +164,7 @@ export function loadConfig(): TidyConfig {
       highlightBash: toolbox?.highlightBash ?? DEFAULTS.highlightBash,
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
       userMessageStyle: userMessageStyle(toolbox),
+      userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
       userMessagePaddingY:
         Number.isInteger(toolbox?.userMessagePaddingY) && toolbox.userMessagePaddingY >= 0
           ? Math.min(3, toolbox.userMessagePaddingY)
