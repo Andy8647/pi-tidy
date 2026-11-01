@@ -144,7 +144,7 @@ interface ContainerBoxInternals {
   /** Set when an extension renderer supplies its own styled component. */
   customComponent?: unknown;
   render(width: number): string[];
-  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; label: string; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
 }
 
 /**
@@ -249,9 +249,11 @@ export function patchContainerBoxes(
         const align = isUserMessage ? live.userAlign : "left";
         const borderColor = live.borderColors[kind];
         const userTime = isUserMessage ? (this as any)[USER_MESSAGE_TIME] : undefined;
-        const label = isUserMessage && icons
-          ? theme.fg(borderColor, icon) + (typeof userTime === "number" ? ` ${italicDim(theme, formatMessageTime(userTime))}` : "")
-          : "";
+        // The clock is painted into the border every frame, but its text only
+        // changes when the day it belongs to rolls over. Key the cache on the
+        // minute the label was built for and format the two dates on a miss,
+        // not on every rendered row.
+        const labelMinute = isUserMessage && icons && typeof userTime === "number" ? Math.floor(Date.now() / 60_000) : 0;
         const w = Math.max(4, width);
         // A custom message's icon takes two cells of its first row; rendering
         // the box narrower keeps every line lossless. A user message carries
@@ -270,10 +272,15 @@ export function patchContainerBoxes(
           cache.sample === sample &&
           cache.icons === icons &&
           cache.align === align &&
-          cache.label === label &&
+          cache.labelMinute === labelMinute &&
+          cache.labelTime === userTime &&
           sameLines(cache.lines, content)
         )
           return cache.out;
+
+        const label = isUserMessage && icons
+          ? theme.fg(borderColor, icon) + (typeof userTime === "number" ? ` ${italicDim(theme, formatMessageTime(userTime))}` : "")
+          : "";
 
         // A leading blank row separates the box from the transcript above it.
         // Custom messages need it: pi adds no spacer of its own there. A user
@@ -295,7 +302,7 @@ export function patchContainerBoxes(
           out[0] = OSC133_ZONE_START + out[0];
           out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
         }
-        this.__msgFrameCache = { width: w, sample, icons, align, label, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, icons, align, labelMinute, labelTime: userTime, lines: content, out };
         return out;
       } catch {
         return originalRender.call(this, width);
