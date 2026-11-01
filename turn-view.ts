@@ -1,5 +1,5 @@
-import { Box, Container, MouseRegion, Text, sliceByColumn, truncateToWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { formatMessageTime, italicDim, labeledTopBorder, sameLines } from "./frame-draw.ts";
+import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, sameLines } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "./tool-group-view.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -85,7 +85,7 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   for (const [name, count] of counts) parts.push(theme.fg("muted", `${name}×${count}`));
-  return truncateToWidth(` ${parts.join(theme.fg("muted", " · "))}`, width, "…");
+  return clipToWidth(` ${parts.join(theme.fg("muted", " · "))}`, width, "…");
 }
 
 /** Box owns the horizontal mouse transform; its padding cells become border glyphs. */
@@ -149,7 +149,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const label = framed
-    ? truncateToWidth(
+    ? clipToWidth(
         theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)) +
           (typeof component.lastMessage.timestamp === "number" ? ` ${italicDim(theme, formatMessageTime(component.lastMessage.timestamp))}` : ""),
         // The border needs `╭─ ` and ` ─╮` around the label; a longer model id

@@ -53,6 +53,18 @@ export function trimTrailingSpaces(line: string): string {
   }
 }
 
+/**
+ * `truncateToWidth`, but only for lines that are actually too wide.
+ *
+ * pi-tui's truncateToWidth runs an `Intl.Segmenter` over the whole string
+ * whether or not anything is cut: ~17us for a 100-cell styled row, against
+ * ~90ns for `visibleWidth` on the same line. Rows that already fit are the
+ * common case, and this guard keeps their bytes exactly as they were.
+ */
+export function clipToWidth(line: string, width: number, ellipsis = "…"): string {
+  return visibleWidth(line) <= width ? line : truncateToWidth(line, width, ellipsis);
+}
+
 export function padToWidth(line: string, width: number): string {
   const w = visibleWidth(line);
   if (w === width) return line;

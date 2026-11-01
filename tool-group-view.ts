@@ -11,7 +11,7 @@
  */
 
 import { stripVTControlCharacters } from "node:util";
-import { MouseRegion, truncateToWidth, TuiAltScreen, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { MouseRegion, TuiAltScreen, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import {
   ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobsForTool, noteJobMessage,
@@ -23,7 +23,7 @@ import { presentTurn, TURN_LAYOUT } from "./turn-view.ts";
 import { folded, turnFor, turnOptions } from "./turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
+import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
 import {
   formatGroupLine,
   formatThoughtLabel,
@@ -274,7 +274,7 @@ export function renderGroupedTool(
     // An opened call keeps its row — it does not turn into something else — and
     // takes a tick off the rail to show what hangs below it.
     const line = plan.full ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
-    lines.push(hovered === "row" ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
+    lines.push(hovered === "row" ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
   }
   if (plan.full) {
     // Inside the group the rail already says what belongs to what, so a box
@@ -313,10 +313,10 @@ export function renderGroupedTool(
     const arrow = details ? "▾" : hot ? "▶" : "▸";
     const row = formatJobLine({ toolName: "process", isPartial: false }, nested, theme, icons, spinnerFrame(nested, now));
     const line = `${rowPad}${theme.fg("muted", arrow)}${row}`;
-    lines.push(hot ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
+    lines.push(hot ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
     if (details) {
       for (const body of renderJobDetails(nested, details, theme)) {
-        lines.push(truncateToWidth(`${detailPad}${body}`, width, "…"));
+        lines.push(clipToWidth(`${detailPad}${body}`, width, "…"));
       }
     }
     spans.push({ id: nested.id, from, to: lines.length - 1 });
@@ -456,8 +456,8 @@ function groupHeaderLine(
   const spinner = summary.thinking ? thinkingSpinner(now) : groupSpinner(jobs);
   const thinkingColor = thinkingColorFor();
   // Every group's line is drawn on every frame, and building it costs more
-  // than it looks: `truncateToWidth` walks a styled row with icons grapheme by
-  // grapheme even when it fits. The line is a function of these fields only.
+  // than it looks: measuring a styled row with icons is a walk over every
+  // grapheme. The line is a function of these fields only.
   const key = [
     summary.count,
     summary.breakdown.map(({ name, count }) => `${name}×${count}`).join(" "),
@@ -484,7 +484,7 @@ function groupHeaderLine(
     thinkingColor,
     hovered,
   });
-  const line = hovered ? hoverBand(formatted, width, theme) : truncateToWidth(formatted, width, "…");
+  const line = hovered ? hoverBand(formatted, width, theme) : clipToWidth(formatted, width, "…");
   headerLines.set(anchor, { key, line });
   return line;
 }
@@ -728,7 +728,7 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     // Open: the row keeps its place and takes a tick, exactly like an opened
     // call — the reasoning hangs under it instead of replacing it.
     const line = open ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
-    lines.push(hovered ? hoverBand(line, width, theme) : truncateToWidth(line, width, "…"));
+    lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
   }
   if (open) {
     const body = trimBlankEdges(renderThinkingBody(component, iconBodyWidth(width)));
