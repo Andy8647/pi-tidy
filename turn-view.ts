@@ -1,6 +1,7 @@
 import { Box, Container, MouseRegion, Text, sliceByColumn, truncateToWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { labeledTopBorder, sameLines } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
+import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "./tool-group-view.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
 
@@ -11,9 +12,11 @@ const MOUSE = Symbol.for("pi-tidy:turn-mouse");
 const BASE_MOUSE = Symbol.for("pi-tidy:turn-base-mouse");
 const HOVER = Symbol.for("pi-tidy:turn-hover");
 const CACHE = Symbol.for("pi-tidy:turn-cache");
-// Nerd Fonts glyphnames.json: cod-openai, cod-claude, md-google; unknown providers use md-robot.
+// Nerd Fonts glyphnames.json: cod-openai, cod-claude, md-google; deepseek has no brand
+// glyph in Nerd Fonts, so it uses the whale emoji; all others use md-robot.
 const PROVIDER_ICONS: Record<string, string> = {
   openai: "\uec81", "openai-codex": "\uec81", anthropic: "\uec82",
+  deepseek: "\u{1f433}",
   google: "\u{f02ad}", "google-gemini-cli": "\u{f02ad}", "google-vertex": "\u{f02ad}",
 };
 export function replyLabel(provider: string | undefined, icons: boolean): string {
@@ -60,12 +63,24 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
 }
 
 /** Box owns the horizontal mouse transform; its padding cells become border glyphs. */
+const ZONE_A = "\x1b]133;A\x07";
+const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
 class ReplyBody extends Box {
   private theme: ThemeLike;
   constructor(theme: ThemeLike) { super(1, 0); this.theme = theme; }
   override render(width: number): string[] {
     const border = this.theme.fg("accent", "│");
-    return super.render(width).map((line) => border + sliceByColumn(line, 1, width - 2) + border);
+    return super.render(width).map((line) => {
+      // pi's OSC 133 zones belong at the row's edges. The frame used to leave
+      // them inside: zone A landed after the left border, and B/C before the
+      // right one. Terminals that cache semantic prompts then misrender the
+      // marked rows, so keep A before the border and B/C after it.
+      const markers = line.match(ZONE_MARKERS) ?? [];
+      const clean = markers.length ? line.replace(ZONE_MARKERS, "") : line;
+      const start = markers.filter((marker) => marker === ZONE_A).join("");
+      const end = markers.filter((marker) => marker !== ZONE_A).join("");
+      return start + border + sliceByColumn(clean, 1, width - 2) + border + end;
+    });
   }
 }
 function installMouse(component: any): void {
@@ -77,7 +92,11 @@ function installMouse(component: any): void {
     if (!layout || !tidyEnabled.get()) return previous?.call(this, event);
     const hot = event.type === "move" && layout.header && event.y === 0;
     const changed = event.type === "move" && !!this[HOVER] !== !!hot;
-    if (event.type === "move") this[HOVER] = !!hot;
+    if (event.type === "move") {
+      this[HOVER] = !!hot;
+      const stateChanged = hot ? claimHover(this, "header") : claimHover(null, null);
+      if (changed || stateChanged) requestHoverRender();
+    }
     const result = layout.view.handleMouse(event);
     return changed ? { ...result, handled: true, render: true } : result;
   };
@@ -96,13 +115,13 @@ export function presentTurn(component: any, width: number, draw: (width: number)
   const key = messageKey(component.lastMessage);
   const closed = options.collapseTurns !== "off" && folded(turn);
   const visible = turn.outcome === "running" ? turn.latestText : turn.final;
-  const anchor = visible ?? turn.lastAssistant;
-  const header = options.collapseTurns !== "off" && key === anchor && hasProcess(turn);
+  const header = options.collapseTurns !== "off" && key === turn.firstAssistant && hasProcess(turn);
   if (closed && key !== visible && !header) return [];
   const framed = options.frameFinalReply && turn.outcome !== "running" && key === turn.final && width >= 4;
   const body = closed && key !== visible ? [] : draw(framed ? width - 2 : width);
   if (!header && !framed) return body;
-  const line = header ? summaryLine(turn, theme, width, !!component[HOVER]) : "";
+  const hovered = header && isRowHovered(component, "header");
+  const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const label = framed ? theme.fg("accent", replyLabel(component.lastMessage.provider, options.icons)) : "";
   const cache = component[CACHE];
   if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.framed === framed && sameLines(cache.body, body)) {

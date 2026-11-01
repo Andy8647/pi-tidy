@@ -20,6 +20,7 @@ export interface Turn {
   messages: Map<string, TurnMessage>;
   tools: Map<string, { name: string; args: unknown; failed?: boolean; nestedFailed?: number }>;
   root?: string;
+  firstAssistant?: string;
   latestText?: string;
   lastAssistant?: string;
   final?: string;
@@ -63,6 +64,7 @@ function add(turn: Turn, key: string, message: TurnMessage): void {
   turn.messages.set(key, message);
   if (message.role === "user" && !turn.root) turn.root = key;
   if (message.role === "assistant") {
+    if (!turn.firstAssistant) turn.firstAssistant = key;
     turn.lastAssistant = key;
     if (hasText(message)) turn.latestText = key;
     for (const block of message.content ?? []) if (block.type === "toolCall") {

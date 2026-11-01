@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { AssistantMessageComponent, UserMessageComponent, ToolExecutionComponent, createReadToolDefinition, createEditToolDefinition, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../tool-frame.ts";
+import { disableHoverForTests, enableHoverForTests, resetHover } from "../tool-group-view.ts";
 import { resetGroups } from "../tool-groups.ts";
 import { visibleText } from "../frame-draw.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../turn-state.ts";
@@ -73,6 +74,7 @@ test("outer fold hides all process including thinking and always-shown edits; su
   assert.ok(opened.join("\n").includes("Checking the implementation"));
   assert.ok(opened.join("\n").includes("diff"));
   assert.equal(opened.filter((line) => line.includes("took")).length, 1);
+  assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("Checking the implementation")), "an opened turn keeps its summary at the top");
   assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("anthropic")));
   click(chat, (line) => line.includes("took"));
   assert.equal(frame(chat).join("\n"), folded);
@@ -214,10 +216,58 @@ test("caught nested failures remain visible, and final framing can be disabled i
   assert.ok(!lines.includes("╭"));
 });
 
+test("OSC 133 zones stay at the frame's row edges, never inside it", () => {
+  const { chat } = fixture();
+  const raw = chat.render(W);
+  const start = raw.find((line) => line.includes("\x1b]133;A\x07") && line.includes("Fixed the result"));
+  assert.ok(start, "the first body row carries zone A");
+  assert.ok(start.startsWith("\x1b]133;A\x07"), "zone A must open the row, before the border");
+  assert.ok(start.indexOf("│") > 0, "the border follows the marker");
+  const end = raw.find((line) => line.includes("\x1b]133;B\x07") && line.includes("```"));
+  assert.ok(end, "the last body row carries zone B/C");
+  assert.ok(end.endsWith("\x1b]133;B\x07\x1b]133;C\x07"), "zone B/C must close the row, after the border");
+});
+
+test("the turn summary lights up and takes the hand like a group row", () => {
+  enableHoverForTests();
+  resetHover();
+  const { chat } = fixture();
+  const y = frame(chat).findIndex((line) => line.includes("took"));
+  assert.ok(y >= 0);
+  const move = (row: number) => chat.handleMouse({ type: "move", button: "none", x: 4, y: row, screenX: 4, screenY: row, width: W, height: 40, shift: false, alt: false, ctrl: false });
+  move(y);
+  const hot = chat.render(W).find((line) => line.includes("took"))!;
+  assert.ok(hot.includes("▶"), "the marker turns solid under the pointer");
+  assert.ok(/\x1b\[48;/.test(hot), "the row wears the selected background");
+  move(y + 1);
+  const cold = chat.render(W).find((line) => line.includes("took"))!;
+  assert.ok(cold.includes("▸"));
+  assert.ok(!/\x1b\[48;/.test(cold), "the band goes away with the pointer");
+  resetHover();
+  disableHoverForTests();
+});
+
+test("the whale glyph keeps the final frame at the terminal width", () => {
+  const provider = final.provider;
+  final.provider = "deepseek";
+  try {
+    const { chat } = fixture();
+    const lines = frame(chat);
+    const top = lines.find((line) => line.includes("deepseek"));
+    assert.ok(top);
+    assert.ok(top.includes("\u{1f433} deepseek"));
+    assert.equal(visibleWidth(top), W);
+  } finally {
+    final.provider = provider;
+  }
+});
+
 test("pure chat gets no empty process summary; final frame uses the message's provider", () => {
   const { chat } = fixture("off");
   assert.ok(!frame(chat).join("\n").includes("took"));
   assert.equal(replyLabel("unknown-provider", true), "\u{f06a9} unknown-provider");
+  assert.equal(replyLabel("deepseek", true), "\u{1f433} deepseek");
+  assert.equal(replyLabel("deepseek", false), "deepseek");
   assert.equal(replyLabel("openai-codex", true), "\uec81 openai-codex");
   assert.equal(replyLabel("anthropic", false), "anthropic");
   assert.ok(frame(chat).every((line) => visibleWidth(line) <= W));

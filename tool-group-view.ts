@@ -90,7 +90,7 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
+export type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
@@ -114,10 +114,35 @@ function setHover(tool: object | null, row: HoverRow | null, ui?: Renderer): boo
 }
 
 /** The pointer left our rows (or the app): drop the band and repaint it away. */
-function clearHover(): void {
-  if (!hoverState.tool) return;
+function clearHover(): boolean {
+  if (!hoverState.tool) return false;
   hoverState = { tool: null, row: null, ui: hoverState.ui };
   hoverState.ui?.requestRender?.();
+  return true;
+}
+
+/** The alt screen that routes the packets: its renderer is the one that repaints. */
+let hoverRenderer: { requestRender?(): void } | undefined;
+
+/** Repaint after the pointer entered or left a row that is not a tool row. */
+export function requestHoverRender(): void {
+  lastUi?.requestRender?.();
+  hoverRenderer?.requestRender?.();
+}
+
+/**
+ * Turn rows share this state with the tool rows: one source for the band, the
+ * hand and the clear-on-leave hook. Only claim while move tracking is live.
+ */
+export function claimHover(target: object | null, row: HoverRow | null): boolean {
+  if (!hoverTracking) return false;
+  if (row) hoverClaimed = true;
+  return setHover(row ? target : null, row);
+}
+
+/** Whether the pointer is on this component's row, after the leave hook ran. */
+export function isRowHovered(target: object, row: HoverRow): boolean {
+  return hoverState.tool === target && hoverState.row === row;
 }
 
 /** A codemode body's fold row the pointer is on, if that is where it is. */
@@ -168,10 +193,11 @@ export function installHoverTracking(): void {
   if (!proto || proto[HOVER_HOOK]) return;
   const original = proto.handleMouseEvent;
   if (typeof original !== "function") return;
-  proto.handleMouseEvent = function (this: { terminal?: TerminalLike }, raw: unknown) {
+  proto.handleMouseEvent = function (this: { terminal?: TerminalLike; requestRender?(): void }, raw: unknown) {
+    hoverRenderer = this;
     hoverClaimed = false;
     const result = original.call(this, raw);
-    if (!hoverClaimed) clearHover();
+    if (!hoverClaimed && clearHover()) requestHoverRender();
     syncPointer(this.terminal, hoverState.tool !== null);
     return result;
   };

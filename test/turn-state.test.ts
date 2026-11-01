@@ -94,6 +94,7 @@ test("saved non-context metadata restores steering membership and tool timing", 
   const turn = restored.byMessage.get(messageKey(messages[0])!)!;
   assert.equal(restored.byMessage.get(messageKey(messages[2])!), turn);
   assert.equal(restored.byTool.get("a"), turn);
+  assert.equal(turn.firstAssistant, messageKey(messages[1]));
   assert.equal(turn.toolMs, 150);
   assert.equal(turn.endedAt, 1000);
   assert.equal(turn.open, undefined, "expansion is not persisted");

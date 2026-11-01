@@ -279,7 +279,8 @@ automatic continuations stay in that run until pi fully settles. An interrupted,
 truncated run is marked as such. `afterRun` shows the process while it is running and folds
 it on completion; `live` folds immediately, keeping the newest assistant text visible.
 
-The summary stays immediately above the final reply in both states:
+The summary sits at the top of the turn: directly above the final reply while folded, and
+above the process once opened. It stays in place across both states:
 
 ```text
  ▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4 · codemode×2
