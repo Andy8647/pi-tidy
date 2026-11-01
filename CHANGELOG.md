@@ -4,6 +4,34 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-01
+
+### Added
+
+**A run can fold to one summary.** `tidy.collapseTurns` takes `off` (default), `afterRun` or `live`. One run
+follows steering, retries and automatic continuations until pi settles. Its summary sits at the top of the turn
+and reads wall time, the main model's request time, the union of top-level tool time, per-tool call counts and
+failure counts; failures stay named inline. Click it, or use `/tidy turn [N|last]`, to open the process; the row
+stays in place and folds it again, with the pointer band and hand. `ctrl+o` still controls tool outputs and their
+turn. Metadata is saved outside model context and restored on the active branch; older turns show `—` for the
+timings they never recorded.
+
+**The final reply and user messages carry a clock.** `tidy.frameFinalReply` (default off) frames only the settled
+final text, full width, with that message's provider and a dim italic `HH:MM` (`MM-DD` for older messages). The
+user message frame shows the same clock next to its icon. User frames can align right with
+`tidy.userMessageAlign: "right"`.
+
+**File tools put their title in the border.** read/edit/write boxes carry the kind icon and path in the top
+border; the body starts with the result or diff. `write` no longer leaves a gap under its title.
+
+### Fixed
+
+- OSC 133 zone markers stay outside the final frame. A zone that started after the left border made Ghostty
+  cache the row and paint the first answer line blank; selection then exposed stale copies of it.
+- The final frame contains only the answer; the final message's thinking is not drawn inside it.
+- A pinned, expanded edit no longer leaves pi's bare `Thinking...` above its box.
+- Deepseek uses the whale emoji; Nerd Fonts has no brand glyph for it.
+
 ## [0.6.3] - 2026-10-31
 
 ### Added
