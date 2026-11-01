@@ -14,6 +14,9 @@
  *   userMessageStyle: "frame" | "rail" | "off" — user messages in a rounded
  *     frame hugging the text with the user icon in its top border, as rules
  *     plus an accent rail, or pi's own (default: frame)
+ *   userMessageAlign: "left" | "right" — framed user message and icon (default: left)
+ *   collapseTurns: "off" | "afterRun" | "live" — outer process fold (default: off)
+ *   frameFinalReply: boolean — frame the settled final reply (default: false)
  *   userMessagePaddingY: number — rail-only rows around a "rail" message's
  *     text (default: 1, at most 3)
  *   userMessageColors: { rail, rule } — theme color names or #rrggbb
@@ -49,6 +52,8 @@ import { Text } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted } from "./bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
+import { connectTurns } from "./turn-lifecycle.ts";
+import { turnOptions } from "./turn-state.ts";
 import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./bash-mode-frame.ts";
@@ -202,9 +207,11 @@ export default function (pi: ExtensionAPI): void {
   }
   // Patches installed by an earlier load (before a /reload) read this live,
   // so turning the extension off takes effect without a restart.
+  turnOptions.set({ collapseTurns: config.collapseTurns, frameFinalReply: config.frameFinalReply, icons: config.icons });
   tidyEnabled.set(config.enabled);
   agentRunning.set(false);
   if (!config.enabled) return;
+  if (config.collapseTurns !== "off" || config.frameFinalReply) connectTurns(pi);
 
   // The thinking row's "is this still arriving" cannot trust pi's private
   // `isStreaming` flag (it is not always settled), and a text-growth window
@@ -249,6 +256,7 @@ export default function (pi: ExtensionAPI): void {
     patchContainerBoxes(config.messageBorderColors, {
       icons: config.icons,
       includeUser: config.userMessageStyle === "frame",
+      userAlign: config.userMessageAlign,
       enabled: config.frameMessages,
     });
     patchUserMessages({

@@ -305,12 +305,49 @@ let current: Group = newGroup();
 const groupOfBoundary = new WeakMap<object, Group>();
 const groupOf = new WeakMap<object, Group>();
 const groupOfCarrier = new WeakMap<object, Group>();
+/** Carriers by logical message, so a new component for the same message can
+ * still give its runs back when the text arrives. */
+const carrierByKey = new Map<string, { component: object; group: Group }>();
+function messageKeyOf(component: any): string | undefined {
+  const message = component?.lastMessage;
+  if (!message || typeof message.timestamp !== "number") return undefined;
+  return `${message.role ?? "assistant"}:${message.timestamp}:${message.provider ?? ""}:${message.model ?? ""}`;
+}
 /** When each tool first rendered (≈ when its call appeared). */
 const firstSeen = new WeakMap<object, number>();
 /** Always-shown tools by call id, so the step that carried one can follow it. */
 const pinnedById = new Map<string, WeakRef<ToolLike>>();
 /** A tool joined a group whose summary line already rendered this frame. */
 let lateJoin = false;
+
+/** Take the runs of `component` back out of a group. */
+function giveBack(group: Group, component: object): void {
+  const counted = group.counted.get(component) ?? 0;
+  if (counted <= 0) return;
+  group.thoughts = Math.max(0, group.thoughts - counted);
+  group.counted.set(component, 0);
+  lateJoin = true;
+}
+
+/**
+ * A step that was counted as a carrier but will not be a row of its group:
+ * its text arrived (boundary), it ended without text/tool calls (plain), or
+ * the tool it carries is pinned. Give its runs back, by component and by
+ * message, since pi may hand the final message a fresh component.
+ */
+export function releaseCarrier(component: object): void {
+  const key = messageKeyOf(component as any);
+  if (key) {
+    const prior = carrierByKey.get(key);
+    carrierByKey.delete(key);
+    if (prior && prior.component !== component) giveBack(prior.group, prior.component);
+  }
+  const group = groupOfCarrier.get(component);
+  if (group) {
+    groupOfCarrier.delete(component);
+    giveBack(group, component);
+  }
+}
 
 /**
  * A boundary component rendered: what follows it (until the next boundary)
@@ -322,6 +359,10 @@ let lateJoin = false;
  * opening the group cannot show.
  */
 export function noteBoundary(component: object): void {
+  // The same message may have been counted as a streaming carrier before its
+  // text arrived. Its runs are not rows of that group now, so give them back
+  // instead of promising rows that opening the group cannot show.
+  releaseCarrier(component);
   let group = groupOfBoundary.get(component);
   if (!group) {
     group = newGroup();
@@ -393,6 +434,8 @@ export function carrierPlan(component: object, input: CarrierInput = {}): Carrie
     }
   }
   if (runs) noteThinking(component, runs, now);
+  const key = messageKeyOf(component as any);
+  if (key && runs && runs.length > 0) carrierByKey.set(key, { component, group });
   for (const id of ids) {
     if (!pinnedById.get(id)?.deref()?.expanded) continue;
     // Its call draws as pi's own box and pi draws the step's thinking with it:
@@ -616,4 +659,5 @@ export function noteSetExpanded(tool: object, expanded: boolean, fromPointer: bo
 export function resetGroups(): void {
   current = newGroup();
   lateJoin = false;
+  carrierByKey.clear();
 }

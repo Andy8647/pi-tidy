@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../frame.ts";
-import { resetGroups, THOUGHT_LIVE_MS } from "../tool-groups.ts";
+import { resetGroups, summaryFor, THOUGHT_LIVE_MS } from "../tool-groups.ts";
 import { tidyEnabled, agentRunning } from "../live.ts";
 import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
 
@@ -255,6 +255,67 @@ test("a step streaming its thinking folds with the group mid-segment, not at a t
   assert.ok(alone.some((line) => line.includes("thinking  …")), "a sign of life before any call");
 });
 
+test("a streaming carrier that becomes a boundary gives its thoughts back", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const stream = new AssistantMessageComponent(
+    { role: "assistant", content: [{ type: "thinking", thinking: "先想一下" }], stopReason: "toolUse" } as any,
+    true,
+  );
+  stream.updateContent({ role: "assistant", content: [{ type: "thinking", thinking: "先想一下" }] } as any, true);
+  chat.addChild(textStep("Go.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(stream);
+  const before = visible(frame(chat)).join("\n");
+  assert.ok(before.includes("1 thought"), before);
+  stream.updateContent(
+    { role: "assistant", content: [{ type: "thinking", thinking: "先想一下" }, { type: "text", text: "Done." }], stopReason: "stop" } as any,
+    false,
+  );
+  const after = visible(frame(chat)).join("\n");
+  assert.equal(summaryFor(a.component as any)?.thoughts, 0, "the group did not keep the carrier's run");
+  assert.ok(after.includes("先想一下"), "the boundary's thinking is now a row outside the group");
+});
+
+test("a finalized component gives back the streaming component's thoughts", () => {
+  resetGroups();
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const message = { role: "assistant", timestamp: 1000, provider: "openai", model: "test", content: [{ type: "thinking", thinking: "先想一下" }], stopReason: "toolUse" } as any;
+  const stream = new AssistantMessageComponent(message, true);
+  stream.updateContent(message, true);
+  chat.addChild(textStep("Go.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(stream);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 1);
+  chat.removeChild(stream);
+  const final = new AssistantMessageComponent(
+    { ...message, content: [{ type: "thinking", thinking: "先想一下" }, { type: "text", text: "Done." }], stopReason: "stop" },
+    true,
+  );
+  chat.addChild(final);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 0, "the new component gave the old run back");
+});
+
+test("a streaming thinking-only step that ends without text gives its run back", () => {
+  resetGroups();
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const message = { role: "assistant", timestamp: 2000, provider: "openai", model: "test", content: [{ type: "thinking", thinking: "先想一下" }], stopReason: "stop" } as any;
+  const stream = new AssistantMessageComponent(message, true);
+  stream.updateContent(message, true);
+  chat.addChild(textStep("Go.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(stream);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 1);
+  stream.updateContent(message, false);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 0, "a plain step is not a group row");
+});
+
 test("edit keeps pi's own box, splits the group, and its box takes clicks", () => {
   const chat = new Container();
   const a = bash("ls", "a");
@@ -276,6 +337,30 @@ test("edit keeps pi's own box, splits the group, and its box takes clicks", () =
   // only its own render records, so before 0.4.0 these clicks were dropped.
   assert.ok(click(chat, "const a = 2;", 6));
   assert.equal(e.component.expanded, true);
+});
+
+test("an edit's path moves into the top border, leaving the diff as the body", () => {
+  const chat = new Container();
+  const e = edit("/tmp/x.ts");
+  chat.addChild(step(e.id, "edit"));
+  chat.addChild(e.component);
+  const lines = visible(frame(chat));
+  assert.ok(lines.some((line) => /^╭─ .*x\.ts ─+╮$/.test(line)), lines.join("\n"));
+  assert.ok(!lines.some((line) => /│ .*edit \/tmp\/x\.ts/.test(line)), "the title is not a body row");
+  assert.ok(lines.some((line) => line.includes("↳ diff")), "the diff is still the first body row");
+});
+
+test("an expanded pinned edit no longer leaves pi's bare thinking label", () => {
+  const chat = new Container();
+  const e = edit("/tmp/x.ts");
+  chat.addChild(step(e.id, "edit"));
+  chat.addChild(e.component);
+  frame(chat);
+  click(chat, "const a = 2;", 6);
+  assert.equal(e.component.expanded, true);
+  const lines = visible(frame(chat));
+  assert.ok(!lines.some((line) => line.includes("Thinking...")), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("thinking") && line.includes("…")), lines.join("\n"));
 });
 
 test("ctrl+o expands every box and folds back to the C line", () => {

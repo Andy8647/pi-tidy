@@ -18,6 +18,7 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 };
 
 const { patchContainerBoxes, patchMessageBoxes } = await import("../frame.ts");
+const { USER_MESSAGE_TIME } = await import("../message-frame.ts");
 const {
   BranchSummaryMessageComponent,
   CompactionSummaryMessageComponent,
@@ -136,6 +137,18 @@ test("a framed user message hugs its text and carries the user icon in its top b
   } finally {
     (globalThis as any)[THEME_KEY] = tagged;
   }
+});
+
+test("a user message puts a muted clock next to its icon", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const component: any = new UserMessageComponent("hi" as never);
+  const at = new Date();
+  at.setHours(14, 32, 0, 0);
+  component[USER_MESSAGE_TIME] = at.getTime();
+  const top = component.render(60)[0];
+  assert.ok(top.includes("\u{f007}"), "the icon stays");
+  assert.ok(top.includes("14:32"), "the clock follows it");
+  assert.ok(top.includes("<fg:dim>"), "the clock is muted");
 });
 
 test("custom message with default rendering gets a frame in the custom color", () => {

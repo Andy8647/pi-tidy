@@ -4,6 +4,67 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-01
+
+### Experimental (opt-in)
+
+Turn folding and final-reply framing are experimental and disabled by default. Updating does not enable
+them. To try both, merge these keys into the `tidy` object in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "tidy": {
+    "collapseTurns": "afterRun",
+    "frameFinalReply": true
+  }
+}
+```
+
+The two keys work independently. Use `collapseTurns: "live"` to fold while the run is still active.
+To disable them, restore `collapseTurns: "off"` and `frameFinalReply: false`. Restart Pi after upgrading
+to load the new rendering patches.
+
+**A run can fold to one summary.** `tidy.collapseTurns` takes `off` (default), `afterRun` or `live`. One run
+follows steering, retries and automatic continuations until pi settles. Its summary sits at the top of the turn
+and reads wall time, the main model's request time, the union of top-level tool time, per-tool call counts and
+failure counts; failures stay named inline. Click it, or use `/tidy turn [N|last]`, to open the process; the row
+stays in place and folds it again, with the pointer band and hand. `ctrl+o` still controls tool outputs and their
+turn. Metadata is saved outside model context and restored on the active branch; older turns show `—` for the
+timings they never recorded.
+
+**Frame the final reply.** `tidy.frameFinalReply: true` frames only the settled final text, full width,
+with that message's model and a dim italic `HH:MM` (`MM-DD` for older messages). It can be enabled without
+turn folding.
+
+### Added
+
+**User frames carry a clock and can align right.** The clock appears next to the user icon. Set
+`tidy.userMessageAlign: "right"` for right alignment; it defaults to `"left"` and requires
+`tidy.userMessageStyle: "frame"` with `tidy.frameMessages: true` (both defaults).
+
+**File tools put their title in the border.** read/edit/write boxes carry the kind icon and path in the top
+border; the body starts with the result or diff. `write` no longer leaves a gap under its title.
+
+### Fixed
+
+- A framed `codemode` box puts its summary row in the top border, where read/edit/write put their path
+  (`╭─ ✓ codemode bash×1 read×4  0.1s ─╮`), and the body starts with the script's fold row. It was the one box
+  whose title stayed inside the frame.
+- The final reply's border names the model that answered, not the provider (`╭─ 🐳 deepseek-v4-pro 14:03 ─╮`). The
+  provider keeps the glyph. A model id too long for the border is clipped with `…` instead of dropping the whole
+  label.
+- Folded turns preserve tool group boundaries, so thinking counts and rows stay with their own groups after
+  restoring or expanding a turn, including groups split by `alwaysShowTools`.
+- Hovering a turn summary no longer highlights the first tool group header too, or vice versa.
+- OSC 133 zone markers stay outside the final frame. A zone that started after the left border made Ghostty
+  cache the row and paint the first answer line blank; selection then exposed stale copies of it.
+- The final frame contains only the answer; the final message's thinking is not drawn inside it.
+- A group's `N thoughts` no longer over-counts when a streaming step turns into a boundary: the run
+  counted as a carrier is given back when its text arrives. Thanks to @ncuiigai for reporting the mismatch
+  and tracing its cause ([#39](https://github.com/Andy8647/pi-tidy/issues/39)).
+- A pinned, expanded edit no longer leaves pi's bare `Thinking...` above its box.
+- Deepseek uses the whale emoji; Nerd Fonts has no brand glyph for it.
+
 ## [0.6.3] - 2026-10-31
 
 ### Added

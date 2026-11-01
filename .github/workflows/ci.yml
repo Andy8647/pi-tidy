@@ -9,6 +9,51 @@ permissions:
   contents: read
 
 jobs:
+  render-benchmark:
+    name: Render benchmark
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Checkout base
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .local/benchmark-base
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install shared dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          ln -s "$GITHUB_WORKSPACE/node_modules" .local/benchmark-base/node_modules
+
+      - name: Compare transcript rendering
+        env:
+          BENCH_OUTPUT: ${{ runner.temp }}/render-benchmark.json
+        run: pnpm bench .local/benchmark-base
+
+      - name: Upload timing samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-benchmark
+          path: ${{ runner.temp }}/render-benchmark.json
+          if-no-files-found: error
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

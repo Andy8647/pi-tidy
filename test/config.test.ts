@@ -93,6 +93,28 @@ test("user messages default to the frame; an unknown style falls back to it", ()
   withSettings({ tidy: { userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
 });
 
+test("user alignment defaults left and accepts only right as an override", () => {
+  for (const value of [undefined, "left", "right", "center", 1]) {
+    withSettings({ tidy: { userMessageAlign: value } }, () => {
+      assert.equal(loadConfig().userMessageAlign, value === "right" ? "right" : "left");
+    });
+  }
+});
+
+test("turn folding and final reply frames are independent opt-in settings", () => {
+  for (const mode of ["off", "afterRun", "live", true, "unknown", undefined]) {
+    withSettings({ tidy: { collapseTurns: mode, frameFinalReply: true } }, () => {
+      const config = loadConfig();
+      assert.equal(config.collapseTurns, mode === "afterRun" || mode === "live" ? mode : "off");
+      assert.equal(config.frameFinalReply, true);
+    });
+  }
+  withSettings({ tidy: {} }, () => {
+    assert.equal(loadConfig().collapseTurns, "off");
+    assert.equal(loadConfig().frameFinalReply, false);
+  });
+});
+
 test("user message padding is clamped and colors merge over the defaults", () => {
   withSettings({ tidy: { userMessagePaddingY: 0, userMessageColors: { rail: "#cba6f7", rule: 3 } } }, () => {
     const config = loadConfig();

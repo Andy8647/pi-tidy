@@ -1,6 +1,6 @@
 {
   "name": "pi-tidy",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "type": "module",
   "packageManager": "pnpm@11.10.0",
   "description": "Tool folding for the pi agent — a reply's tool calls collapse to one clickable line; failures, edit diffs and running jobs stay visible",
@@ -33,7 +33,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench": "node scripts/bench-compare.ts"
   },
   "pi": {
     "extensions": [

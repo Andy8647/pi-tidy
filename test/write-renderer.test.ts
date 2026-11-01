@@ -1,7 +1,7 @@
 /** The write preview must decorate rendering without taking ownership of execution. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWriteToolDefinition, initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
+import { createWriteToolDefinition, initTheme, ToolExecutionComponent, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import tidy from "../index.ts";
 import { collectWarnings, harness, loadTidy as load } from "./renderer-harness.ts";
@@ -51,6 +51,25 @@ test("Tidy does not register write even without another execution extension", ()
   assert.equal(h.resolvers.length, 1);
   assert.equal(typeof h.resolve("write")?.renderCall, "function");
   assert.equal(h.resolve("unregistered"), undefined);
+});
+
+test("a write box's path moves into the top border without a blank row", () => {
+  const h = harness();
+  loadTidy(h.pi);
+  const resolved = h.resolve("write")!;
+  const base = createWriteToolDefinition(process.cwd());
+  const definition = { ...base, renderShell: resolved.renderShell, renderCall: resolved.renderCall, renderResult: resolved.renderResult };
+  const component = new ToolExecutionComponent(
+    "write", "call-write", { path: "/tmp/demo.txt", content: "first\nsecond" }, {},
+    definition as any, { requestRender() {} } as any, process.cwd(),
+  );
+  component.setExpanded(true);
+  component.setArgsComplete();
+  component.markExecutionStarted();
+  component.updateResult({ content: [], isError: false, durationMs: 1 }, false);
+  const lines = (component.render(80) as string[]).map(plain);
+  assert.match(lines[0], /^╭─ .*demo\.txt +─{5,}╮$/);
+  assert.match(lines[1], /^│ first +│$/, "the preview starts right under the border");
 });
 
 test("write rendering preserves the downstream shell and success/error result renderer", () => {

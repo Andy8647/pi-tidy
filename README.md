@@ -71,8 +71,8 @@ every box gets a rounded transparent frame.
   line. The output stays one block: a script builds its `text()` items from whatever it computed, so an item
   can be a filtered, merged summary of several calls and nothing ties it back to the call that fed it.
   With `groupTools: false` (or `codemode` in `alwaysShowTools`) the box is the same list in a frame of its
-  own, titled with the row a group would show for it; all of the calls are listed, not just pi's last eight.
-  `ctrl+o`, or a click anywhere else in the box, opens the script and the output together
+  own, with the row a group would show for it in the top border; all of the calls are listed, not just pi's
+  last eight. `ctrl+o`, or a click anywhere else in the box, opens the script and the output together
 - **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
   plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
   restores the whole command
@@ -160,6 +160,9 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "highlightBash": true,
     "frameMessages": true,
     "userMessageStyle": "frame",
+    "userMessageAlign": "left",
+    "collapseTurns": "off",
+    "frameFinalReply": false,
     "userMessagePaddingY": 1,
     "userMessageColors": { "rail": "accent", "rule": "borderMuted" },
     "icons": true,
@@ -199,6 +202,9 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `highlightBash` | boolean | `true` | Syntax-highlight bash commands |
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
 | `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
+| `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its border icon together. `rail` and `off` are unchanged. Long messages still use the available width |
+| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"off"` | **Experimental, opt-in.** Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
+| `frameFinalReply` | boolean | `false` | **Experimental, opt-in.** Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
@@ -266,6 +272,62 @@ own assistant message, and steps that only call a tool don't split a group.
 `ctrl+o` and pi's own box clicks both arrive through `setExpanded`, which is how
 the group levels stay in step with pi's per-box expand flag.
 
+### Turn summaries and final replies (experimental)
+
+Turn folding and final-reply framing are experimental and disabled by default. Updating does not enable
+either feature. To try both, merge these keys into the `tidy` object in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "tidy": {
+    "collapseTurns": "afterRun",
+    "frameFinalReply": true
+  }
+}
+```
+
+The keys work independently: `collapseTurns: "live"` folds while the run is still active;
+`frameFinalReply: true` can be used without turn folding. To disable them, set `collapseTurns` to
+`"off"` and `frameFinalReply` to `false`. Restart Pi after upgrading to load the new rendering patches.
+For right-aligned user frames, set `tidy.userMessageAlign: "right"` with `tidy.userMessageStyle: "frame"`
+and `tidy.frameMessages: true`; this is separate from the experimental features.
+
+`collapseTurns` adds an outer fold around one complete run. Steering messages, retries and
+automatic continuations stay in that run until pi fully settles. An interrupted, failed or
+truncated run is marked as such. `afterRun` shows the process while it is running and folds
+it on completion; `live` folds immediately, keeping the newest assistant text visible.
+
+The summary sits at the top of the turn: directly above the final reply while folded, and
+above the process once opened. It stays in place across both states:
+
+```text
+ ▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4 · codemode×2
+```
+
+Click it to restore the process, and click the same row again to hide it. The outer fold
+also hides thinking and `alwaysShowTools` boxes, but never user inputs. Opening it preserves the inner groups,
+manual expansion, `groupOpen` and output budgets rather than resetting them. A pure chat
+reply with no hidden process gets no extra summary. `/tidy turn` toggles the latest run;
+`/tidy turn N` toggles a run by its one-based position on the active branch. `ctrl+o` still
+expands/collapses tool outputs and their containing turns. Background-job notifications
+remain visible when turn folding is enabled, since their owning rows may be hidden.
+
+`took` is run wall time. `LLM` covers the main agent's model requests, including response
+wait and generation. `tools` is the union of top-level tool execution intervals, including
+codemode and MCP waits, not CPU time: parallel tools and nested calls are not added twice.
+Nested model calls belong to their calling tool. Detached background jobs are not timed
+past the launching tool's return. Retries, framework overhead and overlap mean the two
+parts need not sum to the total. Timing metadata is saved outside model context and follows
+the active session branch. Missing historical timings show `—`, not an estimate.
+
+`frameFinalReply` frames only a settled final text reply, keeping pi's Markdown rendering
+and mouse targets. It never promotes an intermediate tool-calling message into a final
+answer. The border label names the model that answered the reply — the id recorded on
+the message, not the currently selected one — and the glyph in front of it is its
+provider's: recent Nerd Fonts have OpenAI/Claude/Google glyphs, other providers get a
+generic robot. A model id too long for the border is clipped to `…` rather than dropping
+the label, and `icons: false` drops the glyph and keeps the model name.
+
 ### Background jobs
 
 pi has no notion of a job that outlives its tool call, so `background-jobs.ts`
@@ -293,6 +355,19 @@ default) pi paints it over the rightmost column — the one these frames put the
 border in, so it covers the border while it is on screen. Set `"always"` and pi
 reserves that column instead, drawing the frames one cell narrower; `"hidden"`
 works too if you never want it. Nothing to configure on this side either way.
+
+## Render benchmark
+
+PRs include a **Render benchmark** check. Its Job Summary compares the PR's base and head
+commits on the same runner using the same fixture and installed dependencies. It reports
+median and P95 milliseconds per frame at 100, 500 and 1,500 components, folded and with all
+tool outputs expanded. Raw samples are attached as an artifact. Timing changes do not fail CI.
+
+The fixture uses real pi components with synthetic user messages, thinking, tool groups,
+failures, edit diffs and codemode calls. It never executes tools or contacts a model.
+Measurements cover warm transcript rendering, not terminal drawing or end-to-end scroll latency;
+small differences can be runner noise. For a local comparison, run `pnpm bench /path/to/base-checkout`
+from the PR checkout. Both checkouts must resolve the PR checkout's installed dependencies.
 
 ## Compatible themes
 
