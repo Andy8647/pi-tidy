@@ -48,6 +48,7 @@ import {
   RUNNING_ROW_DELAY_MS,
   noteBoundary,
   noteThinking,
+  releaseCarrier,
   thinkingState,
   openGroup,
   planFor,
@@ -1131,6 +1132,9 @@ export function installGroupBoundaries(): void {
     else if (component.isStreaming === true && currentGroupHasMembers()) {
       return renderCarrier(component, width);
     }
+    // A plain step (no text, no call) was never a row of the group; if it was
+    // counted while its thinking streamed, give the run back as well.
+    else releaseCarrier(component);
     // A message with both thinking and text is the group *boundary*: its text
     // renders as pi draws it and its thinking stays pi's own label — but the
     // label is the same thing our rows are, so it wears the same format, right

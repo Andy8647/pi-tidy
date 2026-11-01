@@ -320,6 +320,35 @@ const pinnedById = new Map<string, WeakRef<ToolLike>>();
 /** A tool joined a group whose summary line already rendered this frame. */
 let lateJoin = false;
 
+/** Take the runs of `component` back out of a group. */
+function giveBack(group: Group, component: object): void {
+  const counted = group.counted.get(component) ?? 0;
+  if (counted <= 0) return;
+  group.thoughts = Math.max(0, group.thoughts - counted);
+  group.counted.set(component, 0);
+  lateJoin = true;
+}
+
+/**
+ * A step that was counted as a carrier but will not be a row of its group:
+ * its text arrived (boundary), it ended without text/tool calls (plain), or
+ * the tool it carries is pinned. Give its runs back, by component and by
+ * message, since pi may hand the final message a fresh component.
+ */
+export function releaseCarrier(component: object): void {
+  const key = messageKeyOf(component as any);
+  if (key) {
+    const prior = carrierByKey.get(key);
+    carrierByKey.delete(key);
+    if (prior && prior.component !== component) giveBack(prior.group, prior.component);
+  }
+  const group = groupOfCarrier.get(component);
+  if (group) {
+    groupOfCarrier.delete(component);
+    giveBack(group, component);
+  }
+}
+
 /**
  * A boundary component rendered: what follows it (until the next boundary)
  * belongs to its group. Idempotent — called on every frame.
@@ -332,31 +361,8 @@ let lateJoin = false;
 export function noteBoundary(component: object): void {
   // The same message may have been counted as a streaming carrier before its
   // text arrived. Its runs are not rows of that group now, so give them back
-  // instead of promising rows that opening the group cannot show. pi may have
-  // replaced the streaming component with a fresh one for the final message,
-  // so match by message as well as by component identity.
-  const key = messageKeyOf(component as any);
-  if (key) {
-    const prior = carrierByKey.get(key);
-    carrierByKey.delete(key);
-    if (prior && prior.component !== component) {
-      const counted = prior.group.counted.get(prior.component) ?? 0;
-      if (counted > 0) {
-        prior.group.thoughts = Math.max(0, prior.group.thoughts - counted);
-        prior.group.counted.set(prior.component, 0);
-        lateJoin = true;
-      }
-    }
-  }
-  const carrierGroup = groupOfCarrier.get(component);
-  if (carrierGroup) {
-    const counted = carrierGroup.counted.get(component) ?? 0;
-    if (counted > 0) {
-      carrierGroup.thoughts = Math.max(0, carrierGroup.thoughts - counted);
-      carrierGroup.counted.set(component, 0);
-      lateJoin = true;
-    }
-  }
+  // instead of promising rows that opening the group cannot show.
+  releaseCarrier(component);
   let group = groupOfBoundary.get(component);
   if (!group) {
     group = newGroup();

@@ -299,6 +299,23 @@ test("a finalized component gives back the streaming component's thoughts", () =
   assert.equal(summaryFor(a.component as any)?.thoughts, 0, "the new component gave the old run back");
 });
 
+test("a streaming thinking-only step that ends without text gives its run back", () => {
+  resetGroups();
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const message = { role: "assistant", timestamp: 2000, provider: "openai", model: "test", content: [{ type: "thinking", thinking: "先想一下" }], stopReason: "stop" } as any;
+  const stream = new AssistantMessageComponent(message, true);
+  stream.updateContent(message, true);
+  chat.addChild(textStep("Go.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(stream);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 1);
+  stream.updateContent(message, false);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 0, "a plain step is not a group row");
+});
+
 test("edit keeps pi's own box, splits the group, and its box takes clicks", () => {
   const chat = new Container();
   const a = bash("ls", "a");
