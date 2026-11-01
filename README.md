@@ -294,6 +294,19 @@ border in, so it covers the border while it is on screen. Set `"always"` and pi
 reserves that column instead, drawing the frames one cell narrower; `"hidden"`
 works too if you never want it. Nothing to configure on this side either way.
 
+## Render benchmark
+
+PRs include a **Render benchmark** check. Its Job Summary compares the PR's base and head
+commits on the same runner using the same fixture and installed dependencies. It reports
+median and P95 milliseconds per frame at 100, 500 and 1,500 components, folded and with all
+tool outputs expanded. Raw samples are attached as an artifact. Timing changes do not fail CI.
+
+The fixture uses real pi components with synthetic user messages, thinking, tool groups,
+failures, edit diffs and codemode calls. It never executes tools or contacts a model.
+Measurements cover warm transcript rendering, not terminal drawing or end-to-end scroll latency;
+small differences can be runner noise. For a local comparison, run `pnpm bench /path/to/base-checkout`
+from the PR checkout. Both checkouts must resolve the PR checkout's installed dependencies.
+
 ## Compatible themes
 
 For the best transparent experience, set tool background colors to `""` in your theme:
