@@ -4,7 +4,8 @@
  * cheap to render every frame and trivial to test.
  */
 
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { clipToWidth } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
@@ -256,7 +257,7 @@ export function summarizeNestedCalls(details: unknown): NestedCallSummary {
  */
 export function summarizeArgs(toolName: string, args: unknown, maxWidth = DEFAULT_MAX_ARG_CHARS): string {
   const { text, suffix } = argParts(args);
-  return text ? `${truncateToWidth(text, maxWidth, "…")}${suffix}` : "";
+  return text ? `${clipToWidth(text, maxWidth, "…")}${suffix}` : "";
 }
 
 /** `running 12s · READY matched` / `exited 0 · 20s` / `killed SIGTERM · 3s` */
@@ -368,7 +369,7 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
     shownSuffix = "";
     budget += visibleWidth(suffix);
   }
-  const shown = text && budget > 1 ? truncateToWidth(text, budget - visibleWidth(shownSuffix), "…") : "";
+  const shown = text && budget > 1 ? clipToWidth(text, budget - visibleWidth(shownSuffix), "…") : "";
   const detail = shown ? theme.fg(body ?? "toolOutput", ` ${shown}${shownSuffix}`) : "";
   if (!keepTail) return `${head}${detail}${hint}`;
   // Only a caller that asked for columns gets the right edge; a row rendered on
@@ -452,7 +453,7 @@ export function previewText(text: string, maxWidth: number, tail = false): strin
   // one is a glance and stays short.
   const budget = tail ? maxWidth : Math.min(maxWidth, THOUGHT_PREVIEW_CELLS);
   if (budget <= 1) return "";
-  if (!tail) return truncateToWidth(flat, budget, "…");
+  if (!tail) return clipToWidth(flat, budget, "…");
   // A run that is still arriving reads as a sliding window over its tail: the
   // newest words are the interesting ones, and the row stays one line. The cut
   // lands on a word break, so the window does not shave half a word off — that
@@ -464,7 +465,7 @@ export function previewText(text: string, maxWidth: number, tail = false): strin
   if (out.length >= flat.length) return flat;
   const breakAt = out.indexOf(" ");
   if (breakAt > 0 && breakAt < out.length - 1) out = out.slice(breakAt + 1);
-  return `…${truncateToWidth(out, budget - 1)}`;
+  return `…${clipToWidth(out, budget - 1)}`;
 }
 
 /** Cells `groupGutter` takes. */

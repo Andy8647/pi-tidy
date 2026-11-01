@@ -29,6 +29,8 @@ export interface Turn {
   outcome: TurnOutcome;
   toolMs?: number;
   open?: boolean;
+  /** Bumped on every mutation, so a per-frame summary can tell it went stale. */
+  version?: number;
 }
 export interface SavedTurn {
   keys: string[];
@@ -41,10 +43,19 @@ export const TURN_ENTRY = "pi-tidy:turn";
 
 export function messageKey(message: TurnMessage | undefined): string | undefined {
   if (!message) return undefined;
-  if (message.role === "toolResult") return `tool:${message.toolCallId}`;
-  if (typeof message.timestamp !== "number" || !Number.isFinite(message.timestamp)) return undefined;
-  return `${message.role}:${message.timestamp}:${message.provider ?? ""}:${message.model ?? ""}`;
+  // Called per message per frame by the turn lookup; the key is a string build
+  // over fields that never change for a given message object.
+  const cached = messageKeys.get(message);
+  if (cached !== undefined) return cached;
+  const key = message.role === "toolResult"
+    ? `tool:${message.toolCallId}`
+    : typeof message.timestamp === "number" && Number.isFinite(message.timestamp)
+      ? `${message.role}:${message.timestamp}:${message.provider ?? ""}:${message.model ?? ""}`
+      : undefined;
+  if (key !== undefined) messageKeys.set(message, key);
+  return key;
 }
+const messageKeys = new WeakMap<object, string>();
 export function hasText(message: TurnMessage | undefined): boolean {
   return Array.isArray(message?.content) && message.content.some((block: any) => block.type === "text" && block.text?.trim());
 }
@@ -61,6 +72,7 @@ function newTurn(startedAt?: number): Turn {
   return { messages: new Map(), tools: new Map(), startedAt, outcome: "running" };
 }
 function add(turn: Turn, key: string, message: TurnMessage): void {
+  turn.version = (turn.version ?? 0) + 1;
   turn.messages.set(key, message);
   if (message.role === "user" && !turn.root) turn.root = key;
   if (message.role === "assistant") {
@@ -79,6 +91,7 @@ function add(turn: Turn, key: string, message: TurnMessage): void {
   }
 }
 function finishText(turn: Turn): void {
+  turn.version = (turn.version ?? 0) + 1;
   const last = turn.lastAssistant && turn.messages.get(turn.lastAssistant);
   if (turn.outcome === "unknown" && last) {
     if (last.stopReason === "error") turn.outcome = "error";
@@ -152,6 +165,7 @@ export class TurnStore {
   settle(aborted: boolean, now = Date.now()): SavedTurn | undefined {
     const turn = this.current;
     if (!turn) return undefined;
+    turn.version = (turn.version ?? 0) + 1;
     const reason = turn.lastAssistant && turn.messages.get(turn.lastAssistant)?.stopReason;
     turn.outcome = aborted || this.settlementOutcome === "aborted" || reason === "aborted" ? "interrupted"
       : this.settlementOutcome === "error" || reason === "error" ? "error" : reason === "length" ? "incomplete" : "completed";

@@ -17,13 +17,33 @@ export function liveSlot<T>(name: string, initial: T): LiveSlot<T> {
   // Still `pi-toolbox:`, on purpose: with the old package and pi-tidy both
   // installed, they share one set of patches instead of framing twice.
   const key = Symbol.for(`pi-toolbox:${name}`);
-  const store = globalThis as unknown as Record<symbol, T | undefined>;
+  const store = globalThis as unknown as Record<symbol, LiveBox<T> | T | undefined>;
+  // The value lives in a box that every module instance shares, rather than
+  // directly in the global slot. `get` runs several times per rendered row, and
+  // reading a field off one small object is cheaper than a `globalThis[symbol]`
+  // lookup; a `/reload` still reaches patches left behind by the previous
+  // module, because it swaps the value inside the shared box.
+  const existing = store[key];
+  const box: LiveBox<T> = isLiveBox<T>(existing) ? existing : { value: existing === undefined ? initial : (existing as T) };
+  store[key] = box;
   return {
-    get: () => store[key] ?? initial,
+    get: () => box.value,
     set: (value) => {
-      store[key] = value;
+      box.value = value;
+      // An older build sharing the symbol writes a bare value back into the
+      // slot; putting the box back keeps the two on the same object.
+      if (store[key] !== box) store[key] = box;
     },
   };
+}
+
+interface LiveBox<T> {
+  value: T;
+}
+
+/** An older build may have left a bare value in the slot; adopt it as the box. */
+function isLiveBox<T>(value: unknown): value is LiveBox<T> {
+  return typeof value === "object" && value !== null && "value" in value;
 }
 
 /** `tidy.enabled`: false turns every installed patch into a pass-through. */

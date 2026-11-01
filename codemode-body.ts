@@ -24,8 +24,8 @@
  * summary of several calls; nothing ties an item back to the call that fed it.
  */
 
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { rawIndexOfVisible, trimTrailingSpaces, visibleText } from "./frame-draw.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { clipToWidth, rawIndexOfVisible, trimTrailingSpaces, visibleText } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
 import { summarizeArgs } from "./tool-lines.ts";
@@ -292,7 +292,7 @@ function decorateRows(
       // A summary is short by construction; the raw JSON is not, and a 200-cell
       // argument wraps the row inside the box. Clip it the way the outer rows
       // clip a long command.
-      const replacement = summary || truncateToWidth(call.args, budget, "…");
+      const replacement = summary || clipToWidth(call.args, budget, "…");
       if (replacement) row = replaceSpan(row, glued.span[0], glued.span[1], replacement);
     }
     row = padName(row, name, lead, nameWidth);
@@ -332,13 +332,13 @@ function clipRow(line: string, width: number): string {
   if (visibleWidth(body) <= width) return line;
   const match = DURATION_TAIL.exec(body);
   const at = match ? rawIndexOfVisible(line, match.index) : -1;
-  if (at < 0) return truncateToWidth(line, width, "…");
+  if (at < 0) return clipToWidth(line, width, "…");
   // The duration's colour opens right in front of it: it goes with the
   // duration, or the clip takes it and the duration reads like the arguments.
   const from = at - (OPENERS_BEFORE.exec(line.slice(0, at))?.[0].length ?? 0);
   const tail = trimTrailingSpaces(line.slice(from));
   const room = Math.max(8, width - visibleWidth(visibleText(tail)) - 2);
-  return `${truncateToWidth(line.slice(0, from).trimEnd(), room, "…")}  ${tail}`;
+  return `${clipToWidth(line.slice(0, from).trimEnd(), room, "…")}  ${tail}`;
 }
 
 /** Cells the call rows' name column may take before the arguments stop paying. */

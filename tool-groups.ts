@@ -308,10 +308,18 @@ const groupOfCarrier = new WeakMap<object, Group>();
 /** Carriers by logical message, so a new component for the same message can
  * still give its runs back when the text arrives. */
 const carrierByKey = new Map<string, { component: object; group: Group }>();
+/** The key is built per rendered message; keep it while the message is the same. */
+const MESSAGE_KEY = Symbol.for("pi-tidy:message-key");
 function messageKeyOf(component: any): string | undefined {
   const message = component?.lastMessage;
-  if (!message || typeof message.timestamp !== "number") return undefined;
-  return `${message.role ?? "assistant"}:${message.timestamp}:${message.provider ?? ""}:${message.model ?? ""}`;
+  if (!message) return undefined;
+  const cached = component[MESSAGE_KEY];
+  if (cached?.message === message) return cached.key;
+  const key = typeof message.timestamp === "number"
+    ? `${message.role ?? "assistant"}:${message.timestamp}:${message.provider ?? ""}:${message.model ?? ""}`
+    : undefined;
+  component[MESSAGE_KEY] = { message, key };
+  return key;
 }
 /** When each tool first rendered (≈ when its call appeared). */
 const firstSeen = new WeakMap<object, number>();
@@ -336,16 +344,19 @@ function giveBack(group: Group, component: object): void {
  * message, since pi may hand the final message a fresh component.
  */
 export function releaseCarrier(component: object): void {
+  const own = groupOfCarrier.get(component);
+  // The common case on a settled transcript: this message never carried a run
+  // and no keyed carrier is waiting for it. Skip building the key at all.
+  if (!own && carrierByKey.size === 0) return;
   const key = messageKeyOf(component as any);
   if (key) {
     const prior = carrierByKey.get(key);
     carrierByKey.delete(key);
     if (prior && prior.component !== component) giveBack(prior.group, prior.component);
   }
-  const group = groupOfCarrier.get(component);
-  if (group) {
+  if (own) {
     groupOfCarrier.delete(component);
-    giveBack(group, component);
+    giveBack(own, component);
   }
 }
 
@@ -434,8 +445,15 @@ export function carrierPlan(component: object, input: CarrierInput = {}): Carrie
     }
   }
   if (runs) noteThinking(component, runs, now);
-  const key = messageKeyOf(component as any);
-  if (key && runs && runs.length > 0) carrierByKey.set(key, { component, group });
+  if (runs && runs.length > 0) {
+    const key = messageKeyOf(component as any);
+    // Per frame this runs once per carriage message: re-storing the same
+    // component would allocate a fresh entry for nothing.
+    const prior = key === undefined ? undefined : carrierByKey.get(key);
+    if (key !== undefined && (prior?.component !== component || prior.group !== group)) {
+      carrierByKey.set(key, { component, group });
+    }
+  }
   for (const id of ids) {
     if (!pinnedById.get(id)?.deref()?.expanded) continue;
     // Its call draws as pi's own box and pi draws the step's thinking with it:

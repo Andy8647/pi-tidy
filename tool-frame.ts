@@ -28,7 +28,8 @@ import {
   type CodemodeToggle,
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
-import { sliceByColumn, truncateToWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn } from "@earendil-works/pi-tui";
+import { clipToWidth } from "./frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
@@ -743,7 +744,7 @@ function composeFramedCodemode(
         ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
         : splitBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
-      if (title) framed[0] = labeledTopBorder(w, theme, color, truncateToWidth(title, Math.max(1, w - 6), "…"));
+      if (title) framed[0] = labeledTopBorder(w, theme, color, clipToWidth(title, Math.max(1, w - 6), "…"));
       // Unframed: the row above already carries the frame of reference (the
       // group rail), so only the body is drawn — borders dropped, cells kept.
       if (unframed) {

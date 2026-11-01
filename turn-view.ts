@@ -1,5 +1,5 @@
-import { Box, Container, MouseRegion, Text, sliceByColumn, truncateToWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { formatMessageTime, italicDim, labeledTopBorder, sameLines } from "./frame-draw.ts";
+import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, sameLines } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "./tool-group-view.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -30,6 +30,14 @@ function duration(ms: number | undefined): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 export function hasProcess(turn: Turn): boolean {
+  const cached = processCache.get(turn);
+  if (cached && cached.version === turn.version) return cached.value;
+  const value = hasProcessUncached(turn);
+  processCache.set(turn, { version: turn.version, value });
+  return value;
+}
+const processCache = new WeakMap<Turn, { version: number | undefined; value: boolean }>();
+function hasProcessUncached(turn: Turn): boolean {
   if (["error", "interrupted", "incomplete"].includes(turn.outcome) || turn.tools.size > 0) return true;
   let texts = 0;
   for (const message of turn.messages.values()) if (message.role === "assistant") {
@@ -40,6 +48,22 @@ export function hasProcess(turn: Turn): boolean {
   return false;
 }
 export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered = false, now = Date.now()): string {
+  // Every frame asks for this once per turn, and the line is long enough that
+  // measuring it (CJK-safe truncation over ~25 escapes) costs more than drawing
+  // the rows it replaces. Rebuild it only when the turn moved or a second passed.
+  // A running turn's line is second-granular, so half a second of staleness is
+  // invisible; a settled one never changes again.
+  const tick = turn.outcome === "running" ? Math.floor(now / 500) : 0;
+  const cached = summaryCache.get(turn);
+  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered) {
+    return cached.line;
+  }
+  const line = buildSummaryLine(turn, theme, width, hovered, now);
+  summaryCache.set(turn, { version: turn.version, tick, width, hovered, line });
+  return line;
+}
+const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; line: string }>();
+function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: boolean, now = Date.now()): string {
   const store = turnStore.get();
   const total = turn.startedAt === undefined ? undefined : (turn.endedAt ?? now) - turn.startedAt;
   const state = turn.outcome;
@@ -61,7 +85,7 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   for (const [name, count] of counts) parts.push(theme.fg("muted", `${name}×${count}`));
-  return truncateToWidth(` ${parts.join(theme.fg("muted", " · "))}`, width, "…");
+  return clipToWidth(` ${parts.join(theme.fg("muted", " · "))}`, width, "…");
 }
 
 /** Box owns the horizontal mouse transform; its padding cells become border glyphs. */
@@ -125,7 +149,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const label = framed
-    ? truncateToWidth(
+    ? clipToWidth(
         theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)) +
           (typeof component.lastMessage.timestamp === "number" ? ` ${italicDim(theme, formatMessageTime(component.lastMessage.timestamp))}` : ""),
         // The border needs `╭─ ` and ` ─╮` around the label; a longer model id
