@@ -1094,14 +1094,15 @@ function wrapBoundaryRender(
       // row: leaving it bare makes pi's `Thinking...` float over the box.
       return restyleThinking(this, render.apply(this, args), width, how === "rethink" || how === "plain");
     }
-    const draw = (room: number) => {
+    const draw = (room: number, hideThinking = false) => {
       if (how === "hidden") return [];
       if (how === "untrimmed") return render.call(this, room, ...args.slice(1));
       if (typeof how === "object") return how.lines;
       // The same native view owns both rendering and mouse geometry.
       const turn = turnOptions.get().collapseTurns !== "off" ? turnFor(this.lastMessage) : undefined;
-      const skipThinking = turn && folded(turn) && Array.isArray(this.contentContainer?.children);
-      return restyleThinking(this, skipThinking ? undefined : render.call(this, room, ...args.slice(1)), room, how === "rethink" || how === "plain", !!turn && folded(turn));
+      const foldedTurn = !!turn && folded(turn);
+      const skipThinking = hideThinking || (foldedTurn && Array.isArray(this.contentContainer?.children));
+      return restyleThinking(this, skipThinking ? undefined : render.call(this, room, ...args.slice(1)), room, how === "rethink" || how === "plain", hideThinking || foldedTurn);
     };
     return presentTurn(this, width, draw);
   };

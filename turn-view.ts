@@ -105,7 +105,7 @@ function installMouse(component: any): void {
 }
 
 /** Decorate the existing message view, never a second markdown renderer. */
-export function presentTurn(component: any, width: number, draw: (width: number) => string[]): string[] {
+export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => string[]): string[] {
   component[LAYOUT] = undefined;
   const options = turnOptions.get();
   if (!tidyEnabled.get() || (options.collapseTurns === "off" && !options.frameFinalReply)) return draw(width);
@@ -118,7 +118,7 @@ export function presentTurn(component: any, width: number, draw: (width: number)
   const header = options.collapseTurns !== "off" && key === turn.firstAssistant && hasProcess(turn);
   if (closed && key !== visible && !header) return [];
   const framed = options.frameFinalReply && turn.outcome !== "running" && key === turn.final && width >= 4;
-  const body = closed && key !== visible ? [] : draw(framed ? width - 2 : width);
+  const body = closed && key !== visible ? [] : draw(framed ? width - 2 : width, framed);
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";

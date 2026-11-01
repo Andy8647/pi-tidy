@@ -105,19 +105,13 @@ test("afterRun keeps an active run open; live folds it and replaces its latest t
   assert.ok(frame(live.chat).join("\n").includes("anthropic"));
 });
 
-test("the final reply's thinking remains clickable through its frame and summary offset", () => {
-  const { chat, answer } = fixture();
+test("the final reply frame never carries the message's thinking", () => {
+  const { chat } = fixture();
   click(chat, (line) => line.includes("took"));
-  click(chat, (line) => line.includes("thinking"), true);
-  assert.equal((answer as any).thinkingVisibilityOverrides.get(0), false);
-  const thought = (answer as any).contentContainer.children.find((child: any) => child.constructor.name === "MouseRegion");
-  let renders = 0; const original = thought.render.bind(thought);
-  thought.render = (width: number) => { renders++; return original(width); };
-  click(chat, (line) => line.includes("took"));
-  renders = 0; frame(chat);
-  assert.equal(renders, 0, "folded thinking must not render even when it was expanded inside");
-  click(chat, (line) => line.includes("took"));
-  assert.equal((answer as any).thinkingVisibilityOverrides.get(0), false);
+  const opened = frame(chat).join("\n");
+  assert.ok(opened.includes("Fixed the result"));
+  assert.ok(!opened.includes("Verify the final result carefully"), "the answer frame holds only the answer");
+  assert.ok(opened.includes("Inspect the source carefully"), "process thinking still shows outside it");
 });
 
 test("outer folding works without grouping and ctrl+o can open hidden calls", () => {
