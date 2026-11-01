@@ -322,6 +322,18 @@ let lateJoin = false;
  * opening the group cannot show.
  */
 export function noteBoundary(component: object): void {
+  // The same message may have been counted as a streaming carrier before its
+  // text arrived. Its runs are not rows of that group now, so give them back
+  // instead of promising rows that opening the group cannot show.
+  const carrierGroup = groupOfCarrier.get(component);
+  if (carrierGroup) {
+    const counted = carrierGroup.counted.get(component) ?? 0;
+    if (counted > 0) {
+      carrierGroup.thoughts = Math.max(0, carrierGroup.thoughts - counted);
+      carrierGroup.counted.set(component, 0);
+      lateJoin = true;
+    }
+  }
   let group = groupOfBoundary.get(component);
   if (!group) {
     group = newGroup();

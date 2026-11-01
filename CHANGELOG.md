@@ -38,6 +38,8 @@ border; the body starts with the result or diff. `write` no longer leaves a gap 
 - OSC 133 zone markers stay outside the final frame. A zone that started after the left border made Ghostty
   cache the row and paint the first answer line blank; selection then exposed stale copies of it.
 - The final frame contains only the answer; the final message's thinking is not drawn inside it.
+- A group's `N thoughts` no longer over-counts when a streaming step turns into a boundary: the run
+  counted as a carrier is given back when its text arrives.
 - A pinned, expanded edit no longer leaves pi's bare `Thinking...` above its box.
 - Deepseek uses the whale emoji; Nerd Fonts has no brand glyph for it.
 

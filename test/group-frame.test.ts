@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../frame.ts";
-import { resetGroups, THOUGHT_LIVE_MS } from "../tool-groups.ts";
+import { resetGroups, summaryFor, THOUGHT_LIVE_MS } from "../tool-groups.ts";
 import { tidyEnabled, agentRunning } from "../live.ts";
 import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
 
@@ -253,6 +253,28 @@ test("a step streaming its thinking folds with the group mid-segment, not at a t
   const alone = frame(start);
   assert.ok(!alone.some((line) => line.includes("Thinking...")), alone.join("\n"));
   assert.ok(alone.some((line) => line.includes("thinking  …")), "a sign of life before any call");
+});
+
+test("a streaming carrier that becomes a boundary gives its thoughts back", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const stream = new AssistantMessageComponent(
+    { role: "assistant", content: [{ type: "thinking", thinking: "先想一下" }], stopReason: "toolUse" } as any,
+    true,
+  );
+  stream.updateContent({ role: "assistant", content: [{ type: "thinking", thinking: "先想一下" }] } as any, true);
+  chat.addChild(textStep("Go.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(stream);
+  const before = visible(frame(chat)).join("\n");
+  assert.ok(before.includes("1 thought"), before);
+  stream.updateContent(
+    { role: "assistant", content: [{ type: "thinking", thinking: "先想一下" }, { type: "text", text: "Done." }], stopReason: "stop" } as any,
+    false,
+  );
+  const after = visible(frame(chat)).join("\n");
+  assert.equal(summaryFor(a.component as any)?.thoughts, 0, "the group did not keep the carrier's run");
+  assert.ok(after.includes("先想一下"), "the boundary's thinking is now a row outside the group");
 });
 
 test("edit keeps pi's own box, splits the group, and its box takes clicks", () => {
