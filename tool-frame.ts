@@ -19,7 +19,7 @@
 import { homedir } from "node:os";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, visibleIndexOf, visibleText } from "./frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "./frame-draw.ts";
 import {
   composeCodemodeBody,
   codemodeSections,
@@ -708,7 +708,7 @@ function composeFramedCodemode(
     // border is where a title belongs. Only framed boxes have one; inside a
     // group the row above already carries the call.
     const title = !unframed && !collapse && !listed && PATH_ARG_TOOLS.has(this.toolName) && content.length > 1
-      ? stripBackgroundFills(content[0]).trim()
+      ? trimTrailingSpaces(stripBackgroundFills(content[0])).trim()
       : "";
     let titleShift = 0;
     if (title) {

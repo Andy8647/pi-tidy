@@ -68,7 +68,7 @@ test("a write box's path moves into the top border without a blank row", () => {
   component.markExecutionStarted();
   component.updateResult({ content: [], isError: false, durationMs: 1 }, false);
   const lines = (component.render(80) as string[]).map(plain);
-  assert.match(lines[0], /^╭─ .*demo\.txt/);
+  assert.match(lines[0], /^╭─ .*demo\.txt +─{5,}╮$/);
   assert.match(lines[1], /^│ first +│$/, "the preview starts right under the border");
 });
 
