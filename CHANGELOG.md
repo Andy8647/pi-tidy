@@ -17,7 +17,7 @@ turn. Metadata is saved outside model context and restored on the active branch;
 timings they never recorded.
 
 **The final reply and user messages carry a clock.** `tidy.frameFinalReply` (default off) frames only the settled
-final text, full width, with that message's provider and a dim italic `HH:MM` (`MM-DD` for older messages). The
+final text, full width, with that message's model and a dim italic `HH:MM` (`MM-DD` for older messages). The
 user message frame shows the same clock next to its icon. User frames can align right with
 `tidy.userMessageAlign: "right"`.
 
@@ -26,6 +26,12 @@ border; the body starts with the result or diff. `write` no longer leaves a gap 
 
 ### Fixed
 
+- A framed `codemode` box puts its summary row in the top border, where read/edit/write put their path
+  (`╭─ ✓ codemode bash×1 read×4  0.1s ─╮`), and the body starts with the script's fold row. It was the one box
+  whose title stayed inside the frame.
+- The final reply's border names the model that answered, not the provider (`╭─ 🐳 deepseek-v4-pro 14:03 ─╮`). The
+  provider keeps the glyph. A model id too long for the border is clipped with `…` instead of dropping the whole
+  label.
 - Folded turns preserve tool group boundaries, so thinking counts and rows stay with their own groups after
   restoring or expanding a turn, including groups split by `alwaysShowTools`.
 - Hovering a turn summary no longer highlights the first tool group header too, or vice versa.

@@ -71,8 +71,8 @@ every box gets a rounded transparent frame.
   line. The output stays one block: a script builds its `text()` items from whatever it computed, so an item
   can be a filtered, merged summary of several calls and nothing ties it back to the call that fed it.
   With `groupTools: false` (or `codemode` in `alwaysShowTools`) the box is the same list in a frame of its
-  own, titled with the row a group would show for it; all of the calls are listed, not just pi's last eight.
-  `ctrl+o`, or a click anywhere else in the box, opens the script and the output together
+  own, with the row a group would show for it in the top border; all of the calls are listed, not just pi's
+  last eight. `ctrl+o`, or a click anywhere else in the box, opens the script and the output together
 - **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
   plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
   restores the whole command
@@ -204,7 +204,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
 | `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its border icon together. `rail` and `off` are unchanged. Long messages still use the available width |
 | `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"off"` | Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
-| `frameFinalReply` | boolean | `false` | Put only the settled final assistant reply in a full-width transparent frame, with its recorded provider in the top-left border. Independent of turn folding and `frameMessages` |
+| `frameFinalReply` | boolean | `false` | Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
@@ -304,9 +304,11 @@ the active session branch. Missing historical timings show `—`, not an estimat
 
 `frameFinalReply` frames only a settled final text reply, keeping pi's Markdown rendering
 and mouse targets. It never promotes an intermediate tool-calling message into a final
-answer. The label uses that message's provider, not the currently selected model. Recent
-Nerd Fonts provide OpenAI/Claude/Google glyphs; other providers use a generic robot plus
-their provider name. `icons: false` leaves the provider name without a glyph.
+answer. The border label names the model that answered the reply — the id recorded on
+the message, not the currently selected one — and the glyph in front of it is its
+provider's: recent Nerd Fonts have OpenAI/Claude/Google glyphs, other providers get a
+generic robot. A model id too long for the border is clipped to `…` rather than dropping
+the label, and `icons: false` drops the glyph and keeps the model name.
 
 ### Background jobs
 
