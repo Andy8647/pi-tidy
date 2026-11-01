@@ -35,7 +35,7 @@ import { liveSlot, tidyEnabled } from "./live.ts";
 import { expandTurnForTool, hideTurnTool } from "./turn-state.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { noteSetExpanded, setGroupOpenDefault } from "./tool-groups.ts";
+import { noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
 import { formatToolLine } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
@@ -781,7 +781,13 @@ function composeFramedCodemode(
     }
     try {
       this.__tidyTurnRendered = true;
-      if (this.hideComponent || hideTurnTool(this.toolCallId)) return [];
+      if (this.hideComponent) return [];
+      if (hideTurnTool(this.toolCallId)) {
+        // Carriers still register while the turn is folded. Its tools must
+        // register too, especially the pinned boundaries that split groups.
+        if (grouping()) planFor(this, toolOptions.get().alwaysShow.has(this.toolName));
+        return [];
+      }
       const w = Math.max(4, width);
       if (grouping()) {
         const { icons, alwaysShow } = toolOptions.get();

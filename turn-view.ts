@@ -94,7 +94,7 @@ function installMouse(component: any): void {
     const changed = event.type === "move" && !!this[HOVER] !== !!hot;
     if (event.type === "move") {
       this[HOVER] = !!hot;
-      const stateChanged = hot ? claimHover(this, "header") : claimHover(null, null);
+      const stateChanged = hot ? claimHover(this, "turn-header") : claimHover(null, null);
       if (changed || stateChanged) requestHoverRender();
     }
     const result = layout.view.handleMouse(event);
@@ -120,7 +120,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const framed = options.frameFinalReply && turn.outcome !== "running" && key === turn.final && width >= 4;
   const body = closed && key !== visible ? [] : draw(framed ? width - 2 : width, framed);
   if (!header && !framed) return body;
-  const hovered = header && isRowHovered(component, "header");
+  const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const label = framed
     ? theme.fg("accent", replyLabel(component.lastMessage.provider, options.icons)) +

@@ -26,6 +26,9 @@ border; the body starts with the result or diff. `write` no longer leaves a gap 
 
 ### Fixed
 
+- Folded turns preserve tool group boundaries, so thinking counts and rows stay with their own groups after
+  restoring or expanding a turn, including groups split by `alwaysShowTools`.
+- Hovering a turn summary no longer highlights the first tool group header too, or vice versa.
 - OSC 133 zone markers stay outside the final frame. A zone that started after the left border made Ghostty
   cache the row and paint the first answer line blank; selection then exposed stale copies of it.
 - The final frame contains only the answer; the final message's thinking is not drawn inside it.

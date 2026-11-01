@@ -90,7 +90,7 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HoverRow = "header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
+export type HoverRow = "header" | "turn-header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
