@@ -19,6 +19,8 @@ import {
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
+import { presentTurn } from "./turn-view.ts";
+import { folded, turnFor, turnOptions } from "./turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
@@ -917,10 +919,10 @@ function installMessageMouse(component: any): void {
   };
 }
 
-function restyleThinking(component: any, lines: string[], width: number, rethink: boolean): string[] {
+function restyleThinking(component: any, lines: string[] | undefined, width: number, rethink: boolean): string[] {
   const kids = component.contentContainer?.children;
   // If pi's structure changes, keep both its rendering and mouse routing intact.
-  if (!Array.isArray(kids) || kids.length === 0) return lines;
+  if (!Array.isArray(kids) || kids.length === 0) return lines ?? [];
   const theme = rethink ? getTheme() : undefined;
   const runs = thinkingRuns(component.lastMessage);
   const overrides = component.thinkingVisibilityOverrides as Map<number, boolean> | undefined;
@@ -938,11 +940,23 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
   const liveTexts = thought?.live ? liveRowText(component, runs, runs.map(() => budget), Date.now()) : undefined;
   const spinner = thought?.live ? thinkingSpinner(Date.now()) : undefined;
   const view = new MessageView();
+  const turn = turnOptions.get().collapseTurns !== "off" ? turnFor(component.lastMessage) : undefined;
+  const hideThinking = !!turn && folded(turn);
+  const hiddenMarkers: string[] = [];
   let cursor = 0;
   let run = 0;
   for (const kid of kids) {
+    if (hideThinking && kid instanceof MouseRegion && run < runs.length) {
+      run++;
+      if (lines) {
+        const count = (kid.render(width) as string[]).length;
+        hiddenMarkers.push(...(lines.slice(cursor, cursor + count).join("").match(ZONE_MARKERS) ?? []));
+        cursor += count;
+      }
+      continue;
+    }
     const own = kid.render(width) as string[];
-    const taken = lines.slice(cursor, cursor + own.length);
+    const taken = lines?.slice(cursor, cursor + own.length) ?? own;
     cursor += own.length;
     if (!theme || runs.length === 0 || !(kid instanceof MouseRegion)) {
       // Preserve pi's OSC markers without changing the child's geometry.
@@ -982,9 +996,17 @@ function restyleThinking(component: any, lines: string[], width: number, rethink
       return { handled: true };
     }));
   }
-  const tail = lines.slice(cursor);
+  const tail = lines?.slice(cursor) ?? [];
   if (tail.length > 0) view.addChild({ render: () => tail, invalidate() {} });
   const rendered = view.render(width);
+  if (!lines && rendered.length) {
+    rendered[0] = "\x1b]133;A\x07" + rendered[0];
+    rendered[rendered.length - 1] = "\x1b]133;B\x07\x1b]133;C\x07" + rendered[rendered.length - 1];
+  }
+  if (rendered.length) for (const marker of hiddenMarkers) {
+    if (marker === "\x1b]133;A\x07") rendered[0] = marker + rendered[0];
+    else rendered[rendered.length - 1] += marker;
+  }
   component[MESSAGE_VIEW] = view;
   installMessageMouse(component);
   return rendered;
@@ -1036,12 +1058,16 @@ function wrapBoundaryRender(
     this[MESSAGE_VIEW] = undefined;
     const width = typeof args[0] === "number" ? args[0] : 80;
     const how = groupingActive() ? view(this, width) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
-    if (how === "hidden") return [];
-    if (how === "untrimmed") return render.apply(this, args);
-    if (typeof how === "object") return how.lines;
-    // Both rethink and plain assistant views trim once, through the same
-    // component that routes input. Text-only messages need that transform too.
-    return restyleThinking(this, render.apply(this, args), width, how === "rethink");
+    const draw = (room: number) => {
+      if (how === "hidden") return [];
+      if (how === "untrimmed") return render.call(this, room, ...args.slice(1));
+      if (typeof how === "object") return how.lines;
+      // The same native view owns both rendering and mouse geometry.
+      const turn = turnOptions.get().collapseTurns !== "off" ? turnFor(this.lastMessage) : undefined;
+      const skipThinking = turn && folded(turn) && Array.isArray(this.contentContainer?.children);
+      return restyleThinking(this, skipThinking ? undefined : render.call(this, room, ...args.slice(1)), room, how === "rethink");
+    };
+    return proto === AssistantMessageComponent.prototype ? presentTurn(this, width, draw) : draw(width);
   };
   wrapped[BOUNDARY_WRAPPER] = true;
   proto!.render = wrapped;
@@ -1087,6 +1113,6 @@ export function installGroupBoundaries(): void {
   // message is pi's `Box(1, 1, customMessageBg)` too, so the same trim that ate
   // the user message's padding was eating its inset as well.
   wrapBoundaryRender((CustomMessageComponent as any)?.prototype, (component) =>
-    noteJobMessage(component.message) ? "hidden" : "untrimmed",
+    noteJobMessage(component.message) && turnOptions.get().collapseTurns === "off" ? "hidden" : "untrimmed",
   );
 }

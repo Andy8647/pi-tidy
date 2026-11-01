@@ -161,6 +161,8 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "frameMessages": true,
     "userMessageStyle": "frame",
     "userMessageAlign": "left",
+    "collapseTurns": "off",
+    "frameFinalReply": false,
     "userMessagePaddingY": 1,
     "userMessageColors": { "rail": "accent", "rule": "borderMuted" },
     "icons": true,
@@ -201,6 +203,8 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
 | `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
 | `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its border icon together. `rail` and `off` are unchanged. Long messages still use the available width |
+| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"off"` | Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
+| `frameFinalReply` | boolean | `false` | Put only the settled final assistant reply in a full-width transparent frame, with its recorded provider in the top-left border. Independent of turn folding and `frameMessages` |
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
@@ -267,6 +271,41 @@ message or an assistant message with visible text; pi gives every model step its
 own assistant message, and steps that only call a tool don't split a group.
 `ctrl+o` and pi's own box clicks both arrive through `setExpanded`, which is how
 the group levels stay in step with pi's per-box expand flag.
+
+### Turn summaries and final replies
+
+`collapseTurns` adds an outer fold around one complete run. Steering messages, retries and
+automatic continuations stay in that run until pi fully settles. An interrupted, failed or
+truncated run is marked as such. `afterRun` shows the process while it is running and folds
+it on completion; `live` folds immediately, keeping the newest assistant text visible.
+
+The summary stays immediately above the final reply in both states:
+
+```text
+ ▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4 · codemode×2
+```
+
+Click it to restore the process, and click the same row again to hide it. The outer fold
+also hides thinking and `alwaysShowTools` boxes, but never user inputs. Opening it preserves the inner groups,
+manual expansion, `groupOpen` and output budgets rather than resetting them. A pure chat
+reply with no hidden process gets no extra summary. `/tidy turn` toggles the latest run;
+`/tidy turn N` toggles a run by its one-based position on the active branch. `ctrl+o` still
+expands/collapses tool outputs and their containing turns. Background-job notifications
+remain visible when turn folding is enabled, since their owning rows may be hidden.
+
+`took` is run wall time. `LLM` covers the main agent's model requests, including response
+wait and generation. `tools` is the union of top-level tool execution intervals, including
+codemode and MCP waits, not CPU time: parallel tools and nested calls are not added twice.
+Nested model calls belong to their calling tool. Detached background jobs are not timed
+past the launching tool's return. Retries, framework overhead and overlap mean the two
+parts need not sum to the total. Timing metadata is saved outside model context and follows
+the active session branch. Missing historical timings show `—`, not an estimate.
+
+`frameFinalReply` frames only a settled final text reply, keeping pi's Markdown rendering
+and mouse targets. It never promotes an intermediate tool-calling message into a final
+answer. The label uses that message's provider, not the currently selected model. Recent
+Nerd Fonts provide OpenAI/Claude/Google glyphs; other providers use a generic robot plus
+their provider name. `icons: false` leaves the provider name without a glyph.
 
 ### Background jobs
 

@@ -32,6 +32,7 @@ import { sliceByColumn } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
+import { expandTurnForTool, hideTurnTool } from "./turn-state.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { noteSetExpanded, setGroupOpenDefault } from "./tool-groups.ts";
@@ -73,6 +74,7 @@ interface FrameGeometry {
 }
 
 interface ToolBoxInternals extends GroupedTool {
+  __tidyTurnRendered?: boolean;
   hideComponent: boolean;
   toolName: string;
   result?: { isError: boolean; durationMs?: number; content?: unknown; details?: unknown };
@@ -327,6 +329,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
+    if (hideTurnTool(this.toolCallId)) return undefined;
     if (grouping()) {
       const routed = routeGroupedMouse(this, event, {
         pinned: toolOptions.get().alwaysShow.has(this.toolName),
@@ -340,6 +343,9 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 
   // ctrl+o 与 pi 自己的展开都走 setExpanded:先改层级,再让 pi 记自己的状态
   anyProto.setExpanded = function (this: ToolBoxInternals, expanded: boolean) {
+    if (tidyEnabled.get() && pointerDepth === 0 && (this.__tidyTurnRendered || expanded)) {
+      expandTurnForTool(this.toolCallId, expanded);
+    }
     if (grouping()) {
       if (!expanded && pointerDepth === 0 && !toolOptions.get().alwaysShow.has(this.toolName)) {
         closeJobDetails(jobsForTool(this).map((job) => job.id));
@@ -755,7 +761,8 @@ function composeFramedCodemode(
       return originalRender.call(this, width);
     }
     try {
-      if (this.hideComponent) return [];
+      this.__tidyTurnRendered = true;
+      if (this.hideComponent || hideTurnTool(this.toolCallId)) return [];
       const w = Math.max(4, width);
       if (grouping()) {
         const { icons, alwaysShow } = toolOptions.get();
