@@ -132,7 +132,7 @@ interface ToolBoxInternals extends GroupedTool {
     value: ComposedCodemodeBody;
   };
   /** The framed list built on the last composed body. */
-  __codemodeList?: { composed: ComposedCodemodeBody; w: number; icons: boolean; value: { lines: string[]; toggles: CodemodeToggle[] } };
+  __codemodeList?: { composed: ComposedCodemodeBody; w: number; icons: boolean; value: { title: string; lines: string[]; toggles: CodemodeToggle[] } };
   /** The expanded rendering a framed codemode box composes from, and what it was built from. */
   __codemodeFull?: {
     args: unknown;
@@ -535,16 +535,18 @@ function composedCodemode(
 /**
  * A framed codemode box as a call list: the row a group would show for it
  * (`✓ codemode bash×2 read×1 · 0.1s`) in place of pi's title, then the calls,
- * with the script and the output folded to one row each. Undefined keeps pi's
- * layout: no renderer to draw it again, or nothing to fold yet (the script is
- * still streaming, or the output cannot be told from the calls).
+ * with the script and the output folded to one row each. The row is handed
+ * back apart from the body: every other framed tool puts its title in the top
+ * border, and this one had no title of its own to put there. Undefined keeps
+ * pi's layout: no renderer to draw it again, or nothing to fold yet (the
+ * script is still streaming, or the output cannot be told from the calls).
  */
 function composeFramedCodemode(
   tool: ToolBoxInternals,
   w: number,
   theme: ThemeLike,
   icons: boolean,
-): { lines: string[]; toggles: CodemodeToggle[] } | undefined {
+): { title: string; lines: string[]; toggles: CodemodeToggle[] } | undefined {
   const width = w - 2;
   const body = fullCodemodeBody(tool, width, theme);
   if (!body) return undefined;
@@ -556,11 +558,11 @@ function composeFramedCodemode(
   // a new body, and so a new composition.
   const cache = tool.__codemodeList;
   if (cache && cache.composed === composed && cache.w === w && cache.icons === icons) return cache.value;
-  const title = formatToolLine(tool, theme, { icons, width: width - 1 });
-  const value = {
-    lines: [title, ...composed.lines],
-    toggles: composed.toggles.map((toggle) => ({ row: toggle.row + 1, section: toggle.section })),
-  };
+  // The row goes into the top border, so it has to pay for the border's own
+  // `╭─ ` and ` ─╮` cells before the body does: laid out at the full width it
+  // would be clipped there, and the clip takes the duration first.
+  const title = formatToolLine(tool, theme, { icons, width: Math.max(1, w - 6) });
+  const value = { title, lines: composed.lines, toggles: composed.toggles };
   tool.__codemodeList = { composed, w, icons, value };
   return value;
 }
@@ -625,8 +627,8 @@ function composeFramedCodemode(
           : source.render(sourceWidth);
     }
     this.__codemodeToggles = codemodeRows;
-    // The framed list's fold rows, as rows of this box's output: the title is
-    // never blank, so nothing is trimmed above it, and the top border is row 0.
+    // The framed list's fold rows, as rows of this box's output: the top border
+    // is row 0 and the body starts under it, so every row is one deeper.
     this.__codemodeFolds = listed?.toggles.map((toggle) => ({ row: toggle.row + 1, section: toggle.section }));
     // An open fold row reads the same hovered or not; only the band tells.
     const hovered = listed ? (codemodeHover(this) ?? "") : "";
@@ -705,13 +707,15 @@ function composeFramedCodemode(
       content = rest.start === 0 && rest.end === content.length ? content : content.slice(rest.start, rest.end);
     }
     // A file tool's call row is a title (`󰛦 󰈔 path`), not body: the frame's top
-    // border is where a title belongs. Only framed boxes have one; inside a
-    // group the row above already carries the call.
-    const title = !unframed && !collapse && !listed && PATH_ARG_TOOLS.has(this.toolName) && content.length > 1
+    // border is where a title belongs. So is a framed codemode list's summary
+    // row, which a group draws above the box — the same row, one line up. Only
+    // framed boxes have a border; inside a group the row above already carries
+    // the call.
+    const pathTitle = !unframed && !collapse && !listed && PATH_ARG_TOOLS.has(this.toolName) && content.length > 1
       ? trimTrailingSpaces(stripBackgroundFills(content[0])).trim()
       : "";
     let titleShift = 0;
-    if (title) {
+    if (pathTitle) {
       // The write preview puts a blank row between its title and the text;
       // the border already separates them, so the body never starts with one.
       let lead = 1;
@@ -719,6 +723,7 @@ function composeFramedCodemode(
       content = content.slice(lead);
       titleShift = lead;
     }
+    const title = pathTitle || (listed?.title.trim() ?? "");
     // The fold row under the pointer wears the hover band, inside the frame.
     let banded: ReadonlySet<number> | undefined;
     const bandRow = hovered ? listed?.toggles.find((toggle) => toggle.section === hovered)?.row : undefined;

@@ -115,8 +115,11 @@ test("a framed codemode box is the call list, under the row a group would show",
   const { component, chat } = codemode();
   const lines = frame(chat).map(strip);
   const body = lines.join("\n");
-  assert.match(lines[0]!, /^╭─+╮$/, "it keeps its frame");
-  assert.match(lines[1]!, /✓ codemode\s+bash×10/, `the title counts what the script ran:\n${body}`);
+  // The row a group would draw above the box is the box's title, the way a
+  // read or write path is: in the top border, not inside it.
+  assert.match(lines[0]!, /^╭─ ✓ codemode\s+bash×10\s+0\.1s ─+╮$/, `the summary row is the title:\n${body}`);
+  assert.match(lines[1]!, /^│ ▸ script · 14 lines/, `the body starts right under the border:\n${body}`);
+  assert.ok(!lines.some((line) => /^│ ✓ codemode/.test(line)), "the row is not repeated as body");
   // pi's collapsed view keeps the last eight calls; the list has all ten.
   for (let i = 1; i <= 10; i++) assert.ok(body.includes(`echo ${i}`), `call ${i} is listed:\n${body}`);
   assert.ok(!body.includes("earlier calls"), "no truncation notice from pi's collapsed view");
