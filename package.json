@@ -33,7 +33,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench": "node scripts/bench-compare.ts"
   },
   "pi": {
     "extensions": [
