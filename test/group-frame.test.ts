@@ -277,6 +277,28 @@ test("a streaming carrier that becomes a boundary gives its thoughts back", () =
   assert.ok(after.includes("先想一下"), "the boundary's thinking is now a row outside the group");
 });
 
+test("a finalized component gives back the streaming component's thoughts", () => {
+  resetGroups();
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const message = { role: "assistant", timestamp: 1000, provider: "openai", model: "test", content: [{ type: "thinking", thinking: "先想一下" }], stopReason: "toolUse" } as any;
+  const stream = new AssistantMessageComponent(message, true);
+  stream.updateContent(message, true);
+  chat.addChild(textStep("Go.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(stream);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 1);
+  chat.removeChild(stream);
+  const final = new AssistantMessageComponent(
+    { ...message, content: [{ type: "thinking", thinking: "先想一下" }, { type: "text", text: "Done." }], stopReason: "stop" },
+    true,
+  );
+  chat.addChild(final);
+  frame(chat);
+  assert.equal(summaryFor(a.component as any)?.thoughts, 0, "the new component gave the old run back");
+});
+
 test("edit keeps pi's own box, splits the group, and its box takes clicks", () => {
   const chat = new Container();
   const a = bash("ls", "a");
