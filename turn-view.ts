@@ -1,5 +1,5 @@
 import { Box, Container, MouseRegion, Text, sliceByColumn, truncateToWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { labeledTopBorder, sameLines } from "./frame-draw.ts";
+import { formatMessageTime, italicDim, labeledTopBorder, sameLines } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "./tool-group-view.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -122,7 +122,10 @@ export function presentTurn(component: any, width: number, draw: (width: number)
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
-  const label = framed ? theme.fg("accent", replyLabel(component.lastMessage.provider, options.icons)) : "";
+  const label = framed
+    ? theme.fg("accent", replyLabel(component.lastMessage.provider, options.icons)) +
+      (typeof component.lastMessage.timestamp === "number" ? ` ${italicDim(theme, formatMessageTime(component.lastMessage.timestamp))}` : "")
+    : "";
   const cache = component[CACHE];
   if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.framed === framed && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;

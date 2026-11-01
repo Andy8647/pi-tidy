@@ -5,7 +5,7 @@ import { Container, Markdown, visibleWidth, type TuiMouseEvent } from "@earendil
 import { patchToolBoxFrames } from "../tool-frame.ts";
 import { disableHoverForTests, enableHoverForTests, resetHover } from "../tool-group-view.ts";
 import { resetGroups } from "../tool-groups.ts";
-import { visibleText } from "../frame-draw.ts";
+import { formatMessageTime, visibleText } from "../frame-draw.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../turn-state.ts";
 import { replyLabel } from "../turn-view.ts";
 
@@ -245,6 +245,19 @@ test("the turn summary lights up and takes the hand like a group row", () => {
   assert.ok(!/\x1b\[48;/.test(cold), "the band goes away with the pointer");
   resetHover();
   disableHoverForTests();
+});
+
+test("the clock is local and gains a date when it is not today", () => {
+  const at = new Date(2026, 10, 1, 9, 5).getTime();
+  assert.equal(formatMessageTime(at, new Date(2026, 10, 1, 23, 0).getTime()), "09:05");
+  assert.equal(formatMessageTime(at, new Date(2026, 10, 2, 1, 0).getTime()), "11-01 09:05");
+});
+
+test("the final frame carries the message's clock next to the provider", () => {
+  const { chat } = fixture();
+  const top = chat.render(W).find((line) => line.includes("anthropic"));
+  assert.ok(top);
+  assert.ok(top.includes(formatMessageTime(final.timestamp)));
 });
 
 test("the whale glyph keeps the final frame at the terminal width", () => {
