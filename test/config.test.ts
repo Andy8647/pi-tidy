@@ -93,6 +93,14 @@ test("user messages default to the frame; an unknown style falls back to it", ()
   withSettings({ tidy: { userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
 });
 
+test("user alignment defaults left and accepts only right as an override", () => {
+  for (const value of [undefined, "left", "right", "center", 1]) {
+    withSettings({ tidy: { userMessageAlign: value } }, () => {
+      assert.equal(loadConfig().userMessageAlign, value === "right" ? "right" : "left");
+    });
+  }
+});
+
 test("user message padding is clamped and colors merge over the defaults", () => {
   withSettings({ tidy: { userMessagePaddingY: 0, userMessageColors: { rail: "#cba6f7", rule: 3 } } }, () => {
     const config = loadConfig();

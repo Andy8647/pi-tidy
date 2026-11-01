@@ -14,6 +14,7 @@
  *   userMessageStyle: "frame" | "rail" | "off" — user messages in a rounded
  *     frame hugging the text with the user icon in its top border, as rules
  *     plus an accent rail, or pi's own (default: frame)
+ *   userMessageAlign: "left" | "right" — framed user message and icon (default: left)
  *   userMessagePaddingY: number — rail-only rows around a "rail" message's
  *     text (default: 1, at most 3)
  *   userMessageColors: { rail, rule } — theme color names or #rrggbb
@@ -249,6 +250,7 @@ export default function (pi: ExtensionAPI): void {
     patchContainerBoxes(config.messageBorderColors, {
       icons: config.icons,
       includeUser: config.userMessageStyle === "frame",
+      userAlign: config.userMessageAlign,
       enabled: config.frameMessages,
     });
     patchUserMessages({
