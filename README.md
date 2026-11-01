@@ -203,8 +203,8 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
 | `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
 | `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its border icon together. `rail` and `off` are unchanged. Long messages still use the available width |
-| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"off"` | Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
-| `frameFinalReply` | boolean | `false` | Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
+| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"off"` | **Experimental, opt-in.** Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
+| `frameFinalReply` | boolean | `false` | **Experimental, opt-in.** Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
@@ -272,7 +272,25 @@ own assistant message, and steps that only call a tool don't split a group.
 `ctrl+o` and pi's own box clicks both arrive through `setExpanded`, which is how
 the group levels stay in step with pi's per-box expand flag.
 
-### Turn summaries and final replies
+### Turn summaries and final replies (experimental)
+
+Turn folding and final-reply framing are experimental and disabled by default. Updating does not enable
+either feature. To try both, merge these keys into the `tidy` object in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "tidy": {
+    "collapseTurns": "afterRun",
+    "frameFinalReply": true
+  }
+}
+```
+
+The keys work independently: `collapseTurns: "live"` folds while the run is still active;
+`frameFinalReply: true` can be used without turn folding. To disable them, set `collapseTurns` to
+`"off"` and `frameFinalReply` to `false`. Restart Pi after upgrading to load the new rendering patches.
+For right-aligned user frames, set `tidy.userMessageAlign: "right"` with `tidy.userMessageStyle: "frame"`
+and `tidy.frameMessages: true`; this is separate from the experimental features.
 
 `collapseTurns` adds an outer fold around one complete run. Steering messages, retries and
 automatic continuations stay in that run until pi fully settles. An interrupted, failed or

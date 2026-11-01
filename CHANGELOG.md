@@ -6,7 +6,23 @@ What changed in each released version of pi-tidy (published as
 
 ## [0.7.0] - 2026-11-01
 
-### Added
+### Experimental (opt-in)
+
+Turn folding and final-reply framing are experimental and disabled by default. Updating does not enable
+them. To try both, merge these keys into the `tidy` object in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "tidy": {
+    "collapseTurns": "afterRun",
+    "frameFinalReply": true
+  }
+}
+```
+
+The two keys work independently. Use `collapseTurns: "live"` to fold while the run is still active.
+To disable them, restore `collapseTurns: "off"` and `frameFinalReply: false`. Restart Pi after upgrading
+to load the new rendering patches.
 
 **A run can fold to one summary.** `tidy.collapseTurns` takes `off` (default), `afterRun` or `live`. One run
 follows steering, retries and automatic continuations until pi settles. Its summary sits at the top of the turn
@@ -16,10 +32,15 @@ stays in place and folds it again, with the pointer band and hand. `ctrl+o` stil
 turn. Metadata is saved outside model context and restored on the active branch; older turns show `—` for the
 timings they never recorded.
 
-**The final reply and user messages carry a clock.** `tidy.frameFinalReply` (default off) frames only the settled
-final text, full width, with that message's model and a dim italic `HH:MM` (`MM-DD` for older messages). The
-user message frame shows the same clock next to its icon. User frames can align right with
-`tidy.userMessageAlign: "right"`.
+**Frame the final reply.** `tidy.frameFinalReply: true` frames only the settled final text, full width,
+with that message's model and a dim italic `HH:MM` (`MM-DD` for older messages). It can be enabled without
+turn folding.
+
+### Added
+
+**User frames carry a clock and can align right.** The clock appears next to the user icon. Set
+`tidy.userMessageAlign: "right"` for right alignment; it defaults to `"left"` and requires
+`tidy.userMessageStyle: "frame"` with `tidy.frameMessages: true` (both defaults).
 
 **File tools put their title in the border.** read/edit/write boxes carry the kind icon and path in the top
 border; the body starts with the result or diff. `write` no longer leaves a gap under its title.
@@ -39,7 +60,8 @@ border; the body starts with the result or diff. `write` no longer leaves a gap 
   cache the row and paint the first answer line blank; selection then exposed stale copies of it.
 - The final frame contains only the answer; the final message's thinking is not drawn inside it.
 - A group's `N thoughts` no longer over-counts when a streaming step turns into a boundary: the run
-  counted as a carrier is given back when its text arrives.
+  counted as a carrier is given back when its text arrives. Thanks to @ncuiigai for reporting the mismatch
+  and tracing its cause ([#39](https://github.com/Andy8647/pi-tidy/issues/39)).
 - A pinned, expanded edit no longer leaves pi's bare `Thinking...` above its box.
 - Deepseek uses the whale emoji; Nerd Fonts has no brand glyph for it.
 
