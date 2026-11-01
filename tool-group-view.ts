@@ -18,7 +18,7 @@ import {
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
-import { tidyEnabled } from "./live.ts";
+import { agentRunning, tidyEnabled } from "./live.ts";
 import { presentTurn, TURN_LAYOUT } from "./turn-view.ts";
 import { folded, turnFor, turnOptions } from "./turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
@@ -247,8 +247,6 @@ export function renderGroupedTool(
   // Another extension may have patched a boundary render on top of ours
   // since; re-wrap so the boundaries keep being seen.
   installGroupBoundaries();
-  nestedRowSpans.delete(tool);
-  codemodeSpans.delete(tool);
   const job = options.pinned ? undefined : jobForTool(tool);
   const jobs = options.pinned ? [] : jobsForTool(tool);
   if (tool.ui) lastUi = tool.ui;
@@ -256,31 +254,56 @@ export function renderGroupedTool(
   const plan = planFor(tool, options.pinned, runningJob(jobs) ?? job, now);
   if (takeLateJoin()) tool.ui?.requestRender?.();
   if (plan.revealIn !== undefined) scheduleReveal(tool, plan.revealIn);
-  if (!plan.header && !plan.gutter) return undefined;
+  if (!plan.header && !plan.gutter) {
+    nestedRowSpans.delete(tool);
+    codemodeSpans.delete(tool);
+    return undefined;
+  }
 
   const { icons } = options;
-  const lines: string[] = [];
   const hovered = hoverState.tool === tool ? hoverState.row : null;
-  if (plan.header) {
-    const line = groupHeaderLine(tool, plan.header, theme, width, icons, hovered === "header", now);
-    if (line !== undefined) lines.push(line);
-  }
+  const align = groupAlign(tool);
+  // The header is memoized on its own inputs and hands back the same string
+  // whenever it did not change, so its identity is a stamp for the whole line.
+  const headerLine = plan.header
+    ? groupHeaderLine(tool, plan.header, theme, width, icons, hovered === "header", now)
+    : undefined;
+  // Only a settled transcript is cached: a run in flight, a partial tool or a
+  // background job puts a clock, a spinner or a growing body on these rows.
+  const live =
+    agentRunning.get() || tool.isPartial === true || job !== undefined || jobs.length > 0 || plan.revealIn !== undefined;
+  // The body is drawn through the tool's own frame cache, so an unchanged box
+  // hands back the same array: its identity says "nothing under this row moved".
+  const body = plan.full ? frameBox(Math.max(4, width - BODY_INDENT), true) : undefined;
+  // Compared field by field against the last frame rather than through a built
+  // key: on a folded row the check has to cost less than the row it skips.
+  const cached = live ? undefined : groupedRows.get(tool);
+  if (
+    cached && cached.width === width && cached.icons === icons && cached.line === plan.line &&
+    cached.full === plan.full && cached.hovered === hovered && cached.align === align &&
+    cached.header === headerLine && cached.body === body && cached.theme === theme &&
+    cached.result === tool.result && cached.args === tool.args
+  ) return cached.lines;
+  nestedRowSpans.delete(tool);
+  codemodeSpans.delete(tool);
+
+  const lines: string[] = [];
+  if (headerLine !== undefined) lines.push(headerLine);
   const gutter = groupGutter(theme);
   if (plan.line || plan.full) {
     const spinner = job ? spinnerFrame(job) : undefined;
     // The tick costs two cells more than the rail does.
     const rowWidth = width - GUTTER_CELLS - (plan.full ? 2 : 0);
-    const row = formatToolLine(tool, theme, { icons, job, spinner, hovered: hovered === "row", width: rowWidth, align: groupAlign(tool) });
+    const row = formatToolLine(tool, theme, { icons, job, spinner, hovered: hovered === "row", width: rowWidth, align });
     // An opened call keeps its row — it does not turn into something else — and
     // takes a tick off the rail to show what hangs below it.
     const line = plan.full ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
     lines.push(hovered === "row" ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
   }
-  if (plan.full) {
+  if (plan.full && body) {
     // Inside the group the rail already says what belongs to what, so a box
     // would be a frame inside a frame. Only the body is drawn, hanging under
     // the row that opened it.
-    const body = frameBox(Math.max(4, width - BODY_INDENT), true);
     const base = lines.length;
     const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
     for (const [index, line] of body.entries()) {
@@ -322,8 +345,33 @@ export function renderGroupedTool(
     spans.push({ id: nested.id, from, to: lines.length - 1 });
   }
   nestedRowSpans.set(tool, spans);
+  if (!live) groupedRows.set(tool, {
+    width, icons, line: plan.line, full: plan.full, hovered, align,
+    header: headerLine, body, theme, result: tool.result, args: tool.args, lines,
+  });
   return lines;
 }
+
+/**
+ * The rows each settled tool drew last. A transcript that is not moving asks for
+ * the same rows every frame — 40 body rows per opened call, each rebuilt by
+ * concatenation and measured — and nothing but the group's own state, the
+ * pointer and the box under it can change them.
+ */
+const groupedRows = new WeakMap<object, {
+  width: number;
+  icons: boolean;
+  line: boolean;
+  full: boolean;
+  hovered: HoverRow | null;
+  align: object;
+  header: string | undefined;
+  body: readonly string[] | undefined;
+  theme: ThemeLike;
+  result: unknown;
+  args: unknown;
+  lines: string[];
+}>();
 
 interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
