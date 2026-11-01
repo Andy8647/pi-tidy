@@ -5,7 +5,8 @@ import { getTheme, type ThemeLike } from "./theme-access.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
 
 const NATIVE_VIEW = Symbol.for("pi-toolbox:message-view");
-const LAYOUT = Symbol.for("pi-tidy:turn-layout");
+export const TURN_LAYOUT = Symbol.for("pi-tidy:turn-layout");
+const LAYOUT = TURN_LAYOUT;
 const MOUSE = Symbol.for("pi-tidy:turn-mouse");
 const BASE_MOUSE = Symbol.for("pi-tidy:turn-base-mouse");
 const HOVER = Symbol.for("pi-tidy:turn-hover");

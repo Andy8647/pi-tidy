@@ -19,7 +19,7 @@ import {
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
-import { presentTurn } from "./turn-view.ts";
+import { presentTurn, TURN_LAYOUT } from "./turn-view.ts";
 import { folded, turnFor, turnOptions } from "./turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -919,7 +919,7 @@ function installMessageMouse(component: any): void {
   };
 }
 
-function restyleThinking(component: any, lines: string[] | undefined, width: number, rethink: boolean): string[] {
+function restyleThinking(component: any, lines: string[] | undefined, width: number, rethink: boolean, hideThinking = false): string[] {
   const kids = component.contentContainer?.children;
   // If pi's structure changes, keep both its rendering and mouse routing intact.
   if (!Array.isArray(kids) || kids.length === 0) return lines ?? [];
@@ -940,9 +940,7 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
   const liveTexts = thought?.live ? liveRowText(component, runs, runs.map(() => budget), Date.now()) : undefined;
   const spinner = thought?.live ? thinkingSpinner(Date.now()) : undefined;
   const view = new MessageView();
-  const turn = turnOptions.get().collapseTurns !== "off" ? turnFor(component.lastMessage) : undefined;
-  const hideThinking = !!turn && folded(turn);
-  const hiddenMarkers: string[] = [];
+  const hiddenMarkers: string[] | undefined = hideThinking ? [] : undefined;
   let cursor = 0;
   let run = 0;
   for (const kid of kids) {
@@ -950,7 +948,7 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
       run++;
       if (lines) {
         const count = (kid.render(width) as string[]).length;
-        hiddenMarkers.push(...(lines.slice(cursor, cursor + count).join("").match(ZONE_MARKERS) ?? []));
+        hiddenMarkers!.push(...(lines.slice(cursor, cursor + count).join("").match(ZONE_MARKERS) ?? []));
         cursor += count;
       }
       continue;
@@ -1003,7 +1001,7 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
     rendered[0] = "\x1b]133;A\x07" + rendered[0];
     rendered[rendered.length - 1] = "\x1b]133;B\x07\x1b]133;C\x07" + rendered[rendered.length - 1];
   }
-  if (rendered.length) for (const marker of hiddenMarkers) {
+  if (rendered.length && hiddenMarkers) for (const marker of hiddenMarkers) {
     if (marker === "\x1b]133;A\x07") rendered[0] = marker + rendered[0];
     else rendered[rendered.length - 1] += marker;
   }
@@ -1051,6 +1049,7 @@ function wrapBoundaryRender(
 ): void {
   const render = proto?.render;
   if (typeof render !== "function" || render[BOUNDARY_WRAPPER]) return;
+  const assistant = proto === AssistantMessageComponent.prototype;
   const wrapped: RenderFn = function (this: any, ...args: any[]) {
     // Reset before even the disabled path: old handlers survive /reload and
     // streaming carrier/boundary transitions, but their old layout must not.
@@ -1058,6 +1057,14 @@ function wrapBoundaryRender(
     this[MESSAGE_VIEW] = undefined;
     const width = typeof args[0] === "number" ? args[0] : 80;
     const how = groupingActive() ? view(this, width) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
+    const options = assistant ? turnOptions.get() : undefined;
+    if (!options || (options.collapseTurns === "off" && !options.frameFinalReply)) {
+      if (this[TURN_LAYOUT]) this[TURN_LAYOUT] = undefined;
+      if (how === "hidden") return [];
+      if (how === "untrimmed") return render.apply(this, args);
+      if (typeof how === "object") return how.lines;
+      return restyleThinking(this, render.apply(this, args), width, how === "rethink");
+    }
     const draw = (room: number) => {
       if (how === "hidden") return [];
       if (how === "untrimmed") return render.call(this, room, ...args.slice(1));
@@ -1065,9 +1072,9 @@ function wrapBoundaryRender(
       // The same native view owns both rendering and mouse geometry.
       const turn = turnOptions.get().collapseTurns !== "off" ? turnFor(this.lastMessage) : undefined;
       const skipThinking = turn && folded(turn) && Array.isArray(this.contentContainer?.children);
-      return restyleThinking(this, skipThinking ? undefined : render.call(this, room, ...args.slice(1)), room, how === "rethink");
+      return restyleThinking(this, skipThinking ? undefined : render.call(this, room, ...args.slice(1)), room, how === "rethink", !!turn && folded(turn));
     };
-    return proto === AssistantMessageComponent.prototype ? presentTurn(this, width, draw) : draw(width);
+    return presentTurn(this, width, draw);
   };
   wrapped[BOUNDARY_WRAPPER] = true;
   proto!.render = wrapped;

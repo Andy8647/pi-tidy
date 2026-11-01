@@ -191,6 +191,14 @@ test("framed reply Markdown retains its native capture target and resized coordi
     target.component.handleMouse?.({ ...press, type: "drag", x: press.screenX - target.originX, y: press.screenY - target.originY, width: target.width, height: target.height });
     assert.equal(events.at(-1)?.y, 0);
   }
+  turnOptions.set({ collapseTurns: "off", frameFinalReply: false, icons: true });
+  const lines = chat.render(W).map(visibleText);
+  const y = lines.findIndex((line) => line.includes("Fixed the result"));
+  const x = lines[y].indexOf("Fixed");
+  const result = chat.handleMouse({ type: "press", button: "left", x, y, screenX: x, screenY: y, width: W, height: lines.length, shift: false, alt: false, ctrl: false });
+  assert.equal(result?.target?.component, markdown);
+  assert.equal(events.at(-1)?.width, W);
+  assert.equal(events.at(-1)?.x, x, "turn features off must remove the frame's mouse transform too");
 });
 
 test("caught nested failures remain visible, and final framing can be disabled independently", () => {
