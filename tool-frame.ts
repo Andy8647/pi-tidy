@@ -19,7 +19,7 @@
 import { homedir } from "node:os";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, outsideHyperlink, removeLeadingWord, sameLines, visibleIndexOf, visibleText } from "./frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, visibleIndexOf, visibleText } from "./frame-draw.ts";
 import {
   composeCodemodeBody,
   codemodeSections,
@@ -28,7 +28,7 @@ import {
   type CodemodeToggle,
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
-import { sliceByColumn } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth } from "@earendil-works/pi-tui";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
@@ -704,6 +704,14 @@ function composeFramedCodemode(
       const rest = blankEdges(content);
       content = rest.start === 0 && rest.end === content.length ? content : content.slice(rest.start, rest.end);
     }
+    // A file tool's call row is a title (`󰛦 󰈔 path`), not body: the frame's top
+    // border is where a title belongs. Only framed boxes have one; inside a
+    // group the row above already carries the call.
+    const title = !unframed && !collapse && !listed && PATH_ARG_TOOLS.has(this.toolName) && content.length > 1
+      ? stripBackgroundFills(content[0]).trim()
+      : "";
+    if (title) content = content.slice(1);
+    const titleShift = title ? 1 : 0;
     // The fold row under the pointer wears the hover band, inside the frame.
     let banded: ReadonlySet<number> | undefined;
     const bandRow = hovered ? listed?.toggles.find((toggle) => toggle.section === hovered)?.row : undefined;
@@ -716,10 +724,14 @@ function composeFramedCodemode(
     if (content.length > 0) {
       // Split-diff rows carry their own tint, as does a hovered fold row;
       // everything else stays transparent.
-      const bgRows = banded ?? (split && edges.start > 0
+      const splitBg = split && edges.start > 0
         ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
-        : split?.bgRows);
+        : split?.bgRows;
+      const bgRows = banded ?? (splitBg && titleShift
+        ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
+        : splitBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
+      if (title) framed[0] = labeledTopBorder(w, theme, color, truncateToWidth(title, Math.max(1, w - 6), "…"));
       // Unframed: the row above already carries the frame of reference (the
       // group rail), so only the body is drawn — borders dropped, cells kept.
       if (unframed) {
@@ -738,7 +750,7 @@ function composeFramedCodemode(
     // so the body starts on the first line.
     const geometry: FrameGeometry = unframed
       ? { top: -(edges.start + 1), height: raw.length, width: sourceWidth - 2, bordered: false }
-      : { top: 1 - edges.start, height: raw.length, width: sourceWidth };
+      : { top: 1 - edges.start - titleShift, height: raw.length, width: sourceWidth };
     this.__frameGeometry = content.length > 0 ? geometry : undefined;
     // Images stay outside the frame: their lines carry terminal graphics
     // payloads that padding/truncation would corrupt.
