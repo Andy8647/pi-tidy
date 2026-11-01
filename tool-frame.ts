@@ -710,8 +710,15 @@ function composeFramedCodemode(
     const title = !unframed && !collapse && !listed && PATH_ARG_TOOLS.has(this.toolName) && content.length > 1
       ? stripBackgroundFills(content[0]).trim()
       : "";
-    if (title) content = content.slice(1);
-    const titleShift = title ? 1 : 0;
+    let titleShift = 0;
+    if (title) {
+      // The write preview puts a blank row between its title and the text;
+      // the border already separates them, so the body never starts with one.
+      let lead = 1;
+      while (lead < content.length && !visibleText(content[lead]).trim()) lead++;
+      content = content.slice(lead);
+      titleShift = lead;
+    }
     // The fold row under the pointer wears the hover band, inside the frame.
     let banded: ReadonlySet<number> | undefined;
     const bandRow = hovered ? listed?.toggles.find((toggle) => toggle.section === hovered)?.row : undefined;
