@@ -104,7 +104,7 @@ export class TurnStore {
     this.toolStarts.clear();
     this.toolIntervals = [];
   }
-  note(message: TurnMessage): void {
+  note(message: TurnMessage, ended = false): void {
     const key = messageKey(message);
     if (!key || !this.current) return;
     if (message.role === "user" && !this.current.root && message.timestamp !== undefined) {
@@ -116,7 +116,7 @@ export class TurnStore {
     if (message.role === "assistant") for (const block of message.content ?? []) {
       if (block.type === "toolCall") this.byTool.set(block.id, this.current);
     }
-    if (message.role === "assistant") this.pendingLlmAt = message.durationMs === undefined ? message.timestamp : undefined;
+    if (message.role === "assistant") this.pendingLlmAt = !ended && message.durationMs === undefined ? message.timestamp : undefined;
   }
   requestStart(now = Date.now()): void {
     if (this.current && this.toolStarts.size === 0) this.pendingLlmAt = now;
@@ -141,7 +141,7 @@ export class TurnStore {
     const intervals: [number, number][] = [];
     for (const message of messages) {
       if (typeof message.durationMs !== "number" || !Number.isFinite(message.durationMs) || message.durationMs < 0) {
-        if (turn !== this.current) return undefined;
+        if (turn !== this.current || message.timestamp !== this.pendingLlmAt) return undefined;
       } else if (message.timestamp !== undefined) intervals.push([message.timestamp, message.timestamp + message.durationMs]);
     }
     if (turn === this.current && this.pendingLlmAt !== undefined) intervals.push([this.pendingLlmAt, now]);

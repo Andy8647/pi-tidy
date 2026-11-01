@@ -45,6 +45,11 @@ test("LLM timing includes request wait and deduplicates streaming updates", () =
   const turn = store.current!;
   store.settle(false, 4000);
   assert.equal(store.llmTime(turn), 1500);
+  const missing = reply(4100); delete missing.durationMs;
+  store.begin(4000); store.note(missing, true);
+  assert.equal(store.pendingLlmAt, undefined, "an ended response cannot keep charging retry wait to the LLM");
+  store.requestStart(5000);
+  assert.equal(store.llmTime(store.current!, 6000), undefined, "missing request timing stays unknown during continuation too");
 });
 
 test("steering and automatic continuation remain one run until settled", () => {

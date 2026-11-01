@@ -14,7 +14,7 @@ export function connectTurns(pi: ExtensionAPI): void {
   pi.on("before_provider_request", () => { turnStore.get().requestStart(); });
   pi.on("message_start", ({ message }) => { turnStore.get().note(message); });
   pi.on("message_update", ({ message }) => { turnStore.get().note(message); });
-  pi.on("message_end", ({ message }) => { turnStore.get().note(message); });
+  pi.on("message_end", ({ message }) => { turnStore.get().note(message, true); });
   pi.on("tool_execution_start", (event) => {
     turnStore.get().toolStart(event.toolCallId, event.parentToolCallId);
   });
