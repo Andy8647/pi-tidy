@@ -19,8 +19,10 @@ const PROVIDER_ICONS: Record<string, string> = {
   deepseek: "\u{1f433}",
   google: "\u{f02ad}", "google-gemini-cli": "\u{f02ad}", "google-vertex": "\u{f02ad}",
 };
-export function replyLabel(provider: string | undefined, icons: boolean): string {
-  return `${icons ? `${PROVIDER_ICONS[provider ?? ""] ?? "\u{f06a9}"} ` : ""}${provider || "agent"}`;
+export function replyLabel(provider: string | undefined, model: string | undefined, icons: boolean): string {
+  // The glyph still says which provider answered; the word next to it is what
+  // the reader is comparing across replies — the model, not the vendor.
+  return `${icons ? `${PROVIDER_ICONS[provider ?? ""] ?? "\u{f06a9}"} ` : ""}${model || provider || "agent"}`;
 }
 function duration(ms: number | undefined): string {
   if (ms === undefined) return "—";
@@ -123,8 +125,14 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const label = framed
-    ? theme.fg("accent", replyLabel(component.lastMessage.provider, options.icons)) +
-      (typeof component.lastMessage.timestamp === "number" ? ` ${italicDim(theme, formatMessageTime(component.lastMessage.timestamp))}` : "")
+    ? truncateToWidth(
+        theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)) +
+          (typeof component.lastMessage.timestamp === "number" ? ` ${italicDim(theme, formatMessageTime(component.lastMessage.timestamp))}` : ""),
+        // The border needs `╭─ ` and ` ─╮` around the label; a longer model id
+        // (one with its release date in it) has to lose cells, not the whole row.
+        Math.max(1, width - 6),
+        "…",
+      )
     : "";
   const cache = component[CACHE];
   if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.framed === framed && sameLines(cache.body, body)) {

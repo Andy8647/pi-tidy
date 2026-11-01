@@ -22,7 +22,7 @@ const middle: any = { ...first, timestamp: 1300, content: [
   { type: "text", text: "Now I will fix the implementation." },
   { type: "toolCall", id: "b", name: "edit", arguments: { path: `${cwd}/src/a.ts`, edits: [{ oldText: "a", newText: "b" }] } },
 ] };
-const final: any = { ...first, provider: "anthropic", timestamp: 1500, stopReason: "stop", content: [
+const final: any = { ...first, provider: "anthropic", model: "claude-sonnet-4-5", timestamp: 1500, stopReason: "stop", content: [
   { type: "thinking", thinking: "Verify the final result carefully" }, { type: "text", text: "Fixed the result.\n\n```ts\nconst value = 2;\n```" },
 ] };
 function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = false, groupTools = true) {
@@ -65,7 +65,7 @@ test("outer fold hides all process including thinking and always-shown edits; su
   const folded = frame(chat).join("\n");
   assert.ok(folded.includes("took 1s"));
   assert.ok(folded.includes("Fixed the result"));
-  assert.ok(folded.includes("anthropic"));
+  assert.ok(folded.includes("claude-sonnet-4-5"));
   assert.ok(!folded.includes("Checking the implementation"));
   assert.ok(!folded.includes("thinking"));
   assert.ok(!folded.includes("diff"));
@@ -75,7 +75,7 @@ test("outer fold hides all process including thinking and always-shown edits; su
   assert.ok(opened.join("\n").includes("diff"));
   assert.equal(opened.filter((line) => line.includes("took")).length, 1);
   assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("Checking the implementation")), "an opened turn keeps its summary at the top");
-  assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("anthropic")));
+  assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("claude-sonnet-4-5")));
   click(chat, (line) => line.includes("took"));
   assert.equal(frame(chat).join("\n"), folded);
 });
@@ -100,9 +100,9 @@ test("afterRun keeps an active run open; live folds it and replaces its latest t
   assert.ok(frame(live.chat).join("\n").includes("Now I will fix"));
   live.store.note(final); live.chat.addChild(live.answer);
   assert.ok(!frame(live.chat).join("\n").includes("Now I will fix"));
-  assert.ok(!frame(live.chat).join("\n").includes("anthropic"), "streaming final text is not boxed yet");
+  assert.ok(!frame(live.chat).join("\n").includes("claude-sonnet-4-5"), "streaming final text is not boxed yet");
   live.store.settle(false, 1800);
-  assert.ok(frame(live.chat).join("\n").includes("anthropic"));
+  assert.ok(frame(live.chat).join("\n").includes("claude-sonnet-4-5"));
 });
 
 test("the final reply frame never carries the message's thinking", () => {
@@ -206,7 +206,7 @@ test("caught nested failures remain visible, and final framing can be disabled i
   const lines = frame(chat).join("\n");
   assert.ok(lines.includes("1 nested failed"));
   assert.ok(lines.includes("Fixed the result"));
-  assert.ok(!lines.includes("anthropic"));
+  assert.ok(!lines.includes("claude-sonnet-4-5"));
   assert.ok(!lines.includes("╭"));
 });
 
@@ -247,36 +247,42 @@ test("the clock is local and gains a date when it is not today", () => {
   assert.equal(formatMessageTime(at, new Date(2026, 10, 2, 1, 0).getTime()), "11-01 09:05");
 });
 
-test("the final frame carries the message's clock next to the provider", () => {
+test("the final frame carries the message's clock next to the model", () => {
   const { chat } = fixture();
-  const top = chat.render(W).find((line) => line.includes("anthropic"));
+  const top = chat.render(W).find((line) => line.includes("claude-sonnet-4-5"));
   assert.ok(top);
   assert.ok(top.includes(formatMessageTime(final.timestamp)));
 });
 
 test("the whale glyph keeps the final frame at the terminal width", () => {
-  const provider = final.provider;
+  const { provider, model } = final;
   final.provider = "deepseek";
+  final.model = "deepseek-v4-pro";
   try {
     const { chat } = fixture();
     const lines = frame(chat);
-    const top = lines.find((line) => line.includes("deepseek"));
+    const top = lines.find((line) => line.includes("deepseek-v4-pro"));
     assert.ok(top);
-    assert.ok(top.includes("\u{1f433} deepseek"));
+    assert.ok(top.includes("\u{1f433} deepseek-v4-pro"));
     assert.equal(visibleWidth(top), W);
   } finally {
     final.provider = provider;
+    final.model = model;
   }
 });
 
-test("pure chat gets no empty process summary; final frame uses the message's provider", () => {
+test("pure chat gets no empty process summary; the final frame names the model, not the provider", () => {
   const { chat } = fixture("off");
-  assert.ok(!frame(chat).join("\n").includes("took"));
-  assert.equal(replyLabel("unknown-provider", true), "\u{f06a9} unknown-provider");
-  assert.equal(replyLabel("deepseek", true), "\u{1f433} deepseek");
-  assert.equal(replyLabel("deepseek", false), "deepseek");
-  assert.equal(replyLabel("openai-codex", true), "\uec81 openai-codex");
-  assert.equal(replyLabel("anthropic", false), "anthropic");
+  const plainChat = frame(chat).join("\n");
+  assert.ok(!plainChat.includes("took"));
+  assert.ok(plainChat.includes("claude-sonnet-4-5"), "the model is the name on the border");
+  assert.ok(!plainChat.includes("anthropic"), "the vendor is the glyph's job");
+  assert.equal(replyLabel("unknown-provider", "some-model", true), "\u{f06a9} some-model");
+  assert.equal(replyLabel("deepseek", "deepseek-chat", true), "\u{1f433} deepseek-chat");
+  assert.equal(replyLabel("deepseek", "deepseek-chat", false), "deepseek-chat");
+  assert.equal(replyLabel("openai-codex", "gpt-6.1-sol", true), "\uec81 gpt-6.1-sol");
+  assert.equal(replyLabel("anthropic", undefined, false), "anthropic", "no model recorded: the provider is the best name left");
+  assert.equal(replyLabel(undefined, undefined, true), "\u{f06a9} agent");
   assert.ok(frame(chat).every((line) => visibleWidth(line) <= W));
   const store = new TurnStore(); turnStore.set(store);
   const plain = { ...final, content: [{ type: "text", text: "Just chatting" }] };
@@ -286,6 +292,6 @@ test("pure chat gets no empty process summary; final frame uses the message's pr
   const rendered = frame(only).join("\n");
   const raw = only.render(W).join("\n");
   for (const marker of ["A", "B", "C"]) assert.equal((raw.match(new RegExp(`\\x1b\\]133;${marker}\\x07`, "g")) ?? []).length, 1);
-  assert.ok(rendered.includes("anthropic"));
+  assert.ok(rendered.includes("claude-sonnet-4-5"));
   assert.ok(!rendered.includes("took"));
 });
