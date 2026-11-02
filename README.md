@@ -15,6 +15,7 @@ every box gets a rounded transparent frame.
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's default ┌┐└┘
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents, and any other extension's tools all get the same frame
 - **Every message box** — compaction and branch summaries, skill invocations, and extension custom messages get the same frame, each kind in its own border color, its label set into the top border next to the kind icon
+- **One row per failure, not one per retry** — pi prints its own errors (a failed request, an extension that threw) as a plain row on every retry attempt, provider body included: three identical `Error: 429: {"message":…}` lines for one failure. tidy keeps the first and folds the repeats into its border as `×N` (`╭─ error ×3 ─────╮`), so a failure reads as one line. Warnings and notes stay exactly as pi drew them; `dedupeErrors: false` turns it off
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front), or pi's own look
 - **Your own `!` commands, marked as yours** — a `!` / `!!` run gets the rounded frame too, with the user icon, the `!` you typed and the user message color, so it never passes for the agent's bash box
 - **Per-tool border colors** — successful boxes take their tool's color (bash/read/edit/write/… configurable); pending stays grey, errors stay red
@@ -175,6 +176,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "alwaysShowTools": ["edit", "write"],
     "backgroundJobs": true,
     "hideJobNotifications": true,
+    "dedupeErrors": true,
     "toolColors": {
       "bash": "bashMode",
       "read": "toolTitle",
@@ -238,7 +240,10 @@ box — which is why MCP and subagent boxes are framed too. Message boxes (compa
 summary, skill invocation, extension custom message) never go through that
 component; their own prototypes get the same treatment, with one exception
 that keeps its native styling: custom messages rendered by an
-extension-provided renderer. `!` bash-mode runs are framed as the user's
+extension-provided renderer. Their `[compaction]` / `[branch]` / `[skill]` /
+`[type]` row is a title, so it sits in the top border next to the kind icon and
+the spacer under it is gone; a collapsed skill box keeps its label inline, where
+it shares the row with the skill's name. `!` bash-mode runs are framed as the user's
 rather than as a tool's: the agent's bash box changes color with its state,
 while the user's keeps the user messages' color (`messageBorderColors.user`, or
 `userMessageColors.rail` under the rail) and lets pi's own rows (`Running...`,
@@ -263,6 +268,14 @@ An unchanged box returns its cached line array outright: pi re-renders the
 whole transcript on every frame, including every mouse packet while scrolling.
 Measured against unpatched pi at 300 boxes / 2400 lines: +0.03 ms per full
 render.
+
+pi's own error rows — `Error: 429: …`, an extension that threw — have no
+patchable prototype: they are `ThemedText`, which pi does not export. That seam
+is the chat container instead. After `InteractiveMode.init`, its `addChild` is
+wrapped: a row painted in the error colour that repeats the previous one folds
+into it as `×N`, and the survivor gets the frame. If a future pi renames `init`,
+the hook stays uninstalled and those rows render exactly as pi draws them — the
+behaviour before 0.7.2, not a crash.
 
 ### Grouping
 
@@ -311,7 +324,8 @@ manual expansion, `groupOpen` and output budgets rather than resetting them. A p
 reply with no hidden process gets no extra summary. `/tidy turn` toggles the latest run;
 `/tidy turn N` toggles a run by its one-based position on the active branch. `ctrl+o` still
 expands/collapses tool outputs and their containing turns. Background-job notifications
-remain visible when turn folding is enabled, since their owning rows may be hidden.
+remain visible when turn folding is enabled, since their owning rows may be hidden. pi's own
+error rows do too: one framed row per failure, outside the fold.
 
 `took` is run wall time. `LLM` covers the main agent's model requests, including response
 wait and generation. `tools` is the union of top-level tool execution intervals, including
