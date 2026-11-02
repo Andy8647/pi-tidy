@@ -255,6 +255,36 @@ test("a step streaming its thinking folds with the group mid-segment, not at a t
   assert.ok(alone.some((line) => line.includes("thinking  …")), "a sign of life before any call");
 });
 
+test("a step pi added to the chat but has not filled in yet does not split the group", () => {
+  resetGroups();
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const b = bash("pwd", "b");
+  chat.addChild(thinkStep(a.id, "先看看这个目录。"));
+  chat.addChild(a.component);
+  chat.addChild(b.component);
+  assert.equal(frame(chat).filter((line) => /[▾▸]/.test(line) && !line.includes("│")).length, 1);
+
+  // `message_start` puts the component in the chat before pi hands it the
+  // message; a frame that lands in between has no `lastMessage` at all. Reading
+  // that as a boundary cut one reply's calls into two groups.
+  const pending = new AssistantMessageComponent(undefined as any, true);
+  chat.addChild(pending);
+  chat.render(W);
+
+  const c = bash("echo hi", "hi");
+  pending.updateContent(
+    { role: "assistant", content: [{ type: "thinking", thinking: "再看一下。" }, callBlock(c.id)], stopReason: "toolUse" } as any,
+    false,
+  );
+  chat.addChild(c.component);
+
+  const lines = frame(chat);
+  const headers = lines.filter((line) => /[▾▸]/.test(line) && !line.includes("│"));
+  assert.equal(headers.length, 1, `one group, not two:\n${lines.join("\n")}`);
+  assert.match(headers[0] ?? "", /3 calls/, `every call lands in it:\n${lines.join("\n")}`);
+});
+
 test("a streaming carrier that becomes a boundary gives its thoughts back", () => {
   const chat = new Container();
   const a = bash("ls", "a");
