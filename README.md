@@ -12,75 +12,58 @@ every box gets a rounded transparent frame.
 
 ## Features
 
-- **Rounded borders** — ╭╮╰╯ box drawing instead of pi's default ┌┐└┘
-- **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents, and any other extension's tools all get the same frame
-- **Every message box** — compaction and branch summaries, skill invocations, and extension custom messages get the same frame, each kind in its own border color, its label set into the top border next to the kind icon
-- **One row per failure, not one per retry** — pi prints its own errors (a failed request, an extension that threw) as a plain row on every retry attempt, provider body included: three identical `Error: 429: {"message":…}` lines for one failure. tidy keeps the first and folds the repeats into its border as `×N` (`╭─ error ×3 ─────╮`), so a failure reads as one line. Warnings and notes stay exactly as pi drew them; `dedupeErrors: false` turns it off
+- **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
+- **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
+- **Turn folding** *(experimental, off by default)* — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
+- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
+- **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color, its `[kind]` label set into the top border
+- **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front), or pi's own look
-- **Your own `!` commands, marked as yours** — a `!` / `!!` run gets the rounded frame too, with the user icon, the `!` you typed and the user message color, so it never passes for the agent's bash box
-- **Per-tool border colors** — successful boxes take their tool's color (bash/read/edit/write/… configurable); pending stays grey, errors stay red
-- **Nerd Font icons** — every box gets a kind icon; file tools show the target file's nvim-web-devicons glyph right in front of the path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
-- **Side-by-side edit diffs** — an edit's diff renders as two panes (`old │ new`) with line numbers
-  on both sides, a coloured bar and tinted row per changed line, and the changed word emphasised
-  inside the line. Removed and added blocks pair up row by row, so a replaced block reads as
-  before/after instead of two stacked runs. Below `splitDiffMinWidth` (or while the preview is still
-  being computed) it falls back to pi's unified diff
-- **Transparent background** — no solid background fill, works with terminal transparency
-- **Grouped tool calls** — every tool call between two pieces of assistant text collapses to one line
-  (`▸ 4 calls ·  bash×3  read×1 · 🧠 5 thoughts · 1.2s`). Click it and it turns into a `▾` header with one
-  row per call under a `│` gutter; click a row to open that call's output underneath it — the row stays
-  put and takes a `├─` tick off the rail, because inside a group the rail already frames it and a box
-  there was a frame inside a frame. The `▾` header folds the whole group. The assistant's text always
-  shows and is what separates groups, so you can still see a reply drifting; tool-only model steps
-  don't split a group. Edits and writes never fold — their diff shows like any normal box
-  (`alwaysShowTools`), clipped to `diffLines` while collapsed.
-  Steps are separated by one blank rail row, so a long group reads as blocks rather than a wall.
-  A folded group is one line: only a *running* call keeps a row, and a failure is reported once, as
-  `3 failed` in red (`✗` per row once you open it). Every row says what the call produced
-  (`12 lines`, `3 matches`, `exit 1`), and `ctrl+o` still expands everything (and collapses back to
-  the summary)
-- **Thinking, folded in** — a model step that only thinks and calls a tool used to leave a bare
-  `Thinking...` behind; now it is a `thinking` row inside the group: a brain, the word, then one line of
-  what the model actually thought, in order above the call it belongs to. The summary counts the runs
-  and carries the same brain (`🧠 5 thoughts`), and a click opens that step's thinking full length — the
-  same rounded box a tool result gets, in the new `thinkingColor` (yellow by default). While a run is
-  still arriving the summary's marker spins (outside a group, the row's own glyph does, since there is
-  no summary to carry it) and the preview slides over the newest words; once it stops, the row settles
-  to a short head preview capped at 56 cells — a glance, not a paragraph. pi's `hideThinkingBlock`
-  setting is ignored on purpose: the row is the same whether thinking is configured on or off, and the
-  click is the one way to read it. A message that both thinks and writes gets the same row for its
-  label (clicking it opens the same box, with `󰧑 thinking` set into its top border in place of the row),
-  and its run stays out of the group's count — it renders above the text, not as a row in the list. With `groupTools: false` there is no group to fold into, but every
-  step's thinking is still that row, above the box it belongs to
-- **Background jobs** — a call that starts a long-running process (pi-processes' `process start`) shows
-  the *process's* state on its row: `◐ process ticker  running 12s · READY matched`, then
-  `✓ … exited 0 · 20s` / `✗ … exit 1` / `⊘ … killed SIGTERM`. The summary spins while one runs
-  (`◐ 1 running`), and the `[process] …` notification messages are folded into the row — pi-processes
-  still delivers them to the model, pi-tidy just doesn't draw them twice. Starts inside codemode get
-  independent process rows under the script, even when it starts several jobs or fails afterward.
-  Each nested process has its own hover and expand target: click to see its command, working directory
-  and the last 20 output lines without expanding the script. Open logs update as output arrives;
-  processes whose logs are no longer retained still show their saved status
-- **codemode reads as a call list** — the folded row counts what the script ran (`codemode bash×3 read×1`, MCP
-  tools by server, plus a red `1 failed` when a call inside it failed while the script caught it and
-  succeeded), and the opened box shows those calls as tidy rows: kind icon, the same one-line argument summary,
-  one per line, in a name column and a duration column, under a rail of their own. The script and the output
-  each fold to one row (`▸ script · 13 lines`, `▸ output · 4 items`) that opens on click, separated by a dim
-  rule; a script that called nothing folds the same way, using the output's first marker as its boundary. A
-  nested `process start` hangs inside the body with those rows, since it is one of the things the script
-  produced. Arguments are clipped to the row (the duration always survives) instead of wrapping onto a second
-  line. The output stays one block: a script builds its `text()` items from whatever it computed, so an item
-  can be a filtered, merged summary of several calls and nothing ties it back to the call that fed it.
-  With `groupTools: false` (or `codemode` in `alwaysShowTools`) the box is the same list in a frame of its
-  own, with the row a group would show for it in the top border; all of the calls are listed, not just pi's
-  last eight. `ctrl+o`, or a click anywhere else in the box, opens the script and the output together
-- **One-line boxes** — collapsed boxes keep a single row of output (`bashResultLines`), and a multi-line command
-  plus `(+N more lines, ctrl+o to expand)`, so a long tool call no longer owns the screen; `ctrl+o`
-  restores the whole command
-- **Bash syntax highlighting** — commands get token-level coloring (commands, flags, strings, variables, operators, etc.)
-- **Click a box to fold it** — clicks land on pi's own expand toggle at the right row, for every tool
-  including `renderShell: "self"` ones (edit, MCP)
-- **Scroll-safe caching** — an unchanged box costs one line comparison per frame, nothing is re-framed
+- **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
+- **Thinking, folded in** — a step that only thinks leaves a `thinking` row inside its group (a brain, the word, one line of what the model thought, sliding over the newest words while it streams); the summary counts the runs (`🧠 5 thoughts`), and a click opens that step's thinking full length, in a framed box with `󰧑 thinking` in its border. pi's `hideThinkingBlock` is ignored on purpose: the row is the same either way, and the click is the one way to read it
+- **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, and a click opens the command, working directory and last 20 output lines without expanding the call
+- **codemode reads as a call list** — opened, the calls a script ran are tidy rows with a name and a duration column; the script and the output each fold to one row
+- **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
+- **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
+- **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
+- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators
+- **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
+- **Scroll-safe caching** — an unchanged box costs one string comparison per frame
+
+## Turn folding (experimental)
+
+Off by default, and updating does not turn it on. Merge these keys into the `tidy` object in
+`~/.pi/agent/settings.json` and restart pi:
+
+```json
+{ "tidy": { "collapseTurns": "afterRun", "frameFinalReply": true } }
+```
+
+The keys are independent: `collapseTurns: "live"` folds while the run is still arriving, and
+`frameFinalReply: true` works without turn folding. `"off"` and `false` turn them back off.
+
+A run folds to one line, where it started:
+
+```text
+ ▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4 · codemode×2
+```
+
+Click it to open the process, click again to fold. The fold hides thinking and `alwaysShowTools`
+boxes, never your own inputs, and reopens with manual expansion, `groupOpen` and output budgets
+intact. `/tidy turn` toggles the latest run, `/tidy turn N` the one at that position on the branch;
+`ctrl+o` still expands tool outputs and their turns. User inputs, background-job notifications and
+pi's error rows stay visible, because the rows that would own them may be hidden. A reply with no
+hidden process gets no summary.
+
+`took` is wall time. `LLM` is the main agent's model requests, including response wait. `tools` is
+the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
+not counted twice). Retries and overlap mean the parts need not sum to the total; missing historical
+timings show `—`.
+
+`frameFinalReply` frames only a settled final text reply, keeping pi's Markdown and mouse targets —
+an intermediate tool-calling message is never promoted. The border names the model that answered
+(from the message, not the current selection) with its provider glyph, clipped to `…` when it does
+not fit, and `icons: false` drops the glyph.
 
 ## What it looks like
 
@@ -230,7 +213,8 @@ active theme. Default palette rationale: tool boxes reserve green/red/grey for
 execution status, so message kinds get hues that don't collide —
 `customMessageLabel` (mauve, matching the `[compaction]` label) for
 compactions, `mdCode` (peach) for branch summaries, `accent` (sky) for skill
-invocations, `warning` (yellow) for extension notices.
+invocations, `warning` (yellow) for extension notices. For right-aligned user frames, set
+`userMessageAlign: "right"` with `userMessageStyle: "frame"` and `frameMessages: true`.
 
 ## How it works
 
@@ -285,63 +269,6 @@ message or an assistant message with visible text; pi gives every model step its
 own assistant message, and steps that only call a tool don't split a group.
 `ctrl+o` and pi's own box clicks both arrive through `setExpanded`, which is how
 the group levels stay in step with pi's per-box expand flag.
-
-### Turn summaries and final replies (experimental)
-
-Turn folding and final-reply framing are experimental and disabled by default. Updating does not enable
-either feature. To try both, merge these keys into the `tidy` object in `~/.pi/agent/settings.json`:
-
-```json
-{
-  "tidy": {
-    "collapseTurns": "afterRun",
-    "frameFinalReply": true
-  }
-}
-```
-
-The keys work independently: `collapseTurns: "live"` folds while the run is still active;
-`frameFinalReply: true` can be used without turn folding. To disable them, set `collapseTurns` to
-`"off"` and `frameFinalReply` to `false`. Restart Pi after upgrading to load the new rendering patches.
-For right-aligned user frames, set `tidy.userMessageAlign: "right"` with `tidy.userMessageStyle: "frame"`
-and `tidy.frameMessages: true`; this is separate from the experimental features.
-
-`collapseTurns` adds an outer fold around one complete run. Steering messages, retries and
-automatic continuations stay in that run until pi fully settles. An interrupted, failed or
-truncated run is marked as such. `afterRun` shows the process while it is running and folds
-it on completion; `live` folds immediately, keeping the newest assistant text visible.
-
-The summary sits at the top of the turn: directly above the final reply while folded, and
-above the process once opened. It stays in place across both states:
-
-```text
- ▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4 · codemode×2
-```
-
-Click it to restore the process, and click the same row again to hide it. The outer fold
-also hides thinking and `alwaysShowTools` boxes, but never user inputs. Opening it preserves the inner groups,
-manual expansion, `groupOpen` and output budgets rather than resetting them. A pure chat
-reply with no hidden process gets no extra summary. `/tidy turn` toggles the latest run;
-`/tidy turn N` toggles a run by its one-based position on the active branch. `ctrl+o` still
-expands/collapses tool outputs and their containing turns. Background-job notifications
-remain visible when turn folding is enabled, since their owning rows may be hidden. pi's own
-error rows do too: one framed row per failure, outside the fold.
-
-`took` is run wall time. `LLM` covers the main agent's model requests, including response
-wait and generation. `tools` is the union of top-level tool execution intervals, including
-codemode and MCP waits, not CPU time: parallel tools and nested calls are not added twice.
-Nested model calls belong to their calling tool. Detached background jobs are not timed
-past the launching tool's return. Retries, framework overhead and overlap mean the two
-parts need not sum to the total. Timing metadata is saved outside model context and follows
-the active session branch. Missing historical timings show `—`, not an estimate.
-
-`frameFinalReply` frames only a settled final text reply, keeping pi's Markdown rendering
-and mouse targets. It never promotes an intermediate tool-calling message into a final
-answer. The border label names the model that answered the reply — the id recorded on
-the message, not the currently selected one — and the glyph in front of it is its
-provider's: recent Nerd Fonts have OpenAI/Claude/Google glyphs, other providers get a
-generic robot. A model id too long for the border is clipped to `…` rather than dropping
-the label, and `icons: false` drops the glyph and keeps the model name.
 
 ### Background jobs
 
