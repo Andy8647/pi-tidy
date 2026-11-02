@@ -31,6 +31,10 @@
  *     job's live state on its row (default: true)
  *   hideJobNotifications: boolean — skip drawing that job's notification
  *     messages; the model still gets them (default: true)
+ *   dedupeErrors: boolean    — pi prints its own error rows (a failed request,
+ *     an extension that threw) once per retry attempt; fold the repeats into
+ *     the first one as `×N` and frame it (default: true). Warnings and notes
+ *     are left exactly as pi drew them
  *   splitDiff: boolean      — edit diffs as two panes (old | new) with line
  *     numbers, coloured bars and a tint per changed row (default: true)
  *   splitDiffMinWidth: number — box width below which the split falls back to
@@ -57,6 +61,7 @@ import { turnOptions } from "./turn-state.ts";
 import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./bash-mode-frame.ts";
+import { patchErrorLines } from "./error-lines.ts";
 import { patchUserMessages } from "./user-message.ts";
 import { formatWriteCallText } from "./write-preview.ts";
 import { connectJobs, registerNestedJobs, type EventBusLike } from "./background-jobs.ts";
@@ -273,6 +278,9 @@ export default function (pi: ExtensionAPI): void {
       color:
         config.userMessageStyle === "rail" ? config.userMessageColors.rail : config.messageBorderColors.user,
     });
+    // pi's non-tool error rows: one framed row per failure instead of one per
+    // retry attempt.
+    patchErrorLines({ enabled: config.dedupeErrors });
   } catch (error) {
     console.debug("[pi-tidy] message box frame patch failed:", error);
   }
