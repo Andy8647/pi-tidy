@@ -4,6 +4,26 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-11-02
+
+### Added
+
+**A failed request is one framed row, not one row per retry.** pi reports its own errors — a failed request, an
+extension that threw — by appending a plain row per attempt: `Error: 429: {"message":…}` three times for one
+failure, provider body included, with no frame. tidy now keeps the first row of a repeated error, puts `×N` in its
+border (`╭─ error ×3 ─────╮`) and hides the repeats, so one failure reads as one line. The surviving row is the only
+record that a turn failed, so it stays; warnings and notes are not touched. `tidy.dedupeErrors: false` restores pi's
+behaviour.
+
+### Changed
+
+**A summary box's label sits in the border, not on its own row.** Compaction, branch and expanded skill boxes
+draw the `[compaction]` / `[branch]` / `[skill]` label on a row of its own; a custom message draws `[type]` the
+same way. That row is a title, so it now goes into the top border next to the kind icon — `╭─ 󰊢 [branch] ───╮`
+— and the blank row that separated it from the body goes with it. A collapsed skill box keeps its label inline:
+there it shares the row with the skill's name. User messages are never touched: their first row is the user's
+own text, which may well be a bare `[word]`.
+
 ## [0.7.1] - 2026-11-01
 
 A rendering release: nothing changes on screen, the frame costs a fraction of what it did.
