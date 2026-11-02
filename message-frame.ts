@@ -18,6 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
+  clipToWidth,
   drawFrame,
   formatMessageTime,
   italicDim,
@@ -26,6 +27,7 @@ import {
   stripBackgroundFills,
   trimBlankEdges,
   trimTrailingSpaces,
+  visibleText,
 } from "./frame-draw.ts";
 import { MESSAGE_ICONS } from "./icons.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
@@ -111,12 +113,23 @@ export function patchMessageBoxes(
           sameLines(cache.lines, content)
         )
           return cache.out;
-        const padded = content.map((line, i) => (icons && i === 0 ? ` ${icon} ${line}` : ` ${line}`));
+        // pi draws the kind label on a row of its own above the body
+        // (`[branch]`, `[compaction]`, `[skill]`). That row is a title, not
+        // content, so it goes into the top border and the `Spacer(1)` under it
+        // goes with it — the border is the separation now. A collapsed skill
+        // box keeps its label inline: it shares the row with the skill's name.
+        const lifted = content[0] !== undefined && visibleText(content[0]).trim() === `[${kind}]`
+          ? trimTrailingSpaces(content[0]).trim()
+          : "";
+        const body = lifted ? trimBlankEdges(content.slice(1)) : content;
+        const label = lifted && icons ? `${theme.fg(borderColor, icon)} ${lifted}` : lifted;
+        const padded = body.map((line, i) => (icons && i === 0 && !label ? ` ${icon} ${line}` : ` ${line}`));
         // No blank row above the frame: pi puts a `Spacer(1)` in front of a
         // compaction, branch and skill box already (interactive-mode), and the
         // border is a separation in itself. A second row read as a stray gap
         // (issue #29).
         const out = drawFrame(padded, w, theme, borderColor);
+        if (label) out[0] = labeledTopBorder(w, theme, borderColor, clipToWidth(label, Math.max(1, w - 6)));
         this.__msgFrameCache = { width: w, sample, icons, lines: content, out };
         return out;
       } catch {
@@ -260,9 +273,18 @@ export function patchContainerBoxes(
         // its icon in the label instead.
         const iconInRow = icons && !isUserMessage;
         const raw = box.render(iconInRow ? w - 4 : w - 2).map(stripBackgroundFills);
-        const content = trimBlankEdges(raw);
+        let content = trimBlankEdges(raw);
         if (content.length === 0) return [];
-        if (iconInRow) content[0] = ` ${icon} ${content[0].replace(/^ +/, "")}`;
+        // A custom message's `[type]` row is a title too, and goes into the top
+        // border with the spacer under it. Only the custom kind: a user
+        // message's first row is its own text, which may well be a bare
+        // `[word]`, and a label there would be the user's, not ours.
+        const customType = (this as any).message?.customType;
+        const labelText = !isUserMessage && typeof customType === "string" ? `[${customType}]` : "";
+        const lifted = labelText && visibleText(content[0]).trim() === labelText ? trimTrailingSpaces(content[0]).trim() : "";
+        if (lifted) content = trimBlankEdges(content.slice(1));
+        if (iconInRow && !lifted) content[0] = ` ${icon} ${content[0].replace(/^ +/, "")}`;
+        const label = lifted && icons ? `${theme.fg(borderColor, icon)} ${lifted}` : lifted;
 
         const sample = theme.fg(borderColor, "·");
         const cache = this.__msgFrameCache;
@@ -278,7 +300,7 @@ export function patchContainerBoxes(
         )
           return cache.out;
 
-        const label = isUserMessage && icons
+        const userLabel = isUserMessage && icons
           ? theme.fg(borderColor, icon) + (typeof userTime === "number" ? ` ${italicDim(theme, formatMessageTime(userTime))}` : "")
           : "";
 
@@ -290,13 +312,15 @@ export function patchContainerBoxes(
         if (isUserMessage) {
           // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
           // row and copies without it. No icons, no label: a plain top border.
-          const framed = hugContent(content, w, visibleWidth(label));
+          const framed = hugContent(content, w, visibleWidth(userLabel));
           const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
-          if (label) frame[0] = labeledTopBorder(framed.width, theme, borderColor, label, align);
+          if (userLabel) frame[0] = labeledTopBorder(framed.width, theme, borderColor, userLabel, align);
           const indent = align === "right" ? " ".repeat(w - framed.width) : "";
           out = indent ? frame.map((line) => indent + line) : frame;
         } else {
-          out = ["", ...drawFrame(content, w, theme, borderColor)];
+          const framed = drawFrame(content, w, theme, borderColor);
+          if (label) framed[0] = labeledTopBorder(w, theme, borderColor, clipToWidth(label, Math.max(1, w - 6)));
+          out = ["", ...framed];
         }
         if (isUserMessage) {
           out[0] = OSC133_ZONE_START + out[0];

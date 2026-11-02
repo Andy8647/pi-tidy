@@ -66,6 +66,13 @@ export interface TidyConfig {
   /** Hide a job's notification messages when its row already shows them. */
   hideJobNotifications: boolean;
   /**
+   * pi reports a failed request once per retry attempt, as a plain row with the
+   * provider's raw body. Fold the repeats into the first row as `×N` and frame
+   * it like any other box. Only error rows: warnings and notes stay as pi
+   * drew them.
+   */
+  dedupeErrors: boolean;
+  /**
    * Render an edit's diff as two panes (old | new) with line numbers, a
    * coloured bar and a tinted row per changed line. Falls back to pi's
    * unified diff when the box is too narrow (see `splitDiffMinWidth`).
@@ -127,6 +134,7 @@ const DEFAULTS: TidyConfig = {
   alwaysShowTools: ["edit", "write"],
   backgroundJobs: true,
   hideJobNotifications: true,
+  dedupeErrors: true,
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
@@ -193,6 +201,7 @@ export function loadConfig(): TidyConfig {
       backgroundJobs: typeof toolbox?.backgroundJobs === "boolean" ? toolbox.backgroundJobs : DEFAULTS.backgroundJobs,
       hideJobNotifications:
         typeof toolbox?.hideJobNotifications === "boolean" ? toolbox.hideJobNotifications : DEFAULTS.hideJobNotifications,
+      dedupeErrors: typeof toolbox?.dedupeErrors === "boolean" ? toolbox.dedupeErrors : DEFAULTS.dedupeErrors,
       splitDiff: typeof toolbox?.splitDiff === "boolean" ? toolbox.splitDiff : DEFAULTS.splitDiff,
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,

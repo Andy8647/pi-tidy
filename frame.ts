@@ -8,10 +8,12 @@
  *   message-frame.ts    compaction / branch / skill / custom / user boxes
  *   user-message.ts     the default "rail" user message
  *   bash-mode-frame.ts  the user's own `!` / `!!` bash runs
+ *   error-lines.ts      pi's own error rows: one framed row per failure, `×N`
  */
 
 export { stripBackgroundFills } from "./frame-draw.ts";
 export { patchToolBoxFrames, type ToolFrameOptions } from "./tool-frame.ts";
 export { patchContainerBoxes, patchMessageBoxes, type ContainerBoxOptions } from "./message-frame.ts";
 export { patchBashExecutions, type BashModeOptions } from "./bash-mode-frame.ts";
+export { installErrorLines, patchErrorLines, type ErrorLineOptions } from "./error-lines.ts";
 export { patchUserMessages, USER_RAIL_GLYPH, type UserMessageOptions, type UserMessageStyle } from "./user-message.ts";

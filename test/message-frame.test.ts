@@ -26,7 +26,30 @@ const {
   SkillInvocationMessageComponent,
   UserMessageComponent,
 } = await import("@earendil-works/pi-coding-agent");
-const { Text } = await import("@earendil-works/pi-tui");
+const { Text, visibleWidth } = await import("@earendil-works/pi-tui");
+
+/**
+ * The tag-based theme above keeps assertions readable, but its `<fg:…>` tags
+ * are visible text to `visibleText()` — which is how the frame recognises a
+ * label row. Anything about labels in the border needs real escapes.
+ */
+function withAnsiTheme<T>(run: () => T): T {
+  const tagged = (globalThis as any)[THEME_KEY];
+  (globalThis as any)[THEME_KEY] = {
+    fg: (_color: string, text: string) => `\x1b[38;5;110m${text}\x1b[39m`,
+    bg: (color: string, text: string) => `\x1b[48;5;60m${text}\x1b[49m`,
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+    italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
+  };
+  try {
+    return run();
+  } finally {
+    (globalThis as any)[THEME_KEY] = tagged;
+  }
+}
+
+const plainRow = (line: string) => line.replace(/\x1b\][^\x07]*\x07/g, "").replace(/\x1b\[[0-9;]*m/g, "");
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const BG_FILL_RE = /\x1b\[48;[0-9;]*m|\x1b\[(?:4[0-7]|10[0-7])m/;
 
@@ -79,6 +102,55 @@ test("expanded compaction box renders its summary inside the frame", () => {
   const body = lines.join("\n");
   assert.match(lines[0], new RegExp(`^<fg:${COLORS.compaction}>╭─+╮</fg>$`), "still framed when expanded");
   assert.ok(body.includes("summary text"), "summary kept");
+});
+
+test("the kind label moves into the top border and its spacer row goes away", () => {
+  withAnsiTheme(() => {
+    patchMessageBoxes(COLORS, true);
+    for (const [Component, arg, label, icon] of [
+      [CompactionSummaryMessageComponent, fakeMessage(), "[compaction]", "\u{f066}"],
+      [BranchSummaryMessageComponent, fakeMessage(), "[branch]", "\u{f126}"],
+    ] as const) {
+      const lines = (new (Component as any)(arg).render(50) as string[]).map(plainRow);
+      assert.equal(lines.length, 3, "top border, one body row, bottom border");
+      assert.match(lines[0]!, new RegExp(`^╭─ .*${escapeRe(label)} ─+╮$`), "label set into the border");
+      assert.ok(lines[0]!.includes(icon), "kind icon rides with the label");
+      assert.ok(!lines[1]!.includes(label), "label is not repeated in the body");
+      const widths = lines.map((line) => visibleWidth(line));
+      assert.ok(widths.every((width) => width === widths[0]), "every row the frame's width");
+    }
+  });
+});
+
+test("an expanded skill box lifts its label; a collapsed one keeps it inline with the name", () => {
+  withAnsiTheme(() => {
+    patchMessageBoxes(COLORS, true);
+    const expanded = new SkillInvocationMessageComponent({ name: "demo", content: "skill text" } as any);
+    expanded.setExpanded(true);
+    const expandedRows = expanded.render(50).map(plainRow);
+    assert.match(expandedRows[0]!, /^╭─ .*\[skill\] ─+╮$/, "label in the border when it stands alone");
+    assert.ok(expandedRows[1]!.includes("demo"), "the skill name leads the body");
+
+    // Collapsed, the label shares its row with the name, so it is body, not title.
+    const collapsedRows = new SkillInvocationMessageComponent({ name: "demo", content: "skill text" } as any).render(50).map(plainRow);
+    assert.match(collapsedRows[0]!, /^╭─+╮$/, "plain border");
+    assert.ok(collapsedRows[1]!.includes("[skill]"), "label stays on the row with the name");
+  });
+});
+
+test("a custom message's type label moves into the border; a user's own [brackets] do not", () => {
+  withAnsiTheme(() => {
+    patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+    const custom = new CustomMessageComponent({ customType: "notice", content: "pay attention" } as any).render(50).map(plainRow);
+    assert.match(custom[1]!, /^╭─ .*\[notice\] ─+╮$/, "type label in the border");
+    assert.ok(!custom.slice(2).some((line) => line.includes("[notice]")), "label is not repeated in the body");
+    assert.ok(custom.some((line) => line.includes("pay attention")), "content kept");
+
+    // The user's text is never treated as a title, even when it looks like one.
+    const user = new UserMessageComponent("[wip]" as never).render(30).map(plainRow);
+    assert.ok(!user[0]!.includes("[wip]"), "nothing lifted into the border");
+    assert.ok(user.some((line) => line.includes("[wip]")), "text kept where it was");
+  });
 });
 
 test("user message gets a frame in the user color and keeps its OSC133 zone markers", () => {
