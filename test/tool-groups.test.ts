@@ -175,8 +175,13 @@ test("classify: visible text is a boundary, a tool-only step is a carrier", () =
   assert.equal(classifyAssistant({ content: [thinking] }), "plain");
   // pi prints "Response was truncated" under a length stop: never fold it away.
   assert.equal(classifyAssistant({ content: [call], stopReason: "length" }), "plain");
-  // Field missing (other pi version): fall back to treating it as a boundary.
-  assert.equal(classifyAssistant(undefined), "boundary");
+  // No message at all is pi's `message_start` window: the component is in the
+  // chat before its message arrives. Calling that a boundary split one reply's
+  // group in two, so it leaves the grouping alone instead.
+  assert.equal(classifyAssistant(undefined), "plain");
+  // A message that exists but carries no content array is a changed field: fall
+  // back to treating it as a boundary, same as before.
+  assert.equal(classifyAssistant({} as any), "boundary");
 });
 
 test("one segment's tools across several tool-only steps fold into one C line", () => {

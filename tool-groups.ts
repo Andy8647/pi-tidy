@@ -113,8 +113,15 @@ interface AssistantMessageLike {
 }
 
 export function classifyAssistant(message: AssistantMessageLike | undefined): AssistantRole {
+  // `message_start` adds the component to the chat before pi hands it the
+  // message: `updateContent` comes right after. A frame that lands in between
+  // sees no message at all, and reading that as a boundary cut one reply's group
+  // in two — every call before that step stayed in the old group, every call
+  // after it opened a new one, so one reply read as `5 calls` above a second
+  // `1 call`. There is nothing to fold yet, so leave the grouping alone.
+  if (!message) return "plain";
   // Unknown shape (pi changed the field): keep the old behaviour, never hide.
-  if (!message || !Array.isArray(message.content)) return "boundary";
+  if (!Array.isArray(message.content)) return "boundary";
   let hasToolCall = false;
   for (const block of message.content as Array<{ type?: unknown; text?: unknown }>) {
     if (block?.type === "text" && typeof block.text === "string" && block.text.trim()) return "boundary";
