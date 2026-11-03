@@ -4,6 +4,29 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-11-03
+
+### Fixed
+
+**One reply, one group.** The first reply after pi started could show two `▾` headers, with some of its calls
+under the second. Folding then kept both headers, in reverse order. A reply is one group again, whichever extensions
+restyle your messages.
+
+**Thinking stays under its group's header.** With `groupOpen: true`, a step's `thinking` row could sit above the
+group's summary line instead of inside the group.
+
+**An empty step no longer starts a new group** (#50, by dreanzy).
+
+**Failed requests are framed, once.** A request that fails for good now shows its `Error: …` in the same
+`╭─ error ─╮` box as other errors (#45). When pi retries, the attempts share one box that counts them
+(`error ×3`), and pi's "Retry failed after N attempts" takes its place when it gives up. An error after part of
+the reply, and an abort with Esc, stay as pi drew them. `tidy.dedupeErrors: false` turns all of this off.
+
+### Changed
+
+**pi can show you this changelog.** tidy now ships its changelog, so pi 1.5 can list what changed after an update.
+pi starts showing it from the next update on.
+
 ## [0.7.2] - 2026-11-02
 
 ### Added

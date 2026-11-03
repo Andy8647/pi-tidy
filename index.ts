@@ -65,6 +65,7 @@ import { patchErrorLines } from "./error-lines.ts";
 import { patchUserMessages } from "./user-message.ts";
 import { formatWriteCallText } from "./write-preview.ts";
 import { connectJobs, registerNestedJobs, type EventBusLike } from "./background-jobs.ts";
+import { installGroupBoundaries } from "./tool-group-view.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
 export { highlightBashCommand, formatBashCallHighlighted } from "./bash-highlight.ts";
@@ -225,6 +226,12 @@ export default function (pi: ExtensionAPI): void {
   pi.on("agent_start", () => agentRunning.set(true));
   pi.on("agent_end", () => agentRunning.set(false));
   pi.on("agent_settled", () => agentRunning.set(false));
+  // The group boundaries are a wrapper on the message renders, and it only sees
+  // anything while it is the outermost layer. Another extension may restyle a
+  // message after this load without calling down; put the wrapper back on top
+  // before a reply starts, not at its first tool, when half its calls have
+  // already joined a group. A no-op while it is still on top.
+  pi.on("before_agent_start", () => installGroupBoundaries());
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {
@@ -283,6 +290,16 @@ export default function (pi: ExtensionAPI): void {
     patchErrorLines({ enabled: config.dedupeErrors });
   } catch (error) {
     console.debug("[pi-tidy] message box frame patch failed:", error);
+  }
+
+  // The user message rail and frame above draw on their own and never call
+  // down, so they bury the boundary wrapper `patchToolBoxFrames` installed. A
+  // buried wrapper used to come back only at the first grouped tool's render,
+  // mid-reply: the first reply of every process then split into two groups.
+  try {
+    installGroupBoundaries();
+  } catch (error) {
+    console.debug("[pi-tidy] group boundary install failed:", error);
   }
 
   if (config.highlightBash) {
