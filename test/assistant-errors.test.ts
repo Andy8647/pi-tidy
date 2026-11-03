@@ -19,9 +19,10 @@ import {
   ToolExecutionComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Container } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import factory from "../index.ts";
 import { installErrorLines, patchErrorLines } from "../error-lines.ts";
+import { getTheme } from "../theme-access.ts";
 import { turnOptions } from "../turn-state.ts";
 import { harness, loadTidy } from "./renderer-harness.ts";
 
@@ -178,8 +179,94 @@ function streamStep(chat: Container, calls: number, fail = false): void {
   }
 }
 
-/** Two tool steps, then a step whose request fails for good, on a chat with the error-row patch. */
-function failingReply(prompt: string): { frames: string[][]; streamed: string[]; settled: string[] } {
+/** One attempt pi retries: added empty, then failed before any output. */
+function failedAttempt(chat: Container, error = BODY): AssistantMessageComponent {
+  const message: any = { role: "assistant", content: [], timestamp: timestamp++, provider: "test", model: "test" };
+  const component = new AssistantMessageComponent(undefined as any, false);
+  chat.addChild(component);
+  component.updateContent(structuredClone(message), true);
+  fire("message_start", { message: structuredClone(message) });
+  frame(chat);
+  message.stopReason = "error";
+  message.errorMessage = error;
+  component.updateContent(structuredClone(message), false);
+  fire("message_end", { message: structuredClone(message) });
+  frame(chat);
+  return component;
+}
+
+/** pi's `showError` when the retries run out. */
+function retriesExhausted(chat: Container, attempts: number, error = BODY): void {
+  chat.addChild(new Spacer(1));
+  chat.addChild(new Text(getTheme()!.fg("error", `Error: Retry failed after ${attempts} attempts: ${error}`), 1, 0));
+  frame(chat);
+}
+
+function errorChat(): Container {
+  const chat = new Container();
+  installErrorLines(chat as any);
+  return chat;
+}
+
+test("retried attempts that fail the same way share one box, counting as they go", () => {
+  const chat = errorChat();
+  chat.addChild(new UserMessageComponent("hi"));
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    failedAttempt(chat);
+    const lines = frame(chat);
+    assert.equal(errorTops(lines).length, 1, lines.join("\n"));
+    assert.match(errorTops(lines)[0]!, attempt === 1 ? /╭─ error ─/ : new RegExp(`╭─ error ×${attempt} ─`), lines.join("\n"));
+  }
+});
+
+test("pi's 'Retry failed' row takes the place of the attempts' box", () => {
+  const chat = errorChat();
+  chat.addChild(new UserMessageComponent("hi"));
+  for (let attempt = 0; attempt < 4; attempt++) failedAttempt(chat);
+  retriesExhausted(chat, 3);
+  const lines = frame(chat);
+  assert.equal(errorTops(lines).length, 1, lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("Retry failed after 3 attempts")), lines.join("\n"));
+  assert.ok(!lines.some((line) => line.includes("×")), lines.join("\n"));
+});
+
+test("a retry that succeeds keeps the attempts' box above the reply", () => {
+  const chat = errorChat();
+  chat.addChild(new UserMessageComponent("hi"));
+  failedAttempt(chat);
+  failedAttempt(chat);
+  chat.addChild(new AssistantMessageComponent({ role: "assistant", content: [{ type: "text", text: "你好" }], stopReason: "stop", timestamp: timestamp++ } as any, false));
+  const lines = frame(chat);
+  assert.equal(errorTops(lines).length, 1, lines.join("\n"));
+  assert.match(errorTops(lines)[0]!, /error ×2/);
+  assert.ok(lines.some((line) => line.includes("你好")));
+});
+
+test("different failures keep their own boxes", () => {
+  const chat = errorChat();
+  chat.addChild(new UserMessageComponent("hi"));
+  failedAttempt(chat, "429: rate limit");
+  failedAttempt(chat, "500: upstream exploded");
+  const lines = frame(chat);
+  assert.equal(errorTops(lines).length, 2, lines.join("\n"));
+  assert.ok(!lines.some((line) => line.includes("×")), lines.join("\n"));
+});
+
+test("a resumed session folds the attempts it rebuilds", () => {
+  // Resuming builds each message filled in, then adds it to the chat.
+  const chat = errorChat();
+  chat.addChild(new UserMessageComponent("hi"));
+  for (let attempt = 0; attempt < 3; attempt++) chat.addChild(new AssistantMessageComponent(failed(), false));
+  const lines = frame(chat);
+  assert.equal(errorTops(lines).length, 1, lines.join("\n"));
+  assert.match(errorTops(lines)[0]!, /error ×3/);
+});
+
+/**
+ * Two tool steps, then a step whose request fails, on a chat with the
+ * error-row patch. `retries`: pi retries it three more times and gives up.
+ */
+function failingReply(prompt: string, retries: boolean): { frames: string[][]; streamed: string[]; settled: string[] } {
   const chat = new Container();
   installErrorLines(chat as any);
   activeChat = chat;
@@ -196,6 +283,10 @@ function failingReply(prompt: string): { frames: string[][]; streamed: string[];
   streamStep(chat, 3);
   streamStep(chat, 3);
   streamStep(chat, 0, true);
+  if (retries) {
+    for (let attempt = 0; attempt < 3; attempt++) failedAttempt(chat);
+    retriesExhausted(chat, 3);
+  }
   const streamed = frames.at(-1)!;
   fire("agent_end");
   fire("agent_settled", { aborted: false });
@@ -208,11 +299,11 @@ function failingReply(prompt: string): { frames: string[][]; streamed: string[];
 for (const options of [
   { collapseTurns: "afterRun", frameFinalReply: true },
   { collapseTurns: "off", frameFinalReply: false },
-] as const) {
-  test(`a reply that ends in a failure keeps its group whole (collapseTurns ${options.collapseTurns}, frameFinalReply ${options.frameFinalReply})`, () => {
+] as const) for (const retries of [false, true]) {
+  test(`a reply that ends in a failure keeps its group whole (collapseTurns ${options.collapseTurns}, frameFinalReply ${options.frameFinalReply}${retries ? ", retried" : ""})`, () => {
     turnOptions.set({ ...turnOptions.get(), ...options });
     outOfFrame.length = 0;
-    const { frames, streamed, settled } = failingReply(`fail with ${options.collapseTurns}`);
+    const { frames, streamed, settled } = failingReply(`fail with ${options.collapseTurns}`, retries);
     assert.deepEqual(outOfFrame, [], "a component rendered outside the chat's frame");
     const above = frames.find((lines) => {
       const header = lines.findIndex((line) => /^\s*[▾▸] \d+ calls? · /.test(line));
@@ -223,7 +314,8 @@ for (const options of [
     assert.equal(split, undefined, `a frame drew two headers:\n${split?.join("\n")}`);
     assert.match(headers(streamed)[0] ?? "", /6 calls · bash×6/, streamed.join("\n"));
     assert.equal(errorTops(streamed).length, 1, `one error frame while it streams:\n${streamed.join("\n")}`);
-    if (options.collapseTurns === "off") {
+    // pi's "Retry failed" row is a chat row of its own, outside the turn.
+    if (options.collapseTurns === "off" || retries) {
       assert.equal(errorTops(settled).length, 1, `one error frame once settled:\n${settled.join("\n")}`);
     } else {
       // Known gap, not this patch's: a folded turn keeps only its final reply,

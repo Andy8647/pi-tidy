@@ -137,7 +137,12 @@ export function installErrorLines(container: ChatContainerLike): void {
     // yet, read as a group boundary.
     if (!(child instanceof Text) && !(child instanceof Spacer)) {
       reset();
+      const message = child as AssistantLike;
+      if (message.contentContainer) chatOf.set(child, container);
       addChild(child);
+      // A resumed session builds the message before adding it: it is already
+      // filled in, and only now has a place in the chat.
+      if (message.contentContainer) noteFailure(message, message.lastMessage);
       return;
     }
     const rows = rowsOf(child);
@@ -155,6 +160,13 @@ export function installErrorLines(container: ChatContainerLike): void {
       return;
     }
     const text = rows.map(visibleText).join("\n").trim();
+    // pi's "Retry failed after N attempts: <error>" closes a run of failed
+    // attempts: it says the same as their box, and says it last.
+    const run = failureOf.get(previousMessage(container, container.children.length) as object);
+    if (run?.error && text.includes(run.error)) {
+      run.closed = true;
+      for (const member of run.members) member.contentContainer?.clear?.();
+    }
     if (kept && keptText === text && container.children.includes(kept)) {
       keptCount++;
       return;
@@ -167,12 +179,71 @@ export function installErrorLines(container: ChatContainerLike): void {
 const ASSISTANT_PATCH = Symbol.for("pi-tidy:error-lines-assistant");
 
 interface AssistantLike {
-  contentContainer?: { children?: Component[] };
+  contentContainer?: { children?: Component[]; clear?: () => void };
+  lastMessage?: FailedMessageLike;
 }
 
 interface FailedMessageLike {
   stopReason?: unknown;
   content?: unknown;
+  errorMessage?: unknown;
+}
+
+/**
+ * pi retries a failed request as a new assistant message per attempt, each
+ * drawing the same `Error: 429 …`. Consecutive identical failures are one run:
+ * the first message keeps the box and counts `×N`, the others draw nothing.
+ * When pi gives up it adds "Retry failed after N attempts", and the run's box
+ * gives way to that row.
+ */
+interface FailureRun {
+  key: string;
+  error: string;
+  count: number;
+  members: AssistantLike[];
+  closed: boolean;
+}
+
+const failureOf = new WeakMap<object, FailureRun>();
+/** The chat each assistant message was added to: its place in the transcript. */
+const chatOf = new WeakMap<object, ChatContainerLike>();
+
+/** The message before position `index`, past spacers. Never rendered. */
+function previousMessage(container: ChatContainerLike, index: number): Component | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const child = container.children[i];
+    if (!(child instanceof Spacer)) return child;
+  }
+  return undefined;
+}
+
+function isEmpty(message: FailedMessageLike): boolean {
+  return Array.isArray(message.content) && message.content.length === 0;
+}
+
+function noteFailure(component: AssistantLike, message: FailedMessageLike | undefined): void {
+  if (!message || failureOf.has(component) || !failedWithNothingElse(message)) return;
+  if (!tidyEnabled.get() || !errorLineOptions.get().enabled) return;
+  const container = chatOf.get(component);
+  if (!container) return;
+  const error = typeof message.errorMessage === "string" ? message.errorMessage : "";
+  const key = `${String(message.stopReason)}\u0000${error}`;
+  const index = container.children.indexOf(component as Component);
+  const run = index > 0 ? failureOf.get(previousMessage(container, index) as object) : undefined;
+  if (run && !run.closed && run.key === key && isEmpty(message)) {
+    run.count++;
+    run.members.push(component);
+    failureOf.set(component, run);
+  } else {
+    failureOf.set(component, { key, error, count: 1, members: [component], closed: false });
+  }
+  hideIfAbsorbed(component);
+}
+
+/** A repeat, or a run pi has closed, draws nothing. */
+function hideIfAbsorbed(component: AssistantLike): void {
+  const run = failureOf.get(component);
+  if (run && (run.closed || run.members[0] !== component)) component.contentContainer?.clear?.();
 }
 
 /**
@@ -203,10 +274,17 @@ function patchAssistantErrors(): void {
       if (last instanceof Text) {
         frameErrorRow(
           last,
-          () => "error",
+          () => {
+            const run = failureOf.get(this);
+            return run && run.count > 1 ? `error ×${run.count}` : "error";
+          },
           () => tidyEnabled.get() && errorLineOptions.get().enabled,
         );
       }
+      noteFailure(this, message);
+      // pi rebuilds the rows on every update (a theme change, a thinking
+      // toggle): a message the run absorbed stays absorbed.
+      hideIfAbsorbed(this);
     }
     return result;
   };
