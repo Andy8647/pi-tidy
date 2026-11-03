@@ -21,7 +21,7 @@
  */
 
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
-import { type Component, Text } from "@earendil-works/pi-tui";
+import { type Component, Spacer, Text } from "@earendil-works/pi-tui";
 import { drawFrame, labeledTopBorder, stripBackgroundFills, trimBlankEdges, visibleText } from "./frame-draw.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { getTheme } from "./theme-access.ts";
@@ -121,6 +121,17 @@ export function installErrorLines(container: ChatContainerLike): void {
   };
 
   container.addChild = (child: Component) => {
+    // Only pi's status rows (a `Text`) and the spacers between them can take
+    // part, so nothing else is probed. A probe is a render outside the frame's
+    // top-to-bottom pass, and the tool grouping reads that order: a probed tool
+    // joined its group before the step that issued it (the step's thinking row
+    // then hung above the summary line), and a probed message, not filled in
+    // yet, read as a group boundary.
+    if (!(child instanceof Text) && !(child instanceof Spacer)) {
+      reset();
+      addChild(child);
+      return;
+    }
     const rows = rowsOf(child);
     // Separators neither repeat nor break a repeat: pi may space two attempts
     // apart, and that should still read as one failure.
