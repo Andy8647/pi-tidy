@@ -4,6 +4,36 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-11-03
+
+### Fixed
+
+**One reply is one group again.** The first reply after pi started could read as two `▾` headers, the second one
+holding the calls from some step onward; folding then kept both headers, swapped. A group starts at the user
+message, and tidy sees that message through a wrapper on its render. tidy's own user message styles were installed
+over that wrapper and hid it until the first grouped call rendered, by which time the reply had already started.
+The wrapper now goes back on top once tidy has loaded and again before every run, so another extension's restyle
+can't hide it either.
+
+**A step's thinking row stays under its group's header.** With `groupOpen: true`, a step's `thinking` row could hang
+above the summary line, and fold into it only when the group was closed. 0.7.2's error rows looked at every new chat
+child by rendering it once, outside the frame's top-to-bottom pass, and the grouping reads that order: a call joined
+its group before the step that issued it. Only pi's status rows are looked at now. The same render read an
+assistant message pi had not filled in yet as a group boundary; that case is also guarded on its own now (#50, by
+dreanzy).
+
+**A request that fails for good is framed too** (#45). A failure that pi stops retrying is not a chat row of its
+own: pi ends the assistant message and draws `Error: 401: {…}` inside it, which 0.7.2 never saw. It now wears the
+same `╭─ error ─╮` frame, as does `Response was truncated` with nothing before it. After streamed text the line
+stays with that text, and an abort, your own Esc, stays as pi drew it. `tidy.dedupeErrors: false` restores pi's
+behaviour.
+
+### Changed
+
+**The changelog ships with the package.** pi 1.5 shows an extension's changelog after an update, but only for
+packages that publish one, and only from the second version it sees: the first time, it just notes the version.
+From this release on, pi can tell you what changed in tidy when you update.
+
 ## [0.7.2] - 2026-11-02
 
 ### Added

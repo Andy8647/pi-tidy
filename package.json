@@ -21,6 +21,7 @@
   "files": [
     "*.ts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "main": "./index.ts",
