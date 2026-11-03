@@ -20,7 +20,7 @@
  * and repeating one is a real event, not a retry.
  */
 
-import { InteractiveMode } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { type Component, Spacer, Text } from "@earendil-works/pi-tui";
 import { drawFrame, labeledTopBorder, stripBackgroundFills, trimBlankEdges, visibleText } from "./frame-draw.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
@@ -79,6 +79,27 @@ function blankRows(rows: string[]): boolean {
 }
 
 /**
+ * Give one row the error frame, labelled `label()` at draw time. Only `render`
+ * changes: the row keeps its identity, and nothing is drawn ahead of the frame.
+ */
+function frameErrorRow(child: Component, label: () => string, live?: () => boolean): void {
+  const unpainted = child.render.bind(child);
+  child.render = (width: number): string[] => {
+    if (live && !live()) return unpainted(width);
+    const theme = getTheme();
+    const w = Math.max(4, width);
+    const rows = trimBlankEdges(unpainted(Math.max(2, w - 2)).map(stripBackgroundFills));
+    if (rows.length === 0) return [];
+    // No theme yet: pi's shell hasn't painted anything either, so keep the
+    // rows exactly as pi drew them rather than inventing colours.
+    if (!theme) return rows;
+    const framed = drawFrame(rows, w, theme, "error");
+    framed[0] = labeledTopBorder(w, theme, "error", theme.fg("error", label()));
+    return framed;
+  };
+}
+
+/**
  * Watch one chat container. `addChild` is the only seam, and the rows keep
  * their identity: pi holds references to some of them (`removeChild` on the
  * previous status line), so a repeat is simply not added and the survivor gets
@@ -104,20 +125,7 @@ export function installErrorLines(container: ChatContainerLike): void {
     kept = child;
     keptText = text;
     keptCount = 1;
-    const unpainted = child.render.bind(child);
-    child.render = (width: number): string[] => {
-      const theme = getTheme();
-      const w = Math.max(4, width);
-      const rows = trimBlankEdges(unpainted(Math.max(2, w - 2)).map(stripBackgroundFills));
-      if (rows.length === 0) return [];
-      // No theme yet: pi's shell hasn't painted anything either, so keep the
-      // rows exactly as pi drew them rather than inventing colours.
-      if (!theme) return rows;
-      const framed = drawFrame(rows, w, theme, "error");
-      const name = keptCount > 1 ? `error ×${keptCount}` : "error";
-      framed[0] = labeledTopBorder(w, theme, "error", theme.fg("error", name));
-      return framed;
-    };
+    frameErrorRow(child, () => (keptCount > 1 ? `error ×${keptCount}` : "error"));
   };
 
   container.addChild = (child: Component) => {
@@ -156,6 +164,62 @@ export function installErrorLines(container: ChatContainerLike): void {
   };
 }
 
+const ASSISTANT_PATCH = Symbol.for("pi-tidy:error-lines-assistant");
+
+interface AssistantLike {
+  contentContainer?: { children?: Component[] };
+}
+
+interface FailedMessageLike {
+  stopReason?: unknown;
+  content?: unknown;
+}
+
+/**
+ * A request that fails for good never reaches the chat as a row of its own:
+ * pi ends the assistant message with `stopReason: "error"` and draws
+ * `Error: …` as the last line *inside* that message. A length stop does the
+ * same with "Response was truncated". Neither passes `addChild` on the chat, so
+ * they stayed bare while a retried failure wore the frame.
+ *
+ * Only a failure with nothing else to show is framed. After streamed text the
+ * line belongs to that text, and the settled reply may wear its own frame: a
+ * box inside it would be a frame in a frame. An abort is the user's own Esc,
+ * not a failure, and stays as pi drew it.
+ *
+ * The hook is `updateContent`, which rebuilds the message's rows: the line is
+ * found by what pi put there, never by rendering it.
+ */
+function patchAssistantErrors(): void {
+  const proto = (AssistantMessageComponent as unknown as { prototype?: Record<string | symbol, unknown> }).prototype;
+  if (!proto || proto[ASSISTANT_PATCH]) return;
+  const original = proto.updateContent;
+  if (typeof original !== "function") return;
+  proto[ASSISTANT_PATCH] = true;
+  proto.updateContent = function (this: AssistantLike, message: FailedMessageLike, ...rest: unknown[]) {
+    const result = (original as (...args: unknown[]) => unknown).call(this, message, ...rest);
+    if (failedWithNothingElse(message)) {
+      const last = this.contentContainer?.children?.at(-1);
+      if (last instanceof Text) {
+        frameErrorRow(
+          last,
+          () => "error",
+          () => tidyEnabled.get() && errorLineOptions.get().enabled,
+        );
+      }
+    }
+    return result;
+  };
+}
+
+function failedWithNothingElse(message: FailedMessageLike | undefined): boolean {
+  if (!message || !Array.isArray(message.content)) return false;
+  if (message.stopReason !== "error" && message.stopReason !== "length") return false;
+  // pi leaves a failed tool call's error to the tool row, and draws nothing here.
+  if (message.stopReason === "error" && message.content.some((block) => block?.type === "toolCall")) return false;
+  return !message.content.some((block) => block?.type === "text" && typeof block.text === "string" && block.text.trim());
+}
+
 /**
  * pi's interactive mode owns the chat container and hands it to nobody, so the
  * instance is reached through `init`. A pi that renames that method leaves the
@@ -164,6 +228,7 @@ export function installErrorLines(container: ChatContainerLike): void {
  */
 export function patchErrorLines(options: ErrorLineOptions): void {
   errorLineOptions.set(options);
+  patchAssistantErrors();
   const proto = (InteractiveMode as unknown as { prototype?: Record<string | symbol, unknown> }).prototype;
   if (!proto || proto[INIT_PATCH]) return;
   const original = proto.init;
