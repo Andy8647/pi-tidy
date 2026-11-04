@@ -11,7 +11,7 @@
 
 import { getLanguageFromPath, highlightCode, keyHint } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import type { ThemeLike } from "./theme-access.ts";
+import type { ThemeLike } from "../theme-access.ts";
 
 export interface WriteCallOptions {
   expanded: boolean;

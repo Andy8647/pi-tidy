@@ -12,7 +12,7 @@ import {
   COLLAPSED_COMMAND_CHARS,
   collapseBashCommand,
   formatBashCallHighlighted,
-} from "../bash-highlight.ts";
+} from "../src/tools/bash-highlight.ts";
 
 // Minimal stand-in for pi's Theme: styling is identity, so assertions read as plain text.
 const theme = {

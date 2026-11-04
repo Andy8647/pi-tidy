@@ -17,8 +17,8 @@ import {
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { patchToolBoxFrames } from "../frame.ts";
-import { renderSplitDiff } from "../split-diff.ts";
+import { patchToolBoxFrames } from "../src/frame.ts";
+import { renderSplitDiff } from "../src/tools/split-diff.ts";
 
 initTheme("dark");
 const theme = globalThis as unknown as Record<symbol, any>;

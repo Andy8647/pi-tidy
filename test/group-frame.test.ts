@@ -20,10 +20,10 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth } from "@earendil-works/pi-tui";
-import { patchToolBoxFrames } from "../frame.ts";
-import { resetGroups, summaryFor, THOUGHT_LIVE_MS } from "../tool-groups.ts";
-import { tidyEnabled, agentRunning } from "../live.ts";
-import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
+import { patchToolBoxFrames } from "../src/frame.ts";
+import { resetGroups, summaryFor, THOUGHT_LIVE_MS } from "../src/tools/tool-groups.ts";
+import { tidyEnabled, agentRunning } from "../src/live.ts";
+import { connectJobs, resetJobs, type EventBusLike } from "../src/tools/background-jobs.ts";
 
 initTheme("dark");
 const renderUserUnpatched = UserMessageComponent.prototype.render;

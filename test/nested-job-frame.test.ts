@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AssistantMessageComponent, CustomMessageComponent, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth } from "@earendil-works/pi-tui";
-import tidy from "../index.ts";
-import { connectJobs, resetJobs, type EventBusLike } from "../background-jobs.ts";
-import { resetGroups } from "../tool-groups.ts";
-import { enableHoverForTests, resetHover } from "../tool-group-view.ts";
+import tidy from "../src/index.ts";
+import { connectJobs, resetJobs, type EventBusLike } from "../src/tools/background-jobs.ts";
+import { resetGroups } from "../src/tools/tool-groups.ts";
+import { enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
 import { harness, loadTidy } from "./renderer-harness.ts";
 
 initTheme("dark");

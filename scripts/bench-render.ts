@@ -14,14 +14,17 @@ const count = Number(countArg);
 if (!root || !Number.isInteger(count) || count < 10 || count % 10 || !["folded", "expanded", "turns"].includes(mode as string)) {
   throw new Error("Usage: node scripts/bench-render.ts <checkout> <components: multiple of 10> <folded|expanded|turns>");
 }
-const load = (file: string) => import(pathToFileURL(resolve(root, file)).href);
-const { patchToolBoxFrames, patchContainerBoxes } = await load("frame.ts");
-const { tidyEnabled, agentRunning } = await load("live.ts");
-const { resetGroups } = await load("tool-groups.ts");
-const { codemodeSections } = await load("codemode-body.ts");
+// A base from before the move to src/ keeps its modules at the root; the name is the same in both.
+const nested = existsSync(resolve(root, "src/index.ts"));
+const located = (dir: string, file: string) => resolve(root, nested ? `src/${dir}${file}` : file);
+const load = (dir: string, file: string) => import(pathToFileURL(located(dir, file)).href);
+const { patchToolBoxFrames, patchContainerBoxes } = await load("", "frame.ts");
+const { tidyEnabled, agentRunning } = await load("", "live.ts");
+const { resetGroups } = await load("tools/", "tool-groups.ts");
+const { codemodeSections } = await load("tools/", "codemode-body.ts");
 // Turn folding arrived in 0.7.0: a base that predates it still has to render
 // folded and expanded, so the module is optional and only `turns` insists.
-const turnModule = existsSync(resolve(root, "turn-state.ts")) ? await load("turn-state.ts") : undefined;
+const turnModule = existsSync(located("turns/", "turn-state.ts")) ? await load("turns/", "turn-state.ts") : undefined;
 initTheme("dark");
 tidyEnabled.set(true);
 agentRunning.set(false);

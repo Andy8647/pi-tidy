@@ -28,10 +28,10 @@ import {
   trimBlankEdges,
   trimTrailingSpaces,
   visibleText,
-} from "./frame-draw.ts";
-import { MESSAGE_ICONS } from "./icons.ts";
-import { liveSlot, tidyEnabled } from "./live.ts";
-import { getTheme } from "./theme-access.ts";
+} from "../draw/frame-draw.ts";
+import { MESSAGE_ICONS } from "../draw/icons.ts";
+import { liveSlot, tidyEnabled } from "../live.ts";
+import { getTheme } from "../theme-access.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Message boxes (compaction / branch summary)

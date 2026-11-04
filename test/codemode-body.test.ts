@@ -13,7 +13,7 @@ import {
   composeCodemodeBody,
   decorateCodemodeBody,
   toggleCodemodeSection,
-} from "../codemode-body.ts";
+} from "../src/tools/codemode-body.ts";
 
 const theme = {
   fg: (_token: string, text: string) => `\x1b[36m${text}\x1b[39m`,

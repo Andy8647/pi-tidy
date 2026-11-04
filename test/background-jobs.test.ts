@@ -19,8 +19,8 @@ import {
   setJobOptions,
   spinnerFrame,
   type EventBusLike,
-} from "../background-jobs.ts";
-import { describeJob } from "../tool-lines.ts";
+} from "../src/tools/background-jobs.ts";
+import { describeJob } from "../src/tools/tool-lines.ts";
 
 /** A minimal stand-in for pi's extension event bus. */
 function bus(): EventBusLike & { listeners: Map<string, Array<(data: unknown) => void>> } {

@@ -23,9 +23,9 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const theme = (globalThis as any)[THEME_KEY];
 
 const { enableHoverForTests, installHoverTracking, renderGroupedTool, resetHover, routeGroupedMouse } = await import(
-  "../tool-group-view.ts"
+  "../src/tools/tool-group-view.ts"
 );
-const { noteBoundary, resetGroups } = await import("../tool-groups.ts");
+const { noteBoundary, resetGroups } = await import("../src/tools/tool-groups.ts");
 
 /** The Terminal surface TuiAltScreen touches, minus anything real. */
 function fakeTerminal(columns = 200, rows = 20) {

@@ -110,6 +110,6 @@ jobs:
           tar -tzf "$TARBALL" | sort
           # Every module index.ts imports, directly or not — a missing one only
           # shows up as an import error when pi loads the extension.
-          for f in $(ls *.ts | sed 's|^|package/|') package/README.md package/LICENSE; do
+          for f in $(find src -name '*.ts' | sed 's|^|package/|') package/README.md package/LICENSE; do
             tar -tzf "$TARBALL" | grep -qx "$f" || { echo "::error::$f missing from tarball"; exit 1; }
           done

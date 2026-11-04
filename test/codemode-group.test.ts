@@ -12,10 +12,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AssistantMessageComponent, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { patchToolBoxFrames } from "../frame.ts";
-import { resetGroups } from "../tool-groups.ts";
-import { tidyEnabled } from "../live.ts";
-import { enableHoverForTests, resetHover } from "../tool-group-view.ts";
+import { patchToolBoxFrames } from "../src/frame.ts";
+import { resetGroups } from "../src/tools/tool-groups.ts";
+import { tidyEnabled } from "../src/live.ts";
+import { enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
 
 initTheme("dark");
 patchToolBoxFrames({ icons: false, groupTools: true });

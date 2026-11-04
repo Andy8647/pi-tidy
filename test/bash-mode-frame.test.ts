@@ -22,8 +22,8 @@ const sgr = (color: string) => `\x1b[38;5;${CODES[color] ?? 250}m`;
   getColorMode: () => "truecolor",
 };
 
-const { patchBashExecutions } = await import("../frame.ts");
-const { tidyEnabled } = await import("../live.ts");
+const { patchBashExecutions } = await import("../src/frame.ts");
+const { tidyEnabled } = await import("../src/live.ts");
 const { BashExecutionComponent } = await import("@earendil-works/pi-coding-agent");
 
 const USER_ICON = "\u{f007}";

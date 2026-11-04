@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { UserMessageStyle } from "./user-message.ts";
-import type { CollapseTurns } from "./turn-state.ts";
+import type { UserMessageStyle } from "./messages/user-message.ts";
+import type { CollapseTurns } from "./turns/turn-state.ts";
 
 export interface MessageBorderColors {
   user: string;

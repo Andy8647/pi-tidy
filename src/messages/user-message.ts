@@ -16,11 +16,11 @@
  */
 
 import { UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { sameLines, stripBackgroundFills, trimBlankEdges } from "./frame-draw.ts";
-import { MESSAGE_ICONS } from "./icons.ts";
-import { liveSlot, tidyEnabled } from "./live.ts";
-import { paint } from "./paint.ts";
-import { getTheme, type ThemeLike } from "./theme-access.ts";
+import { sameLines, stripBackgroundFills, trimBlankEdges } from "../draw/frame-draw.ts";
+import { MESSAGE_ICONS } from "../draw/icons.ts";
+import { liveSlot, tidyEnabled } from "../live.ts";
+import { paint } from "../draw/paint.ts";
+import { getTheme, type ThemeLike } from "../theme-access.ts";
 
 export type UserMessageStyle = "rail" | "frame" | "off";
 

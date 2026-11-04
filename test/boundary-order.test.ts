@@ -25,8 +25,8 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
-import factory from "../index.ts";
-import { installErrorLines } from "../error-lines.ts";
+import factory from "../src/index.ts";
+import { installErrorLines } from "../src/messages/error-lines.ts";
 import { harness, loadTidy } from "./renderer-harness.ts";
 
 initTheme("dark");

@@ -8,7 +8,7 @@ import { syncBuiltinESMExports } from "node:module";
 import os, { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadConfig } from "../config.ts";
+import { loadConfig } from "../src/config.ts";
 
 function withSettings(settings: object, fn: () => void): void {
   const dir = mkdtempSync(join(tmpdir(), "pi-tidy-config-"));

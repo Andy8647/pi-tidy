@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { formatWriteCallText } from "../write-preview.ts";
+import { formatWriteCallText } from "../src/tools/write-preview.ts";
 
 initTheme("dark");
 const theme = (globalThis as unknown as Record<symbol, any>)[

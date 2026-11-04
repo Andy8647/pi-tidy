@@ -20,8 +20,8 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 };
 
 const { disableHoverForTests, enableHoverForTests, NOT_GROUPED, renderGroupedTool, resetHover, routeGroupedMouse } =
-  await import("../tool-group-view.ts");
-const { noteBoundary, resetGroups } = await import("../tool-groups.ts");
+  await import("../src/tools/tool-group-view.ts");
+const { noteBoundary, resetGroups } = await import("../src/tools/tool-groups.ts");
 
 const theme = (globalThis as any)[THEME_KEY];
 

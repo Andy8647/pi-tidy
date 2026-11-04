@@ -32,7 +32,7 @@
  */
 
 import type { JobStatus } from "./background-jobs.ts";
-import { agentRunning, groupOpen } from "./live.ts";
+import { agentRunning, groupOpen } from "../live.ts";
 
 export interface GroupMember {
   toolName: string;

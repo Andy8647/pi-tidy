@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createEditToolDefinition, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
-import { patchToolBoxFrames } from "../tool-frame.ts";
-import { resetGroups, thinkingRuns } from "../tool-groups.ts";
+import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
+import { resetGroups, thinkingRuns } from "../src/tools/tool-groups.ts";
 
 initTheme("dark");
 const theme = (globalThis as unknown as Record<symbol, any>)[Symbol.for("@earendil-works/pi-coding-agent:theme")];

@@ -5,11 +5,11 @@ import {
   createReadToolDefinition, createEditToolDefinition, createWriteToolDefinition, initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { visibleText } from "../frame-draw.ts";
-import { patchToolBoxFrames } from "../tool-frame.ts";
-import { resetGroups } from "../tool-groups.ts";
-import { disableHoverForTests, enableHoverForTests, resetHover } from "../tool-group-view.ts";
-import { TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../turn-state.ts";
+import { visibleText } from "../src/draw/frame-draw.ts";
+import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
+import { resetGroups } from "../src/tools/tool-groups.ts";
+import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
+import { TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 
 initTheme("dark");
 const cwd = process.cwd();
