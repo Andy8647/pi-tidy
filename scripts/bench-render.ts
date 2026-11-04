@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import {
   AssistantMessageComponent, UserMessageComponent, ToolExecutionComponent, initTheme,
   createBashToolDefinition, createReadToolDefinition, createEditToolDefinition, createCodemodeExtension,
@@ -11,8 +12,12 @@ import { Container, type TUI } from "@earendil-works/pi-tui";
 // The driver always comes from the PR; only Tidy's modules change between revisions.
 const [root, countArg, mode] = process.argv.slice(2);
 const count = Number(countArg);
-if (!root || !Number.isInteger(count) || count < 10 || count % 10 || !["folded", "expanded", "turns"].includes(mode as string)) {
-  throw new Error("Usage: node scripts/bench-render.ts <checkout> <components: multiple of 10> <folded|expanded|turns>");
+const opened = mode === "opened" || mode === "opened-2" || mode === "opened-large";
+// A large group has 23 calls plus a pinned edit, about what a long real reply makes.
+const perTurn = mode === "opened-large" ? 50 : 10;
+if (!root || !Number.isInteger(count) || count < perTurn || count % perTurn
+  || !["folded", "expanded", "turns", "opened", "opened-2", "opened-large"].includes(mode as string)) {
+  throw new Error("Usage: node scripts/bench-render.ts <checkout> <components: multiple of 10, or 50 for opened-large> <folded|expanded|turns|opened|opened-2|opened-large>");
 }
 // A base from before the move to src/ keeps its modules at the root; the name is the same in both.
 const nested = existsSync(resolve(root, "src/index.ts"));
@@ -28,7 +33,11 @@ const turnModule = existsSync(located("turns/", "turn-state.ts")) ? await load("
 initTheme("dark");
 tidyEnabled.set(true);
 agentRunning.set(false);
-patchToolBoxFrames({ icons: true, groupTools: true, splitDiff: true, diffLines: 20, backgroundJobs: false });
+patchToolBoxFrames({
+  icons: true, groupTools: true, splitDiff: true, diffLines: 20, backgroundJobs: false,
+  // An opened run shows one row per call, as after clicking its group open.
+  groupOpen: opened, toolRowLines: mode === "opened-2" ? 2 : 1,
+});
 patchContainerBoxes({ user: "toolTitle" }, { icons: true, includeUser: true, enabled: true });
 resetGroups();
 
@@ -52,15 +61,21 @@ const assistant = (content: any[], stopReason = "stop") => {
   store?.note(message as any);
   return new AssistantMessageComponent(message as any, true);
 };
-for (let turn = 0; turn < count / 10; turn++) {
+const calls = mode === "opened-large"
+  ? [...Array.from({ length: 23 }, (_, call) => ["bash", "bash", "read"][call % 3]!), "edit"]
+  : ["read", "bash", "codemode", "edit"];
+for (let turn = 0; turn < count / perTurn; turn++) {
   const path = `${cwd}/src/module-${turn}.ts`;
   store?.begin();
   store?.note({ role: "user", content: [{ type: "text", text: `Check module ${turn}` }], ...stamp() } as any);
   chat.addChild(new UserMessageComponent(`Check module ${turn}, inspect its tests, then fix the result. 检查边界情况。`));
   chat.addChild(assistant([{ type: "text", text: `## Module ${turn}\n\nI will inspect the implementation and its tests.` }]));
-  for (const name of ["read", "bash", "codemode", "edit"]) {
-    const id = `call-${turn}-${name}`;
-    const args = name === "bash" ? { command: `pnpm test --filter module-${turn}` }
+  for (const [index, name] of calls.entries()) {
+    const id = `call-${turn}-${index}-${name}`;
+    // Too long for one row, so `opened-2` draws the second one and `opened` clips the same text.
+    const args = name === "bash" ? { command: opened
+        ? `cd ${cwd} && pnpm test --filter module-${turn}-${index} --reporter=verbose --coverage --bail=1 && git diff --stat -- src/module-${turn}.ts test/module-${turn}.test.ts | tail -20`
+        : `pnpm test --filter module-${turn}` }
       : name === "codemode" ? { code: `const source = await tools.read({ path: "${path}" });\nawait tools.bash({ command: "pnpm lint" });\ntext(source);` }
       : name === "edit" ? { path, edits: [{ oldText: `const value = ${turn};`, newText: `const value = ${turn + 1};` }] }
       : { path, offset: 1, limit: 40 };
@@ -106,13 +121,23 @@ if (mode === "turns") {
   if (!turnModule) throw new Error(`turns: turn folding is not in ${root}`);
   turnModule.turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: false, icons: true });
 }
+if (opened) {
+  if (!turnModule) throw new Error(`${mode}: turn folding is not in ${root}`);
+  // Tidy's defaults, with every run opened: this is where the rail is drawn.
+  turnModule.turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: true, icons: true });
+  for (const tool of tools) turnModule.expandTurnForTool((tool as unknown as { toolCallId: string }).toolCallId, true);
+}
 for (let frame = 0; frame < 20; frame++) chat.render(width);
 const preview = chat.render(width).join("\n");
 const markers = mode === "folded" ? ["3 calls", "diff"]
   : mode === "expanded" ? ["Source inspected", "value19"]
+  : mode === "opened-large" ? ["23 calls", "--reporter=verbose", "diff"]
+  : opened ? ["3 calls", "--reporter=verbose", "diff"]
   // A folded turn keeps its summary row and the final answer, nothing else.
   : ["4 calls", "Updated module"];
-for (const marker of markers) if (!preview.includes(marker)) throw new Error(`Fixture is missing ${marker}`);
+// A highlighted command is cut up by colour codes.
+const visible = stripVTControlCharacters(preview);
+for (const marker of markers) if (!visible.includes(marker)) throw new Error(`Fixture is missing ${marker}`);
 if (mode === "turns" && preview.includes("value19")) throw new Error("Folded turn still renders a tool body");
 const samples: number[] = [];
 let rows = 0;

@@ -308,13 +308,17 @@ works too if you never want it. Nothing to configure on this side either way.
 
 PRs include a **Render benchmark** check. Its Job Summary compares the PR's base and head
 commits on the same runner using the same fixture and installed dependencies. It reports
-median and P95 milliseconds per frame at 100, 500 and 1,500 components, folded and with all
-tool outputs expanded. Raw samples are attached as an artifact. Timing changes do not fail CI.
+median and P95 milliseconds per frame at 100, 500 and 1,500 components: folded, runs folded,
+and with all tool outputs expanded. At 500 and 1,500 it also measures opened runs on the rail,
+with two-row calls and with large groups. Raw samples are attached as an artifact. Timing
+changes do not fail CI.
 
 The fixture uses real pi components with synthetic user messages, thinking, tool groups,
 failures, edit diffs and codemode calls. It never executes tools or contacts a model.
-Measurements cover warm transcript rendering, not terminal drawing or end-to-end scroll latency;
-small differences can be runner noise. For a local comparison, run `pnpm bench /path/to/base-checkout`
+Measurements cover warm transcript rendering, not terminal drawing or end-to-end scroll latency.
+Identical code can differ a lot between processes, so each revision runs in four workers and the
+table shows their range: a change whose ranges overlap is not evidence of anything. For a local
+comparison, run `pnpm bench /path/to/base-checkout`
 from the PR checkout. Both checkouts must resolve the PR checkout's installed dependencies.
 
 ## Compatible themes

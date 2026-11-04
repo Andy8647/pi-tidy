@@ -648,6 +648,19 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   const context = GUTTER_CELLS + 1 + (icons ? 2 : 0) + align.name + 4 + metrics;
   const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
   const firstRow = lines.length;
+  // Settled rows are the same every frame, and a transcript holds hundreds. Handing
+  // back the same array also lets the rail's own cache hit, which keys on it.
+  const settled = !plan.live && !open && !hovered;
+  const header = clickMap.header === null ? undefined : lines[clickMap.header];
+  const cached = settled ? settledCarriers.get(component) : undefined;
+  if (
+    cached && cached.runs === runs && cached.width === width && cached.context === context && cached.header === header &&
+    cached.theme === theme && cached.icons === icons && cached.thinkingColor === thinkingColor && cached.name === align.name
+  ) {
+    clickMap.from = firstRow;
+    clickMap.to = cached.lines.length - 1;
+    return { lines: cached.lines };
+  }
   for (const index of runs.keys()) {
     const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
     // One still arriving or opened is what the reader is looking at, so it keeps its label and colour.
@@ -663,8 +676,22 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   }
   clickMap.from = firstRow;
   clickMap.to = lines.length - 1;
+  if (settled) settledCarriers.set(component, { runs, width, context, header, theme, icons, thinkingColor, name: align.name, lines });
   return { lines };
 }
+
+/** The last settled rows of a carrier, with everything they were drawn from. */
+const settledCarriers = new WeakMap<object, {
+  runs: readonly string[];
+  width: number;
+  context: number;
+  header: string | undefined;
+  theme: ThemeLike;
+  icons: boolean;
+  thinkingColor: ReturnType<typeof thinkingColorFor>;
+  name: number;
+  lines: string[];
+}>();
 
 /** The width an opened thinking run's text is laid out at, inside its indent. */
 function iconBodyWidth(width: number): number {
