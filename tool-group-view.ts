@@ -19,7 +19,7 @@ import {
 } from "./background-jobs.ts";
 import { padToWidth } from "./frame-draw.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
-import { presentTurn, TURN_LAYOUT } from "./turn-view.ts";
+import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "./turn-view.ts";
 import { folded, turnFor, turnOptions } from "./turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -28,7 +28,7 @@ import {
   formatGroupLine,
   formatThoughtLabel,
   formatThoughtLine,
-  formatToolLine,
+  formatToolRows,
   formatJobLine,
   GUTTER_CELLS,
   groupGutter,
@@ -36,6 +36,7 @@ import {
   previewText,
   summarizeResult,
   THOUGHT_LABEL_CELLS,
+  THOUGHT_PREVIEW_CELLS,
   THOUGHT_TICK_MS,
 } from "./tool-lines.ts";
 import {
@@ -241,7 +242,7 @@ export function renderGroupedTool(
   tool: GroupedTool,
   width: number,
   theme: ThemeLike,
-  options: { icons: boolean; pinned: boolean },
+  options: { icons: boolean; pinned: boolean; highlight?: boolean; rowLines?: number },
   frameBox: (width: number, unframed?: boolean) => string[],
 ): string[] | undefined {
   // Another extension may have patched a boundary render on top of ours
@@ -260,7 +261,7 @@ export function renderGroupedTool(
     return undefined;
   }
 
-  const { icons } = options;
+  const { icons, highlight, rowLines } = options;
   const hovered = hoverState.tool === tool ? hoverState.row : null;
   const align = groupAlign(tool);
   // The header is memoized on its own inputs and hands back the same string
@@ -279,7 +280,7 @@ export function renderGroupedTool(
   // key: on a folded row the check has to cost less than the row it skips.
   const cached = live ? undefined : groupedRows.get(tool);
   if (
-    cached && cached.width === width && cached.icons === icons && cached.line === plan.line &&
+    cached && cached.width === width && cached.icons === icons && cached.highlight === highlight && cached.rowLines === rowLines && cached.line === plan.line &&
     cached.full === plan.full && cached.hovered === hovered && cached.align === align &&
     cached.header === headerLine && cached.body === body && cached.theme === theme &&
     cached.result === tool.result && cached.args === tool.args
@@ -292,13 +293,14 @@ export function renderGroupedTool(
   const gutter = groupGutter(theme);
   if (plan.line || plan.full) {
     const spinner = job ? spinnerFrame(job) : undefined;
-    // The tick costs two cells more than the rail does.
-    const rowWidth = width - GUTTER_CELLS - (plan.full ? 2 : 0);
-    const row = formatToolLine(tool, theme, { icons, job, spinner, hovered: hovered === "row", width: rowWidth, align });
+    const rowWidth = width - GUTTER_CELLS;
+    const [row, below] = formatToolRows(tool, theme, { icons, job, spinner, hovered: hovered === "row", width: rowWidth, align, highlight, rowLines });
     // An opened call keeps its row — it does not turn into something else — and
     // takes a tick off the rail to show what hangs below it.
-    const line = plan.full ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
-    lines.push(hovered === "row" ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
+    const line = plan.full ? `${tickGutter(theme)}${withoutLead(row!)}` : gutter + row;
+    const drawn = below === undefined ? [line] : [line, `${gutter}${below}`];
+    for (const each of drawn) lines.push(hovered === "row" ? hoverBand(each, width, theme) : clipToWidth(each, width, "…"));
+    rowsBelow.set(tool, drawn.length - 1);
   }
   if (plan.full && body) {
     // Inside the group the rail already says what belongs to what, so a box
@@ -346,7 +348,7 @@ export function renderGroupedTool(
   }
   nestedRowSpans.set(tool, spans);
   if (!live) groupedRows.set(tool, {
-    width, icons, line: plan.line, full: plan.full, hovered, align,
+    width, icons, highlight, rowLines, line: plan.line, full: plan.full, hovered, align,
     header: headerLine, body, theme, result: tool.result, args: tool.args, lines,
   });
   return lines;
@@ -361,6 +363,8 @@ export function renderGroupedTool(
 const groupedRows = new WeakMap<object, {
   width: number;
   icons: boolean;
+  highlight: boolean | undefined;
+  rowLines: number | undefined;
   line: boolean;
   full: boolean;
   hovered: HoverRow | null;
@@ -439,13 +443,16 @@ function runningJob(jobs: JobState[]): JobState | undefined {
  * when the group's membership changes, not per row — `summarizeResult` walks a
  * result's whole output, and doing that once per row would be quadratic.
  */
-const alignCache = new WeakMap<readonly object[], { count: number; name: number; note: number; duration: number }>();
+const alignCache = new WeakMap<readonly object[], { count: number; settled: number; name: number; note: number; duration: number }>();
 
 function groupAlign(anchor: object): { name: number; note: number; duration: number } {
   const members = groupMembers(anchor);
+  // A result landing changes the columns without changing the membership.
+  let settled = 0;
+  for (const member of members) if (member.result) settled++;
   const cached = alignCache.get(members);
-  if (cached && cached.count === members.length) return cached;
-  let name = 0;
+  if (cached && cached.count === members.length && cached.settled === settled) return cached;
+  let name = NAME_COLUMN_MIN;
   let note = 0;
   let duration = 0;
   for (const member of members) {
@@ -456,10 +463,17 @@ function groupAlign(anchor: object): { name: number; note: number; duration: num
   // One long MCP name would push every argument out of reach; past the cap the
   // column stops growing and those rows keep one space after their name.
   name = Math.min(name, NAME_COLUMN_MAX);
-  const entry = { count: members.length, name, note, duration };
+  const entry = { count: members.length, settled, name, note, duration };
   alignCache.set(members, entry);
   return entry;
 }
+
+/**
+ * The narrowest name column whose arguments start where a thinking row's text
+ * does: `bash ✓` has to fill the width of `thinking`. Every group gets it, so a
+ * thought arriving later does not move the rows, and groups line up with each other.
+ */
+const NAME_COLUMN_MIN = 6;
 
 /** Cells the tool-name column may take before an argument column stops paying off. */
 const NAME_COLUMN_MAX = 14;
@@ -470,6 +484,14 @@ const NAME_COLUMN_MAX = 14;
  */
 function tickGutter(theme: ThemeLike): string {
   return ` ${theme.fg("borderMuted", "├─")}`;
+}
+
+/**
+ * A row without its one-cell lead, which is where a tick's extra cell goes: the row's
+ * columns then stay under the unopened rows'. An italic row keeps it behind its escape.
+ */
+function withoutLead(row: string): string {
+  return row.replace(/^((?:\x1b\[[0-9;]*m)*) /, "$1");
 }
 
 /** Cells an opened call's body is pushed in by, under its row: the rail plus three. */
@@ -585,12 +607,15 @@ function groupSpinner(jobs: JobState[]): string {
   return young ? spinnerFrame({ id: "", name: "", status: "running", startTime: now }, now) : "●";
 }
 
+/** The rows a call's own row runs on to under it: its second row, when it drew one. */
+const rowsBelow = new WeakMap<object, number>();
+
 /** Which of this tool's clickable rows sits at `y`, if any. */
-function hoverRowAt(plan: ViewPlan, y: number | undefined): HoverRow | null {
+function hoverRowAt(tool: object, plan: ViewPlan, y: number | undefined): HoverRow | null {
   if (typeof y !== "number") return null;
   if (plan.header && y === 0) return "header";
   const row = plan.header ? y - 1 : y;
-  return plan.line && row === 0 ? "row" : null;
+  return plan.line && row >= 0 && row <= (rowsBelow.get(tool) ?? 0) ? "row" : null;
 }
 
 /** `routeGroupedMouse` result meaning "not grouped: handle it as a plain box". */
@@ -642,7 +667,7 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   if (event?.type === "move") {
     if (!hoverTracking) return undefined;
     hoverClaimed = true;
-    const row = hoverRowAt(plan, y);
+    const row = hoverRowAt(tool, plan, y);
     const changed = setHover(row ? tool : null, row, tool.ui);
     if (changed) tool.ui?.requestRender?.();
     return undefined;
@@ -664,7 +689,7 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
     y -= 1;
   }
   if (plan.line) {
-    if (y !== 0 || !click) return undefined;
+    if (y < 0 || y > (rowsBelow.get(tool) ?? 0) || !click) return undefined;
     // A row always means "this call's box" — also the running/failed row
     // under a folded header, which opens the group on the way.
     openGroup(tool);
@@ -676,7 +701,7 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   }
   // dy is one less than the row above the border: the box's own leading blank
   // row is dropped when it is drawn under the gutter.
-  if (plan.full) return routing.boxMouse(event, boxIndent(tool, plan), (plan.header ? 1 : 0) - 1);
+  if (plan.full) return routing.boxMouse(event, boxIndent(tool, plan), (plan.header ? 1 : 0) - 1 + (rowsBelow.get(tool) ?? 0));
   return undefined;
 }
 
@@ -765,17 +790,19 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   // summary line, not here — and the window moves on a tick, not per frame.
   const now = Date.now();
   const align = groupAlign(component);
-  // The label's column moved with the names, so the live window shrinks by as
-  // much as the padding grew.
-  const context = GUTTER_CELLS + THOUGHT_LABEL_CELLS + Math.max(0, align.name - "thinking".length);
+  // The text starts in the arguments' column (lead, icon, name, status and gap) and
+  // stops short of the metrics the rows around it carry on the right.
+  const metrics = 2 + (align.note > 0 ? align.note + 3 : 0) + align.duration;
+  const context = GUTTER_CELLS + 1 + (icons ? 2 : 0) + align.name + 4 + metrics;
   const liveTexts = plan.live && !open ? liveRowText(component, runs, runs.map(() => width - context), now) : undefined;
   const firstRow = lines.length;
   for (const index of runs.keys()) {
     const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
-    const row = formatThoughtLine(text, theme, { icons, thinkingColor, align });
+    // One still arriving or opened is what the reader is looking at, so it keeps its label and colour.
+    const row = formatThoughtLine(text, theme, { icons, thinkingColor, align, quiet: !plan.live && !open });
     // Open: the row keeps its place and takes a tick, exactly like an opened
     // call — the reasoning hangs under it instead of replacing it.
-    const line = open ? `${tickGutter(theme)} ${row.trimStart()}` : gutter + row;
+    const line = open ? `${tickGutter(theme)}${withoutLead(row)}` : gutter + row;
     lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
   }
   if (open) {
@@ -1051,7 +1078,7 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
       rows = drawFrame(body, width, theme, color);
       rows[0] = labeledTopBorder(width, theme, color, formatThoughtLabel(theme, { icons, thinkingColor: color, spinner }));
     } else {
-      const text = liveTexts?.[index] ?? settledRowText(runs, budget)[index] ?? "";
+      const text = liveTexts?.[index] ?? settledRowText(runs, Math.min(budget, THOUGHT_PREVIEW_CELLS))[index] ?? "";
       rows = [formatThoughtLine(text, theme, { icons, thinkingColor: color, spinner })];
     }
     // A final thinking block carries pi's end-of-message markers too.
@@ -1131,7 +1158,10 @@ function wrapBoundaryRender(
     this[CARRIER_CLICK] = null;
     this[MESSAGE_VIEW] = undefined;
     const width = typeof args[0] === "number" ? args[0] : 80;
-    const how = groupingActive() ? view(this, width) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
+    // Rows drawn here are final, so they must leave room for the rail. One cell too
+    // wide and pi cuts the row, closing colours included: a hover band then bleeds on.
+    const room = assistant && messageOnRail(this) ? Math.max(1, width - TURN_RAIL_CELLS) : width;
+    const how = groupingActive() ? view(this, room) : ungrouped && tidyEnabled.get() ? ungrouped : "untrimmed";
     const options = assistant ? turnOptions.get() : undefined;
     if (!options || (options.collapseTurns === "off" && !options.frameFinalReply)) {
       if (this[TURN_LAYOUT]) this[TURN_LAYOUT] = undefined;

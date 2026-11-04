@@ -7,7 +7,7 @@ import { disableHoverForTests, enableHoverForTests, resetHover } from "../tool-g
 import { resetGroups } from "../tool-groups.ts";
 import { formatMessageTime, visibleText } from "../frame-draw.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../turn-state.ts";
-import { replyLabel, summaryLine } from "../turn-view.ts";
+import { joinBoxCorners, replyLabel, summaryLine, railRows } from "../turn-view.ts";
 import { getTheme } from "../theme-access.ts";
 
 initTheme("dark");
@@ -80,6 +80,7 @@ test("outer fold hides all process including thinking and always-shown edits; su
   const { chat } = fixture();
   const folded = frame(chat).join("\n");
   assert.ok(folded.includes("took 1s"));
+  assert.match(folded, /took.*\d+ calls/, "folded, the summary is the only count");
   assert.ok(folded.includes("Fixed the result"));
   assert.ok(folded.includes("claude-sonnet-4-5"));
   assert.ok(!folded.includes("Checking the implementation"));
@@ -90,10 +91,101 @@ test("outer fold hides all process including thinking and always-shown edits; su
   assert.ok(opened.join("\n").includes("Checking the implementation"));
   assert.ok(opened.join("\n").includes("diff"));
   assert.equal(opened.filter((line) => line.includes("took")).length, 1);
+  assert.doesNotMatch(opened.find((line) => line.includes("took"))!, /calls/, "open, the group headers count the calls");
   assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("Checking the implementation")), "an opened turn keeps its summary at the top");
   assert.ok(opened.findIndex((line) => line.includes("took")) < opened.findIndex((line) => line.includes("claude-sonnet-4-5")));
   click(chat, (line) => line.includes("took"));
   assert.equal(frame(chat).join("\n"), folded);
+});
+
+test("an open turn hangs its process on a rail, and the reply stands clear of it at full width", () => {
+  const { chat, read } = fixture("afterRun", true, true);
+  assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾") || line.startsWith("│ │")), "folded: no rail");
+  click(chat, (line) => line.includes("took"));
+  const opened = frame(chat);
+  const top = opened.findIndex((line) => line.includes("took"));
+  const reply = opened.findIndex((line) => line.includes("claude-sonnet-4-5"));
+  const process = opened.slice(top + 1, reply).filter((line) => line.trim());
+  assert.ok(process.length > 2, opened.join("\n"));
+  assert.ok(process.every((line) => line.startsWith("│")), opened.join("\n"));
+  assert.ok(process.some((line) => line.startsWith("│ ▾ ") && line.includes("call")), `the group sits one level in:\n${opened.join("\n")}`);
+  assert.ok(opened[top]!.startsWith("▾ took"), "the rail runs down from the summary's marker");
+  assert.ok(opened[reply]!.startsWith("├─ "), `the rail runs into the reply's corner:\n${opened.join("\n")}`);
+  assert.ok(opened.slice(reply + 1).every((line) => !line.startsWith("│ ▾")), opened.join("\n"));
+  assert.equal(opened[reply]!.length, W, "the reply keeps the full width");
+  assert.ok(opened.every((line) => visibleWidth(line) <= W), opened.join("\n"));
+
+  // A click reaches the call through the rail.
+  const y = opened.findIndex((line) => line.startsWith("│ │") && line.includes("read"));
+  assert.ok(y >= 0, opened.join("\n"));
+  chat.handleMouse({ type: "click", button: "left", x: 20, y, screenX: 20, screenY: y, width: W, height: opened.length, shift: false, alt: false, ctrl: false } as any);
+  assert.equal((read as any).expanded, true);
+
+  click(chat, (line) => line.includes("took"));
+  const closed = frame(chat);
+  assert.ok(!closed.some((line) => line.startsWith("│ ▾") || line.startsWith("│ │")), "folded again: no rail");
+  assert.ok(closed.some((line) => line.startsWith("╭─ ") && line.includes("claude-sonnet-4-5")), `no rail, no join:\n${closed.join("\n")}`);
+});
+
+test("without a frame the reply still stands clear of the rail, and while running nothing is the reply yet", () => {
+  const { chat } = fixture("afterRun", true, true);
+  turnOptions.set({ ...turnOptions.get(), frameFinalReply: false });
+  click(chat, (line) => line.includes("took"));
+  const opened = frame(chat);
+  const reply = opened.find((line) => line.includes("Fixed the result"))!;
+  assert.ok(!reply.startsWith("│"), opened.join("\n"));
+  assert.ok(opened.some((line) => line.startsWith("│ ▾ ")), opened.join("\n"));
+  const running = fixture("afterRun", false, true);
+  turnOptions.set({ ...turnOptions.get(), frameFinalReply: false });
+  const live = frame(running.chat);
+  assert.ok(live.some((line) => line.startsWith("│")), live.join("\n"));
+  assert.ok(!live.some((line) => line.includes("running") && line.startsWith("│")), "the summary itself is not on the rail");
+});
+
+test("a framed box on the rail takes the pointer in its own coordinates", () => {
+  const { chat, edit } = fixture("afterRun", true, false);
+  click(chat, (line) => line.includes("took"));
+  const lines = frame(chat);
+  const y = lines.findIndex((line) => line.includes("x.ts") || line.includes("╭"));
+  assert.ok(y >= 0, lines.join("\n"));
+  const seen: number[] = [];
+  const target = (edit as any).getRenderShell() === "self" ? (edit as any).selfRenderContainer : (edit as any).contentBox;
+  const geometry = (edit as any).__frameGeometry;
+  assert.ok(geometry, "the edit drew a frame");
+  target.handleMouse = (event: any) => { seen.push(event.x); return { handled: true }; };
+  // Past the rail and its gap (2) and the left border (1), column 7 of the screen is column 4 of the source.
+  (edit as any).handleMouse({ type: "press", button: "left", x: 7, y: geometry.top + 1, width: W, height: 10 });
+  assert.deepEqual(seen, [4]);
+});
+
+test("the rail takes the colour of the reply it runs into", () => {
+  const painted: string[] = [];
+  const theme: any = { fg: (color: string, value: string) => { painted.push(color); return value; } };
+  railRows(["one"], theme);
+  assert.deepEqual(painted, ["accent"]);
+});
+
+test("box corners join only where asked, and the frame's other rows stay put", () => {
+  const box = ["\x1b[36m╭─ a ─╮\x1b[39m", "│ ╭ x │", "│ ╰ y │", "\x1b[36m╰─────╯\x1b[39m"];
+  assert.equal(joinBoxCorners(box, false, false), box);
+  assert.deepEqual(joinBoxCorners(box, true, false), ["\x1b[36m├─ a ─╮\x1b[39m", box[1], box[2], box[3]]);
+  assert.deepEqual(joinBoxCorners(box, false, true), [box[0], box[1], box[2], "\x1b[36m├─────╯\x1b[39m"]);
+  const both = joinBoxCorners(box, true, true);
+  assert.equal(joinBoxCorners(box, true, true), both, "the same rows come back as the same array");
+  assert.equal(box[0], "\x1b[36m╭─ a ─╮\x1b[39m", "the box's own rows are not written to");
+});
+
+test("the rail starts after a row's opening prompt marker", () => {
+  const theme: any = { fg: (_: string, value: string) => value };
+  const rows = ["\x1b]133;A\x07one", "two\x1b]133;B\x07"];
+  const railed = railRows(rows, theme);
+  assert.deepEqual(railed, ["\x1b]133;A\x07│one", "│two\x1b]133;B\x07"]);
+  assert.equal(railRows(rows, theme), railed, "the same rows come back as the same array");
+});
+
+test("with turn folding off there is no rail", () => {
+  const { chat } = fixture("off", true, true);
+  assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾") || line.startsWith("│ │")), frame(chat).join("\n"));
 });
 
 test("outer toggling preserves groupOpen and a manually opened tool box", () => {

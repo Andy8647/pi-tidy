@@ -228,6 +228,12 @@ export function expandTurnForTool(id: string | undefined, open: boolean): void {
   const turn = turnStore.get().byTool.get(id);
   if (turn) turn.open = open;
 }
+/** The call belongs to a turn that is open, so it hangs on that turn's rail. */
+export function railTurnTool(id: string | undefined): boolean {
+  if (!id || turnOptions.get().collapseTurns === "off") return false;
+  const turn = turnStore.get().byTool.get(id);
+  return !!turn && !folded(turn);
+}
 export function hideTurnTool(id: string | undefined): boolean {
   if (!id || turnOptions.get().collapseTurns === "off") return false;
   const turn = turnStore.get().byTool.get(id);

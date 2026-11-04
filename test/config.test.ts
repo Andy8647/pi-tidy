@@ -101,17 +101,17 @@ test("user alignment defaults left and accepts only right as an override", () =>
   }
 });
 
-test("turn folding and final reply frames are independent opt-in settings", () => {
+test("turn folding and final reply frames are on by default and turn off independently", () => {
   for (const mode of ["off", "afterRun", "live", true, "unknown", undefined]) {
-    withSettings({ tidy: { collapseTurns: mode, frameFinalReply: true } }, () => {
+    withSettings({ tidy: { collapseTurns: mode, frameFinalReply: false } }, () => {
       const config = loadConfig();
-      assert.equal(config.collapseTurns, mode === "afterRun" || mode === "live" ? mode : "off");
-      assert.equal(config.frameFinalReply, true);
+      assert.equal(config.collapseTurns, mode === "off" || mode === "live" ? mode : "afterRun");
+      assert.equal(config.frameFinalReply, false);
     });
   }
   withSettings({ tidy: {} }, () => {
-    assert.equal(loadConfig().collapseTurns, "off");
-    assert.equal(loadConfig().frameFinalReply, false);
+    assert.equal(loadConfig().collapseTurns, "afterRun");
+    assert.equal(loadConfig().frameFinalReply, true);
   });
 });
 

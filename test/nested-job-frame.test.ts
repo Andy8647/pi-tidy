@@ -20,7 +20,7 @@ function setup(config: Record<string, unknown> = {}) {
   resetHover();
   enableHoverForTests();
   const h = harness();
-  loadTidy(tidy, h.pi, { icons: false, frameMessages: false, ...config });
+  loadTidy(tidy, h.pi, { icons: false, frameMessages: false, collapseTurns: "off", frameFinalReply: false, ...config });
   function emit(name: string, event: any = {}) {
     for (const handler of h.handlers.get(name) ?? []) {
       const patch = handler(event, {});
@@ -172,7 +172,7 @@ test("collapsing the script does not collapse its job; global collapse closes ch
   h.finish();
   h.frame();
   h.click("1 call");
-  h.click("✓ codemode");
+  h.click("codemode ✓");
   h.click("process p1");
   assert.ok(h.frame().some((line) => line.includes("Script completed")));
   h.click("Script completed");

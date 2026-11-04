@@ -50,8 +50,14 @@ test("lifecycle settles once, persists outside model context, and restores the a
 });
 
 test("disabled turn features register no timing or persistence listeners", () => {
-  const h = harness(); loadTidy(tidy, h.pi);
+  const h = harness(); loadTidy(tidy, h.pi, { collapseTurns: "off", frameFinalReply: false });
   assert.equal(h.handlers.has("before_provider_request"), false);
   assert.equal(h.handlers.has("message_end"), false);
   assert.equal(h.commands.has("tidy"), false);
+});
+
+test("with no settings at all, turn features are on", () => {
+  const h = harness(); loadTidy(tidy, h.pi);
+  assert.equal(h.handlers.has("message_end"), true);
+  assert.equal(h.commands.has("tidy"), true);
 });

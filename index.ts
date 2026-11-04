@@ -15,8 +15,8 @@
  *     frame hugging the text with the user icon in its top border, as rules
  *     plus an accent rail, or pi's own (default: frame)
  *   userMessageAlign: "left" | "right" — framed user message and icon (default: left)
- *   collapseTurns: "off" | "afterRun" | "live" — outer process fold (default: off)
- *   frameFinalReply: boolean — frame the settled final reply (default: false)
+ *   collapseTurns: "off" | "afterRun" | "live" — outer process fold (default: afterRun)
+ *   frameFinalReply: boolean — frame the settled final reply (default: true)
  *   userMessagePaddingY: number — rail-only rows around a "rail" message's
  *     text (default: 1, at most 3)
  *   userMessageColors: { rail, rule } — theme color names or #rrggbb
@@ -24,6 +24,7 @@
  *   icons: boolean          — Nerd Font icons on boxes (default: true)
  *   groupTools: boolean     — fold each segment's tool calls into one summary
  *     line; click for one row per call, a row for its box (default: true)
+ *   toolRowLines: 1 | 2     — rows a group's call may take (default: 1)
  *   groupOpen: boolean      — each new group starts open: `▾` header, one row
  *     per call (default: false)
  *   alwaysShowTools: string[] — tools that never fold (default: edit, write)
@@ -253,6 +254,8 @@ export default function (pi: ExtensionAPI): void {
       splitDiffMinWidth: config.splitDiffMinWidth,
       diffLines: config.diffLines,
       thinkingColor: config.thinkingColor,
+      highlightBash: config.highlightBash,
+      toolRowLines: config.toolRowLines,
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);

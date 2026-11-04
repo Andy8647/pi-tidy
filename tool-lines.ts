@@ -4,8 +4,9 @@
  * cheap to render every frame and trivial to test.
  */
 
-import { visibleWidth } from "@earendil-works/pi-tui";
-import { clipToWidth } from "./frame-draw.ts";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
+import { highlightBashCommand } from "./bash-highlight.ts";
+import { clipToWidth, visibleText } from "./frame-draw.ts";
 import { toolKindIcon } from "./icons.ts";
 import type { ThemeLike } from "./theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
@@ -34,6 +35,12 @@ export interface LineOptions {
    */
   /** Columns to pad the tool-name cell to, so arguments start on one line. */
   align?: { name?: number; note?: number; duration?: number };
+  /** Thought line only: a settled row among calls. Its text takes the dimmest colour. */
+  quiet?: boolean;
+  /** Tool line only: syntax-highlight a bash command. */
+  highlight?: boolean;
+  /** `formatToolRows` only: 2 lets a call that does not fit go on to a second row. */
+  rowLines?: number;
 }
 
 const DEFAULT_MAX_ARG_CHARS = 60;
@@ -117,6 +124,10 @@ function resultText(content: unknown): string {
     .join("\n");
 }
 
+function hasImage(content: unknown): boolean {
+  return Array.isArray(content) && content.some((block) => block?.type === "image");
+}
+
 /** Lines of real output, pi's own notices excluded. */
 function realLines(text: string): string[] {
   return text
@@ -155,13 +166,14 @@ export function isSilentFailure(result: ToolLike["result"]): boolean {
  */
 export function summarizeResult(toolName: string, result: ToolLike["result"]): string {
   if (!result) return "";
+  if (toolName === "read" && !result.isError && hasImage(result.content)) return "image";
   const text = resultText(result.content);
   switch (toolName) {
     case "bash": {
       const code = /Command exited with code (\d+)/.exec(text)?.[1];
       if (result.isError) return code ? `exit ${code}` : "";
       const lines = outputLines(text, result.details);
-      return lines > 0 ? plural(lines, "line") : "";
+      return lines > 0 ? plural(lines, "line") : "no output";
     }
     case "read":
       return result.isError ? "" : plural(outputLines(text, result.details), "line");
@@ -185,12 +197,15 @@ export function summarizeResult(toolName: string, result: ToolLike["result"]): s
  * ` (+12 lines)` marker that rides behind it. Kept apart because a narrow row
  * has to decide what to spend cells on — the marker is the first thing to go.
  */
-function argParts(args: unknown): { text: string; suffix: string } {
-  if (!args || typeof args !== "object") return { text: "", suffix: "" };
+function argParts(args: unknown): { text: string; suffix: string; rest: string[] } {
+  if (!args || typeof args !== "object") return { text: "", suffix: "", rest: [] };
   const record = args as Record<string, unknown>;
 
   const command = typeof record.command === "string" ? record.command : undefined;
-  if (command) return oneLine(command);
+  if (command) {
+    const line = oneLine(command);
+    return { ...line, text: shortenCd(line.text) };
+  }
 
   for (const key of ["path", "file_path", "filePath", "pattern", "url", "query"]) {
     const value = record[key];
@@ -200,7 +215,27 @@ function argParts(args: unknown): { text: string; suffix: string } {
   for (const value of Object.values(record)) {
     if (typeof value === "string" && value) return oneLine(value);
   }
-  return { text: "", suffix: "" };
+  return { text: "", suffix: "", rest: [] };
+}
+
+/** `cd <path> &&` or `cd <path>;` with a command behind it, and no expansion in the path. */
+const CD_PREFIX = /^cd\s+(?:"([^"$`]+)"|'([^']+)'|([^\s;&|'"`$()]+))(\s*(?:&&|;)\s*)(?=\S)/;
+
+/**
+ * `cd ~/Projects/fork/pi/pi-tidy && rg x` reads `cd …/pi-tidy && rg x`. Agents
+ * start nearly every command this way, and on a one-line row the path spends the
+ * cells the command needs. Only the row is shortened: the opened box keeps it whole.
+ */
+function shortenCd(line: string): string {
+  const match = CD_PREFIX.exec(line);
+  if (!match) return line;
+  const path = match[1] ?? match[2] ?? match[3]!;
+  const last = path.replace(/\/+$/, "").split("/").pop();
+  // `…/..` would name a directory the path never mentions.
+  if (!last || last === "." || last === "..") return line;
+  const short = `…/${last}`;
+  if (short.length >= path.length) return line;
+  return `cd ${short}${match[4]}${line.slice(match[0].length)}`;
 }
 
 /**
@@ -213,9 +248,25 @@ function argParts(args: unknown): { text: string; suffix: string } {
  * spinner included — painted two rows off, leaving fragments of the previous
  * frame behind. A multi-line value keeps its first line and counts the rest.
  */
-function oneLine(value: string): { text: string; suffix: string } {
+function oneLine(value: string): { text: string; suffix: string; rest: string[] } {
   const [first, ...rest] = value.split("\n");
-  return { text: first.trim(), suffix: rest.length > 0 ? ` (+${rest.length} lines)` : "" };
+  return { text: first.trim(), suffix: moreLines(rest.length), rest };
+}
+
+const moreLines = (count: number) => (count > 0 ? ` (+${count} lines)` : "");
+
+/**
+ * Cut `text` to `cells` for a row with a second one under it: at a space when one
+ * is near enough, so the words stay whole. Undefined when the text cannot be cut
+ * cleanly, which means escapes of its own: the row then clips as usual.
+ */
+function splitAtCells(text: string, cells: number): { first: string; second: string; gap: number } | undefined {
+  const plain = visibleText(clipToWidth(text, cells, ""));
+  if (!plain || !text.startsWith(plain)) return undefined;
+  const space = plain.lastIndexOf(" ");
+  return space > plain.length / 2
+    ? { first: plain.slice(0, space), second: text.slice(space + 1), gap: 1 }
+    : { first: plain, second: text.slice(plain.length), gap: 0 };
 }
 
 /** A `codemode` script's nested calls, counted by tool. */
@@ -295,10 +346,26 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(seconds / 3600)}h${Math.floor((seconds % 3600) / 60).toString().padStart(2, "0")}m`;
 }
 
+/**
+ * Where a row starts. A row in a column block puts the outcome behind the name, so
+ * the kind icons run straight down with the thinking rows' brain, which has no
+ * outcome to put in front of it.
+ */
+function rowHead(status: string, label: string, toolName: string, align: LineOptions["align"]): string {
+  if (!align) return ` ${status} ${label}`;
+  const pad = Math.max(0, (align.name ?? 0) - visibleWidth(toolName));
+  return ` ${label} ${status}${" ".repeat(pad + 1)}`;
+}
+
 /** ` ✓ bash cd ~ && python3 - <<'PY' (+26 lines)  3 lines · 0.1s` */
 export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string {
+  return formatToolRows(tool, theme, { ...options, rowLines: 1 })[0]!;
+}
+
+/** The call's row, and a second one under it when it is allowed one and has more to say. */
+export function formatToolRows(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string[] {
   const { icons = true, job, width } = options;
-  if (job) return formatJobLine(tool, job, theme, icons, options.spinner);
+  if (job) return [formatJobLine(tool, job, theme, icons, options.spinner, options.align)];
   const { isPartial } = tool;
   const isError = !isPartial && tool.result?.isError === true;
   // A silent failure keeps its red glyph and drops the rest to `dim`: it is
@@ -316,13 +383,12 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
   // One column for the names in a group: the arguments start on the same cell
   // on every row, whatever the name's length (see groupAlign). The kind icon is
   // the same width on every row, so only the word is padded.
-  const namePad = Math.max(0, (options.align?.name ?? 0) - visibleWidth(tool.toolName));
-  const head = ` ${status} ${theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`)}${namePad > 0 ? " ".repeat(namePad) : ""}`;
+  const head = rowHead(status, theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`), tool.toolName, options.align);
   // A codemode script's “arguments” are its source, which the open box already
   // shows. What a folded row is missing is what the script ran: the nested
   // calls take the arguments' place instead of the script's first line.
   const nested = tool.toolName === "codemode" ? summarizeNestedCalls(tool.result?.details) : undefined;
-  const { text, suffix } = nested?.kinds ? { text: nested.kinds, suffix: "" } : argParts(tool.args);
+  const { text, suffix, rest } = nested?.kinds ? { text: nested.kinds, suffix: "", rest: [] } : argParts(tool.args);
 
   // `  12 lines · 0.3s` — what it produced, then how long it took.
   const note = isPartial ? "" : summarizeResult(tool.toolName, tool.result);
@@ -354,7 +420,7 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
     const argText = nested?.kinds ? `${text}${suffix}` : summarizeArgs(tool.toolName, tool.args);
     const detail = text ? theme.fg(body ?? "toolOutput", ` ${argText}`) : "";
     const tailText = tail.length > 0 ? `  ${tail.join(theme.fg("muted", " · "))}` : "";
-    return `${head}${detail}${tailText}${hint}`;
+    return [`${head}${detail}${tailText}${hint}`];
   }
 
   const fixed = visibleWidth(head) + 1 /* the space before the arguments */ + visibleWidth(hint);
@@ -369,15 +435,80 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
     shownSuffix = "";
     budget += visibleWidth(suffix);
   }
-  const shown = text && budget > 1 ? clipToWidth(text, budget - visibleWidth(shownSuffix), "…") : "";
-  const detail = shown ? theme.fg(body ?? "toolOutput", ` ${shown}${shownSuffix}`) : "";
-  if (!keepTail) return `${head}${detail}${hint}`;
+  const highlighted = options.highlight && !body && tool.toolName === "bash";
+  const paintArgs = (value: string, more: string) =>
+    (highlighted ? highlightClipped(value, theme) + theme.fg("muted", more) : theme.fg(body ?? "toolOutput", `${value}${more}`));
+
+  const room = width - visibleWidth(head) - 1;
+  const overflow = options.rowLines === 2 && text && budget > 1 && room >= MIN_ARG_CELLS
+    ? secondRow(text, rest, budget, room)
+    : undefined;
+  let detail: string;
+  let below: string | undefined;
+  if (overflow) {
+    const painted = highlighted && overflow.joined
+      ? paintJoined(overflow.first, overflow.second, overflow.gap, theme)
+      : [paintArgs(overflow.first, ""), paintArgs(overflow.second, "")];
+    detail = ` ${painted[0]}`;
+    below = `${" ".repeat(visibleWidth(head) + 1)}${painted[1]}${overflow.more ? theme.fg("muted", overflow.more) : ""}`;
+  } else {
+    // The clip closes its `…` with a full reset, which would end a hover band there.
+    const shown = text && budget > 1 ? visibleText(clipToWidth(text, budget - visibleWidth(shownSuffix), "…")) : "";
+    detail = shown ? ` ${paintArgs(shown, shownSuffix)}` : "";
+  }
+  const rows = (first: string) => (below ? [first, below] : [first]);
+  if (!keepTail) return rows(`${head}${detail}${hint}`);
   // Only a caller that asked for columns gets the right edge; a row rendered on
   // its own keeps the metrics where they belong, right after the arguments.
   const gap = options.align
     ? width - visibleWidth(head) - visibleWidth(detail) - visibleWidth(hint) - visibleWidth(tailText)
     : 0;
-  return `${head}${detail}${gap > 0 ? " ".repeat(gap) : ""}${tailText}${hint}`;
+  return rows(`${head}${detail}${gap > 0 ? " ".repeat(gap) : ""}${tailText}${hint}`);
+}
+
+/**
+ * What goes on a call's second row, if anything: the words its first line could not
+ * fit, or else the next line of a multi-line command. `joined` says the two rows are
+ * one piece of text cut in two, so a quote may be open across them.
+ */
+function secondRow(
+  text: string,
+  rest: readonly string[],
+  budget: number,
+  room: number,
+): { first: string; second: string; gap: number; more: string; joined: boolean } | undefined {
+  const clip = (value: string, more: string) => visibleText(clipToWidth(value, room - visibleWidth(more), "…"));
+  if (visibleWidth(text) > budget) {
+    const split = splitAtCells(text, budget);
+    if (!split) return undefined;
+    const more = moreLines(rest.length);
+    return { first: split.first, second: clip(split.second, more), gap: split.gap, more, joined: true };
+  }
+  const next = rest.findIndex((line) => line.trim());
+  if (next < 0) return undefined;
+  const more = moreLines(rest.length - next - 1);
+  return { first: text, second: clip(rest[next]!.trim(), more), gap: 0, more, joined: false };
+}
+
+/** Highlight the two rows as the one command they are, so a quote stays a quote across the cut. */
+function paintJoined(first: string, second: string, gap: number, theme: ThemeLike): [string, string] {
+  const whole = highlightClipped(`${first}${" ".repeat(gap)}${second}`, theme);
+  const cells = visibleWidth(first);
+  // A slice can stop inside a token's colour, and what follows must not inherit it.
+  const close = "\x1b[39m";
+  return [
+    sliceByColumn(whole, 0, cells) + close,
+    sliceByColumn(whole, cells + gap, visibleWidth(second)) + close,
+  ];
+}
+
+/** Highlighted after clipping, so a row never measures through its colours. */
+function highlightClipped(shown: string, theme: ThemeLike): string {
+  try {
+    return highlightBashCommand(shown, (token, value) => theme.fg(token, value));
+  } catch {
+    return theme.fg("toolOutput", shown); // never break the row on a tokenizer bug
+  }
 }
 
 /** The `│` that runs down the left of an open group, under its `▾`. */
@@ -397,15 +528,16 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
   // without opening anything. The spinner needs no Nerd Font; the brain does.
   const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
   const icon = glyph ? `${glyph} ` : "";
-  const label = theme.fg(color, `${icon}thinking`);
-  const body = theme.fg("thinkingText", text);
+  const labelText = `${icon}thinking`;
+  const label = theme.fg(color, labelText);
+  const body = theme.fg(options.quiet ? "dim" : "thinkingText", text);
   // Inside a group the label sits in the same column as the tool names, so the
   // thought's text starts where the arguments do (see formatToolLine).
   const name = options.align?.name;
   const gap =
     name === undefined
       ? 2
-      : Math.max(2, 4 + (options.icons === false ? 0 : 2) + name - 1 - visibleWidth(`${icon}thinking`));
+      : Math.max(2, (options.icons === false ? 0 : 2) + name + 4 - visibleWidth(labelText));
   const row = ` ${label}${" ".repeat(gap)}${body}`;
   return theme.italic ? theme.italic(row) : row;
 }
@@ -430,9 +562,9 @@ export const THOUGHT_ICON = "\u{f09d1}";
 export const THOUGHT_LABEL_CELLS = 2 + "thinking".length + 2;
 
 /**
- * A thinking preview is a glance, not a paragraph. Past this many cells the row
- * stops being one item among the calls and starts reading as prose wedged into
- * the list — the whole row for a line of text the reader has to decide to skip.
+ * A thinking row outside a group is a glance, not a paragraph. It is drawn at full
+ * strength, so past this many cells it reads as prose wedged into the transcript.
+ * Inside a group the text is dim and takes the whole row.
  */
 export const THOUGHT_PREVIEW_CELLS = 56;
 
@@ -449,30 +581,28 @@ export const THOUGHT_TICK_MS = 300;
  */
 export function previewText(text: string, maxWidth: number, tail = false): string {
   const flat = text.replace(/\s+/g, " ").trim();
-  // A run that is still arriving owns the row — it is the live feed. A settled
-  // one is a glance and stays short.
-  const budget = tail ? maxWidth : Math.min(maxWidth, THOUGHT_PREVIEW_CELLS);
-  if (budget <= 1) return "";
-  if (!tail) return clipToWidth(flat, budget, "…");
+  if (maxWidth <= 1) return "";
+  // The clip closes its `…` with a full reset, which would end a hover band there.
+  if (!tail) return visibleText(clipToWidth(flat, maxWidth, "…"));
   // A run that is still arriving reads as a sliding window over its tail: the
   // newest words are the interesting ones, and the row stays one line. The cut
   // lands on a word break, so the window does not shave half a word off — that
   // shaving is what made the line look like it was shaking.
   let out = flat;
-  for (let i = 0; i < flat.length && visibleWidth(out) > budget - 1; i++) {
+  for (let i = 0; i < flat.length && visibleWidth(out) > maxWidth - 1; i++) {
     out = out.slice(Math.max(1, Math.ceil(out.length / 8)));
   }
   if (out.length >= flat.length) return flat;
   const breakAt = out.indexOf(" ");
   if (breakAt > 0 && breakAt < out.length - 1) out = out.slice(breakAt + 1);
-  return `…${clipToWidth(out, budget - 1)}`;
+  return `…${clipToWidth(out, maxWidth - 1)}`;
 }
 
 /** Cells `groupGutter` takes. */
 export const GUTTER_CELLS = 2;
 
 /** A call that started a background job: the row tracks the job, not the call. */
-export function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, icons: boolean, spinner = "◐"): string {
+export function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, icons: boolean, spinner = "◐", align?: LineOptions["align"]): string {
   const status =
     job.status === "running"
       ? theme.fg("accent", spinner)
@@ -484,7 +614,7 @@ export function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, i
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
   const name = theme.fg("toolTitle", `${icon}${tool.toolName}`);
   const color = job.status === "failed" ? "error" : job.status === "running" ? "warning" : "muted";
-  return ` ${status} ${name}${theme.fg("toolOutput", ` ${job.name.replace(/\s+/g, " ")}`)}  ${theme.fg(color, describeJob(job).replace(/\s+/g, " "))}`;
+  return `${rowHead(status, name, tool.toolName, align)}${theme.fg("toolOutput", ` ${job.name.replace(/\s+/g, " ")}`)}  ${theme.fg(color, describeJob(job).replace(/\s+/g, " "))}`;
 }
 
 export { formatDuration };

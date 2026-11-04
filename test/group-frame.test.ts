@@ -19,7 +19,7 @@ import {
   ToolExecutionComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Container } from "@earendil-works/pi-tui";
+import { Container, visibleWidth } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../frame.ts";
 import { resetGroups, summaryFor, THOUGHT_LIVE_MS } from "../tool-groups.ts";
 import { tidyEnabled, agentRunning } from "../live.ts";
@@ -45,7 +45,7 @@ let nextId = 0;
 const callBlock = (id: string, name = "bash") => ({ type: "toolCall", id, name, arguments: {} });
 
 /** A finished bash call, built the way pi builds one. */
-function bash(command: string, output: string, extra: { isError?: boolean; partial?: boolean } = {}) {
+function bash(command: string, output: string, extra: { isError?: boolean; partial?: boolean; durationMs?: number } = {}) {
   const id = `call-${++nextId}`;
   const c = new ToolExecutionComponent("bash", id, { command }, {}, bashDef as any, ui as any, cwd);
   c.setExpanded(false);
@@ -53,7 +53,7 @@ function bash(command: string, output: string, extra: { isError?: boolean; parti
   c.markExecutionStarted();
   if (!extra.partial) {
     c.updateResult(
-      { content: [{ type: "text", text: output }], isError: extra.isError ?? false, durationMs: 150 } as any,
+      { content: [{ type: "text", text: output }], isError: extra.isError ?? false, durationMs: extra.durationMs ?? 150 } as any,
       false,
     );
   }
@@ -154,21 +154,21 @@ test("C → ▾ + rows → one box → back to its row → ▾ folds back to C",
   assert.deepEqual(visible(frame(chat)), [
     " Checking.",
     " ▾ 3 calls · bash×3 · 2 thoughts · 0.5s",
-    " │ ✓ bash ls  2 lines · 0.2s",
+    " │ bash ✓  ls  2 lines · 0.2s",
     " │ thinking  …",
-    " │ ✓ bash pwd  1 line · 0.2s",
+    " │ bash ✓  pwd  1 line · 0.2s",
     " │ thinking  …",
-    " │ ✓ bash whoami  1 line · 0.2s",
+    " │ bash ✓  whoami  1 line · 0.2s",
     " Done.",
   ]);
 
-  assert.ok(click(chat, "bash pwd"));
+  assert.ok(click(chat, "bash ✓  pwd"));
   assert.equal(b.component.expanded, true);
   const opened = frame(chat);
   // Inside the group there is no box: the rail already frames it. The row keeps
   // its place and takes a tick, and its output hangs under it.
   assert.ok(!opened.some((line) => line.includes("╭")), opened.join("\n"));
-  assert.ok(opened.includes(" ├─ ✓ bash pwd  1 line · 0.2s"), opened.join("\n"));
+  assert.ok(opened.includes(" ├─bash ✓  pwd  1 line · 0.2s"), opened.join("\n"));
   // The body hangs under the row, one indent in (the harness collapses runs of
   // spaces, so this is the collapsed form).
   assert.ok(opened.some((line) => line.startsWith(" │  ") && line.includes("/tmp")), opened.join("\n"));
@@ -177,7 +177,7 @@ test("C → ▾ + rows → one box → back to its row → ▾ folds back to C",
   // into the body's coordinates — and folds just that box.
   assert.ok(click(chat, "/tmp", 6));
   assert.equal(b.component.expanded, false);
-  assert.ok(frame(chat).includes(" │ ✓ bash pwd  1 line · 0.2s"));
+  assert.ok(frame(chat).includes(" │ bash ✓  pwd  1 line · 0.2s"));
 
   assert.ok(click(chat, "▾ 3 calls"));
   assert.deepEqual(visible(frame(chat)), [" Checking.", " ▸ 3 calls · bash×3 · 2 thoughts · 0.5s", " Done."]);
@@ -186,8 +186,8 @@ test("C → ▾ + rows → one box → back to its row → ▾ folds back to C",
 test("folding from ▾ folds the open boxes too, so reopening shows plain rows", () => {
   const { chat, a, c } = threeBash();
   click(chat, "3 calls");
-  click(chat, "bash ls");
-  click(chat, "bash whoami");
+  click(chat, "bash ✓  ls");
+  click(chat, "bash ✓  whoami");
   assert.equal(a.component.expanded && c.component.expanded, true);
   click(chat, "▾ 3 calls");
   assert.equal(a.component.expanded || c.component.expanded, false);
@@ -207,7 +207,7 @@ test("a failed call folds away: the header carries it, the row waits in level 1"
   // that made folding pointless.
   assert.deepEqual(visible(frame(chat)), [" Testing.", " ▸ 2 calls · bash×2 · 1 thought · 1 failed · 0.3s"]);
   assert.ok(click(chat, "2 calls"), "the header opens the group");
-  assert.ok(frame(chat).some((line) => line.includes("✗ bash pnpm test")), "the row is there now");
+  assert.ok(frame(chat).some((line) => line.includes("bash ✗  pnpm test")), "the row is there now");
   assert.ok(click(chat, "pnpm test"));
   assert.equal(b.component.expanded, true);
   assert.ok(frame(chat).some((line) => line.includes("boom")));
@@ -226,7 +226,7 @@ test("a running call gets its row under the folded header after a second", async
   t.mock.timers.tick(1000);
   const lines = visible(frame(chat));
   assert.equal(lines[1], " ▸ 2 calls · bash×2 · 1 thought · running bash");
-  assert.equal(lines[2], " │ ⋯ bash sleep 30");
+  assert.equal(lines[2], " │ bash ⋯  sleep 30");
 });
 
 test("a step streaming its thinking folds with the group mid-segment, not at a turn's start", () => {
@@ -505,7 +505,7 @@ test("user padding separates a folded group without shifting its click targets",
   assert.equal(header, prompt + 2, "one blank row separates the prompt and group");
   assert.equal(lines[header - 1], "");
   assert.ok(click(chat, "2 calls"));
-  assert.ok(click(chat, "bash pwd"));
+  assert.ok(click(chat, "bash ✓  pwd"));
   assert.equal(b.component.expanded, true);
   assert.ok(click(chat, "▾ 2 calls"));
   assert.equal(b.component.expanded, false);
@@ -540,6 +540,125 @@ test("user-message boundary survives a predecessor-skipping render patch on top"
   }
 });
 
+test("a thinking row's text starts in the arguments' column when every name is short", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  chat.addChild(textStep("Checking.", a.id));
+  chat.addChild(thinkStep(a.id, "看一下目录。"));
+  chat.addChild(a.component);
+  click(chat, "1 call");
+  // Not `frame`: it collapses the runs of spaces this test is about.
+  const rows = chat.render(W).map(strip);
+  const thought = rows.find((row) => row.includes("thinking"))!;
+  const call = rows.find((row) => row.includes("bash ✓"))!;
+  assert.equal(
+    visibleWidth(thought.slice(0, thought.indexOf("看一下"))),
+    visibleWidth(call.slice(0, call.indexOf("ls"))),
+    `${thought}\n${call}`,
+  );
+});
+
+test("the metrics columns follow a result that lands after the first frame", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const b = bash("sleep 2", "", { partial: true });
+  chat.addChild(textStep("Checking.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(b.component);
+  click(chat, "2 calls");
+  const long = Array.from({ length: 12 }, () => "x").join("\n");
+  (b.component as any).updateResult({ content: [{ type: "text", text: long }], isError: false, durationMs: 2100 }, false);
+  // Not `frame`: it collapses the runs of spaces this test is about.
+  let rows: string[] = [];
+  for (let i = 0; i < 3; i++) rows = chat.render(W).map(strip);
+  const one = rows.find((row) => row.includes("1 line · "))!;
+  const twelve = rows.find((row) => row.includes("12 lines · "))!;
+  assert.equal(one.indexOf(" · "), twelve.indexOf(" · "), `${one}\n${twelve}`);
+});
+
+test("opening a pinned box leaves its step's thinking in the group above it", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const e = edit("/tmp/x.ts");
+  chat.addChild(textStep("Checking.", a.id));
+  chat.addChild(a.component);
+  chat.addChild(thinkStep(e.id, "再改一下。"));
+  chat.addChild(e.component);
+  click(chat, "1 call");
+  const before = frame(chat);
+  const row = before.find((line) => line.includes("再改一下"))!;
+  assert.ok(row.startsWith(" │ thinking"), before.join("\n"));
+  const header = before.find((line) => line.includes("1 call"))!;
+  click(chat, "const a = 2;", 6);
+  assert.equal((e.component as any).expanded, true);
+  const after = frame(chat);
+  assert.equal(after.find((line) => line.includes("再改一下")), row, after.join("\n"));
+  assert.equal(after.find((line) => line.includes("1 call")), header, "the count keeps the thought");
+});
+
+test("a settled thinking row stops short of the metrics the calls carry", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  chat.addChild(textStep("Checking.", a.id));
+  chat.addChild(thinkStep(a.id, "word ".repeat(80)));
+  chat.addChild(a.component);
+  click(chat, "1 call");
+  const rows = chat.render(W).map(strip);
+  const thought = rows.find((row) => row.includes("thinking"))!;
+  const call = rows.find((row) => row.includes("bash ✓"))!;
+  assert.ok(thought.endsWith("…"), thought);
+  assert.ok(thought.length < call.indexOf("1 line"), `${thought}\n${call}`);
+  assert.ok(thought.length >= call.indexOf("1 line") - 3, `it does use the room: ${thought}\n${call}`);
+});
+
+test("a second row answers the pointer like the first", () => {
+  patchToolBoxFrames({ ...OPTIONS, toolRowLines: 2 });
+  try {
+    const chat = new Container();
+    const a = bash(`rg ${"word ".repeat(40)}`, "a");
+    const b = bash("ls", "b");
+    chat.addChild(textStep("Checking.", a.id));
+    chat.addChild(a.component);
+    chat.addChild(b.component);
+    click(chat, "2 calls");
+    const lines = frame(chat);
+    const y = lines.findIndex((line) => line.includes("bash ✓  rg"));
+    assert.ok(!lines[y + 1]!.includes("bash"), lines.join("\n"));
+    assert.ok(lines[y + 1]!.includes("word"), lines.join("\n"));
+    assert.equal((a.component as any).expanded, false);
+    chat.handleMouse({ type: "click", button: "left", x: 30, y: y + 1, screenX: 30, screenY: y + 1, width: W, height: lines.length, shift: false, alt: false, ctrl: false } as any);
+    assert.equal((a.component as any).expanded, true);
+    assert.equal((b.component as any).expanded, false);
+    // Open, the row and its second row stay, and the body hangs below both.
+    const opened = frame(chat);
+    const row = opened.findIndex((line) => line.includes("├─"));
+    assert.ok(opened[row + 1]!.includes("word"), opened.join("\n"));
+  } finally {
+    patchToolBoxFrames(OPTIONS);
+  }
+});
+
+test("an opened row keeps its columns, a call and a thought alike", () => {
+  const chat = new Container();
+  const a = bash("ls", "a");
+  const b = bash("pwd", "/tmp");
+  chat.addChild(textStep("Checking.", a.id));
+  chat.addChild(thinkStep(a.id, "看一下目录。"));
+  chat.addChild(a.component);
+  chat.addChild(b.component);
+  click(chat, "2 calls");
+  const raw = () => chat.render(W).map(strip);
+  const at = (needle: string) => {
+    const row = raw().find((line) => line.includes(needle))!;
+    return row.indexOf(needle);
+  };
+  const [thought, call] = [at("thinking"), at("bash ✓")];
+  click(chat, "看一下");
+  assert.equal(at("thinking"), thought, raw().join("\n"));
+  click(chat, "bash ✓  ls");
+  assert.equal(at("bash ✓"), call, raw().join("\n"));
+});
+
 test("thinking is a row above its own call, and clicking it opens pi's text", () => {
   const chat = new Container();
   const a = bash("ls", "a");
@@ -565,9 +684,9 @@ test("thinking is a row above its own call, and clicking it opens pi's text", ()
   // The preview row: the label, then the whole run cut to the row width.
   assert.ok(open[2].startsWith(" │ thinking  先确认一下这个目录"), open[2]);
   assert.ok(open[2].endsWith("…"), `the preview is cut to the row width: ${open[2]}`);
-  assert.equal(open[3], " │ ✓ bash ls  1 line · 0.2s");
+  assert.equal(open[3], " │ bash ✓  ls  1 line · 0.2s");
   assert.equal(open[4], " │ thinking  再看工作目录是不是仓库根。");
-  assert.equal(open[5], " │ ✓ bash pwd  1 line · 0.2s");
+  assert.equal(open[5], " │ bash ✓  pwd  1 line · 0.2s");
 
   // A click on the row expands that step's thinking: pi renders its own text,
   // untruncated, inside the same rounded box a tool result gets.
@@ -762,10 +881,10 @@ test("a step that did not think keeps its call in the block, with no gap of its 
     [
       " Checking.",
       " ▾ 3 calls · bash×3 · 1 thought · 0.5s",
-      " │ ✓ bash ls  1 line · 0.2s",
+      " │ bash ✓  ls  1 line · 0.2s",
       " │ thinking  看一下目录。",
-      " │ ✓ bash pwd  1 line · 0.2s",
-      " │ ✓ bash whoami  1 line · 0.2s",
+      " │ bash ✓  pwd  1 line · 0.2s",
+      " │ bash ✓  whoami  1 line · 0.2s",
     ],
     frame(chat).join("\n"),
   );
@@ -933,7 +1052,7 @@ test("a running job keeps a spinning row under the folded header", () => {
   chat.addChild(ls.component);
   const lines = visible(frame(chat));
   assert.match(lines[1], /^ ▸ 2 calls · bash×1 {2}process×1 · 1 thought · [◐◓◑◒] 1 running · /);
-  assert.match(lines[2], /^ │ [◐◓◑◒] process ticker {2}running 1[23]s$/);
+  assert.match(lines[2], /^ │ process [◐◓◑◒] {2}ticker {2}running 1[23]s$/);
 
   // The job ends: the row changes in place, and the ended job folds away.
   b.emit("processes:ended", procInfo("ticker", { status: "exited", success: true, exitCode: 0, endTime: Date.now() }));
@@ -941,7 +1060,7 @@ test("a running job keeps a spinning row under the folded header", () => {
   assert.equal(after.length, 2, "nothing left to show while folded");
   assert.doesNotMatch(after[1], /running/);
   click(chat, "2 calls");
-  assert.ok(frame(chat).some((line) => /│ ✓ process ticker {2}exited 0 · 1[23]s/.test(line)));
+  assert.ok(frame(chat).some((line) => /│ process ✓ {2}ticker {2}exited 0 · 1[23]s/.test(line)));
 });
 
 test("a job's notifications are hidden once its row exists; strangers stay", () => {
@@ -957,7 +1076,7 @@ test("a job's notifications are hidden once its row exists; strangers stay", () 
   const lines = frame(chat);
   assert.ok(!lines.some((line) => line.includes('"ticker"')), "ticker's notice is folded into its row");
   assert.ok(lines.some((line) => line.includes('"someone-else"')), "a job with no row keeps its notice");
-  assert.ok(lines.some((line) => /process ticker {2}running \d+s · READY matched/.test(line)), "the row carries what it said");
+  assert.ok(lines.some((line) => /process [◐◓◑◒] {2}ticker {2}running \d+s · READY matched/.test(line)), "the row carries what it said");
 });
 
 test("a reloaded session: jobs pi-processes doesn't know are rebuilt from their notifications", () => {
@@ -973,7 +1092,7 @@ test("a reloaded session: jobs pi-processes doesn't know are rebuilt from their 
   chat.addChild(notice("ticker", "killed", { signal: { name: "SIGTERM" } }));
   click(chat, "2 calls");
   const lines = frame(chat);
-  assert.ok(lines.some((line) => /│ ⊘ process ticker {2}killed SIGTERM/.test(line)), lines.join("\n"));
-  assert.ok(lines.some((line) => line.includes("│ ⊘ process lost  not running")));
+  assert.ok(lines.some((line) => /│ process ⊘ {2}ticker {2}killed SIGTERM/.test(line)), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("│ process ⊘  lost  not running")));
   assert.ok(!lines.some((line) => /[◐◓◑◒]/.test(line)), "nothing spins");
 });

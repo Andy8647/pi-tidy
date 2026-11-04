@@ -33,10 +33,11 @@ import { clipToWidth } from "./frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
 import { liveSlot, tidyEnabled } from "./live.ts";
-import { expandTurnForTool, hideTurnTool } from "./turn-state.ts";
+import { expandTurnForTool, hideTurnTool, railTurnTool } from "./turn-state.ts";
+import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "./turn-view.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
+import { pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
 import { formatToolLine } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
@@ -106,6 +107,7 @@ interface ToolBoxInternals extends GroupedTool {
     geometry: FrameGeometry;
   };
   __frameGeometry?: FrameGeometry;
+  __railCells?: number;
   /** The split diff last built for this box, and what it was built from. */
   __splitCache?: {
     diff: string;
@@ -185,6 +187,10 @@ export interface ToolFrameOptions {
   diffLines?: number;
   /** Theme color for thinking rows and the expanded thinking box (default `warning`). */
   thinkingColor?: string;
+  /** Syntax-highlight bash commands on group rows. */
+  highlightBash?: boolean;
+  /** Rows a group's call may take: 2 lets one that does not fit go on to a second. */
+  toolRowLines?: number;
 }
 
 interface ResolvedToolFrameOptions {
@@ -197,6 +203,8 @@ interface ResolvedToolFrameOptions {
   splitDiffMinWidth: number;
   diffLines: number;
   thinkingColor: string;
+  highlightBash: boolean;
+  toolRowLines: number;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -209,6 +217,8 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   splitDiffMinWidth: 72,
   diffLines: 20,
   thinkingColor: "warning",
+  highlightBash: true,
+  toolRowLines: 1,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
@@ -236,6 +246,8 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiffMinWidth = 72,
     diffLines = 20,
     thinkingColor = "warning",
+    highlightBash = true,
+    toolRowLines = 1,
   } = options;
   toolOptions.set({
     icons,
@@ -247,6 +259,8 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiffMinWidth,
     diffLines,
     thinkingColor,
+    highlightBash,
+    toolRowLines,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
   // Value, not a closure: the patch runs again on `/reload`, which is what
@@ -331,6 +345,11 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
+    // Everything below measures from where the call starts, which is past the rail.
+    if (railTurnTool(this.toolCallId) && typeof event?.x === "number") {
+      const cells = this.__railCells ?? TURN_RAIL_CELLS;
+      event = { ...event, x: Math.max(0, event.x - cells), width: event.width - cells };
+    }
     if (grouping()) {
       const routed = routeGroupedMouse(this, event, {
         pinned: toolOptions.get().alwaysShow.has(this.toolName),
@@ -794,19 +813,29 @@ function composeFramedCodemode(
         if (grouping()) planFor(this, toolOptions.get().alwaysShow.has(this.toolName));
         return [];
       }
-      const w = Math.max(4, width);
+      const railed = railTurnTool(this.toolCallId);
+      const w = Math.max(4, railed ? width - TURN_RAIL_CELLS : width);
       if (grouping()) {
-        const { icons, alwaysShow } = toolOptions.get();
+        const { icons, alwaysShow, highlightBash, toolRowLines } = toolOptions.get();
         const grouped = renderGroupedTool(
           this,
           w,
           theme,
-          { icons, pinned: alwaysShow.has(this.toolName) },
+          { icons, pinned: alwaysShow.has(this.toolName), highlight: highlightBash, rowLines: toolRowLines },
           (boxWidth, unframed) => frameBox.call(this, boxWidth, theme, unframed),
         );
-        if (grouped) return grouped;
+        if (grouped) {
+          this.__railCells = TURN_RAIL_CELLS;
+          return railed ? railRows(grouped, theme) : grouped;
+        }
       }
-      return frameBox.call(this, w, theme);
+      if (!railed) return frameBox.call(this, w, theme);
+      this.__railCells = TURN_RAIL_BOX_CELLS;
+      const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
+      // On the rail a box's corner sits in its neighbouring groups' rail column. With
+      // grouping off nothing has registered, so there is nothing to meet.
+      const { above, below } = pinnedJoints(this);
+      return railRows(joinBoxCorners(box, above, below), theme, " ");
     } catch {
       this.__frameGeometry = undefined;
       return originalRender.call(this, width);

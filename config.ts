@@ -56,6 +56,8 @@ export interface TidyConfig {
    * header or `ctrl+o`'s collapse-all stays folded.
    */
   groupOpen: boolean;
+  /** Rows a group's call may take: 2 lets one that does not fit go on to a second. */
+  toolRowLines: 1 | 2;
   /**
    * Tools that never fold into a group and keep pi's own box (edit/write by
    * default: the diff is the point). They also end the group before them.
@@ -122,8 +124,8 @@ const DEFAULTS: TidyConfig = {
   frameMessages: true,
   userMessageStyle: "frame",
   userMessageAlign: "left",
-  collapseTurns: "off",
-  frameFinalReply: false,
+  collapseTurns: "afterRun",
+  frameFinalReply: true,
   userMessagePaddingY: 1,
   userMessageColors: { rail: "accent", rule: "borderMuted" },
   icons: true,
@@ -131,6 +133,7 @@ const DEFAULTS: TidyConfig = {
   writeLines: PI_WRITE_PREVIEW_LINES,
   groupTools: true,
   groupOpen: false,
+  toolRowLines: 1,
   alwaysShowTools: ["edit", "write"],
   backgroundJobs: true,
   hideJobNotifications: true,
@@ -180,8 +183,8 @@ export function loadConfig(): TidyConfig {
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
       userMessageStyle: userMessageStyle(toolbox),
       userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
-      collapseTurns: ["afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : "off",
-      frameFinalReply: typeof toolbox?.frameFinalReply === "boolean" ? toolbox.frameFinalReply : false,
+      collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
+      frameFinalReply: typeof toolbox?.frameFinalReply === "boolean" ? toolbox.frameFinalReply : DEFAULTS.frameFinalReply,
       userMessagePaddingY:
         Number.isInteger(toolbox?.userMessagePaddingY) && toolbox.userMessagePaddingY >= 0
           ? Math.min(3, toolbox.userMessagePaddingY)
@@ -195,6 +198,7 @@ export function loadConfig(): TidyConfig {
       writeLines: typeof toolbox?.writeLines === "number" ? toolbox.writeLines : DEFAULTS.writeLines,
       groupTools: typeof toolbox?.groupTools === "boolean" ? toolbox.groupTools : DEFAULTS.groupTools,
       groupOpen: typeof toolbox?.groupOpen === "boolean" ? toolbox.groupOpen : DEFAULTS.groupOpen,
+      toolRowLines: toolbox?.toolRowLines === 2 ? 2 : DEFAULTS.toolRowLines,
       alwaysShowTools: Array.isArray(toolbox?.alwaysShowTools)
         ? toolbox.alwaysShowTools.filter((name: unknown): name is string => typeof name === "string")
         : DEFAULTS.alwaysShowTools,

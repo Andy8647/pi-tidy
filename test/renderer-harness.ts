@@ -67,7 +67,7 @@ export function loadTidy(factory: (pi: ExtensionAPI) => void, pi: ExtensionAPI, 
 export async function collectWarnings(handlers: Map<string, ((...args: any[]) => any)[]>): Promise<string[]> {
   const warnings: string[] = [];
   for (const handler of handlers.get("session_start") ?? []) {
-    await handler({}, { ui: { notify: (message: string) => warnings.push(message) } });
+    await handler({}, { sessionManager: { getBranch: () => [] }, ui: { notify: (message: string) => warnings.push(message) } });
   }
   return warnings;
 }
