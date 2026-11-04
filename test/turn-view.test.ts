@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { AssistantMessageComponent, UserMessageComponent, ToolExecutionComponent, createReadToolDefinition, createEditToolDefinition, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
-import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
+import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
 import { formatMessageTime, visibleText } from "../src/draw/frame-draw.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";

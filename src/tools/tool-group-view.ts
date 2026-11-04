@@ -11,14 +11,24 @@
  */
 
 import { stripVTControlCharacters } from "node:util";
-import { MouseRegion, TuiAltScreen, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { MouseRegion, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import {
   ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobsForTool, noteJobMessage,
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
-import { padToWidth } from "../draw/frame-draw.ts";
 import { agentRunning, tidyEnabled } from "../live.ts";
+import {
+  hoverBand,
+  hoverIsTracked,
+  hoveredRow,
+  isRowHovered,
+  lastRenderer,
+  markHoverClaimed,
+  rememberRenderer,
+  setHover,
+  type HoverRow,
+} from "../hover.ts";
 import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { folded, turnFor, turnOptions } from "../turns/turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
@@ -82,158 +92,6 @@ function boxIndent(tool: GroupedTool, plan: ViewPlan): number {
   return plan.gutter && !(tool.imageComponents?.length ?? 0) ? GUTTER_CELLS + 1 : 0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hover
-//
-// `move` packets (1003 all-motion tracking, which pi enables outside tmux) are
-// routed to the component under the pointer even with no button down, so a
-// folded row can react to the pointer without a click. The row handler never
-// consumes the event: pi still gets it for text selection, and the repaint is
-// requested directly.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type HoverRow = "header" | "turn-header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
-
-/**
- * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
- * an extracted method would lose `this`.
- */
-type Renderer = { requestRender?(): void };
-let hoverState: { tool: object | null; row: HoverRow | null; ui?: Renderer } = { tool: null, row: null };
-/** Set by a row that wants this packet; the alt-screen wrapper clears otherwise. */
-let hoverClaimed = false;
-/** Only tracked once the clear hook is in place — a stale band is worse than none. */
-let hoverTracking = false;
-
-/** Next render pass: which row of which tool the pointer is on, if any. */
-function setHover(tool: object | null, row: HoverRow | null, ui?: Renderer): boolean {
-  if (hoverState.tool === tool && hoverState.row === row) {
-    if (ui) hoverState.ui = ui;
-    return false;
-  }
-  hoverState = { tool, row, ui: ui ?? hoverState.ui };
-  return true;
-}
-
-/** The pointer left our rows (or the app): drop the band and repaint it away. */
-function clearHover(): boolean {
-  if (!hoverState.tool) return false;
-  hoverState = { tool: null, row: null, ui: hoverState.ui };
-  hoverState.ui?.requestRender?.();
-  return true;
-}
-
-/** The alt screen that routes the packets: its renderer is the one that repaints. */
-let hoverRenderer: { requestRender?(): void } | undefined;
-
-/** Repaint after the pointer entered or left a row that is not a tool row. */
-export function requestHoverRender(): void {
-  lastUi?.requestRender?.();
-  hoverRenderer?.requestRender?.();
-}
-
-/**
- * Turn rows share this state with the tool rows: one source for the band, the
- * hand and the clear-on-leave hook. Only claim while move tracking is live.
- */
-export function claimHover(target: object | null, row: HoverRow | null): boolean {
-  if (!hoverTracking) return false;
-  if (row) hoverClaimed = true;
-  return setHover(row ? target : null, row);
-}
-
-/** Whether the pointer is on this component's row, after the leave hook ran. */
-export function isRowHovered(target: object, row: HoverRow): boolean {
-  return hoverState.tool === target && hoverState.row === row;
-}
-
-/** A codemode body's fold row the pointer is on, if that is where it is. */
-export function codemodeHover(tool: object): CodemodeSection | undefined {
-  if (hoverState.tool !== tool) return undefined;
-  const row = hoverState.row;
-  return row?.startsWith("codemode:") ? (row.slice("codemode:".length) as CodemodeSection) : undefined;
-}
-
-/** A full-width band behind the row: the whole row is the click target. */
-export function hoverBand(line: string, width: number, theme: ThemeLike): string {
-  const padded = padToWidth(line, width);
-  return theme.bg ? theme.bg("selectedBg", padded) : padded;
-}
-
-const HOVER_HOOK = Symbol.for("pi-toolbox:hover-hook");
-
-/**
- * OSC 22, the pointer shape, in CSS's cursor names (Ghostty, kitty, foot,
- * WezTerm). A lit row is a click target, so it gets the hand. `default` is the
- * arrow a terminal shows while mouse tracking is on — the shape pi runs under —
- * so it is what the pointer goes back to. Terminals without OSC 22 ignore both.
- */
-const POINTER_SHAPE = "\x1b]22;pointer\x1b\\";
-const DEFAULT_SHAPE = "\x1b]22;default\x1b\\";
-/** What the terminal was last told, so a move along the same row writes nothing. */
-let pointerShown = false;
-
-type TerminalLike = { write?(data: string): void } | undefined;
-
-function syncPointer(terminal: TerminalLike, lit: boolean): void {
-  if (lit === pointerShown || typeof terminal?.write !== "function") return;
-  pointerShown = lit;
-  terminal.write(lit ? POINTER_SHAPE : DEFAULT_SHAPE);
-}
-
-/**
- * Every mouse packet goes through the alt screen. Watching it is what makes
- * hover honest: a pointer that moves off our rows — onto the editor, a message,
- * the scrollbar — produces no event for us at all, so without this hook the
- * last row would stay lit forever. No hook, no hover.
- *
- * The pointer shape follows the band: a hand while a row is lit, the arrow
- * again once nothing is.
- */
-export function installHoverTracking(): void {
-  const proto = (TuiAltScreen as unknown as { prototype?: Record<PropertyKey, any> })?.prototype;
-  if (!proto || proto[HOVER_HOOK]) return;
-  const original = proto.handleMouseEvent;
-  if (typeof original !== "function") return;
-  proto.handleMouseEvent = function (this: { terminal?: TerminalLike; requestRender?(): void }, raw: unknown) {
-    hoverRenderer = this;
-    hoverClaimed = false;
-    const result = original.call(this, raw);
-    if (!hoverClaimed && clearHover()) requestHoverRender();
-    syncPointer(this.terminal, hoverState.tool !== null);
-    return result;
-  };
-  // Leaving the alt screen (exit, suspend, an external editor) must not leave
-  // the hand behind. It goes first: once pi turns mouse tracking off, Ghostty
-  // puts its own text cursor back, and an arrow written after that would stick.
-  const stop = proto.beforeTerminalStop;
-  if (typeof stop === "function") {
-    proto.beforeTerminalStop = function (this: { terminal?: TerminalLike }, ...args: unknown[]) {
-      syncPointer(this.terminal, false);
-      return stop.apply(this, args);
-    };
-  }
-  proto[HOVER_HOOK] = true;
-  hoverTracking = true;
-}
-
-/** Test seam: pretend the packets are being watched. */
-export function enableHoverForTests(): void {
-  hoverTracking = true;
-}
-
-/** Test seam: pretend nothing is watching the packets. */
-export function disableHoverForTests(): void {
-  hoverTracking = false;
-}
-
-/** Test seam: forget what is hovered. */
-export function resetHover(): void {
-  hoverState = { tool: null, row: null };
-  hoverClaimed = false;
-  pointerShown = false;
-}
-
 /**
  * The tool's lines while grouping is on, or `undefined` when it is an
  * always-shown tool and should render as a plain box.
@@ -250,7 +108,7 @@ export function renderGroupedTool(
   installGroupBoundaries();
   const job = options.pinned ? undefined : jobForTool(tool);
   const jobs = options.pinned ? [] : jobsForTool(tool);
-  if (tool.ui) lastUi = tool.ui;
+  if (tool.ui) rememberRenderer(tool.ui);
   const now = Date.now();
   const plan = planFor(tool, options.pinned, runningJob(jobs) ?? job, now);
   if (takeLateJoin()) tool.ui?.requestRender?.();
@@ -262,7 +120,7 @@ export function renderGroupedTool(
   }
 
   const { icons, highlight, rowLines } = options;
-  const hovered = hoverState.tool === tool ? hoverState.row : null;
+  const hovered = hoveredRow(tool);
   const align = groupAlign(tool);
   // The header is memoized on its own inputs and hands back the same string
   // whenever it did not change, so its identity is a stamp for the whole line.
@@ -405,8 +263,8 @@ export function routeCodemodeFold(tool: GroupedTool, event: any, section: Codemo
     tool.ui?.requestRender?.();
     return { handled: true };
   }
-  if (event?.type === "move" && hoverTracking) {
-    hoverClaimed = true;
+  if (event?.type === "move" && hoverIsTracked()) {
+    markHoverClaimed();
     if (setHover(tool, `codemode:${section}`, tool.ui)) tool.ui?.requestRender?.();
   }
   return undefined;
@@ -594,7 +452,7 @@ function scheduleSettle(component: object, ms: number): void {
   settleScheduled.add(component);
   const timer = setTimeout(() => {
     settleScheduled.delete(component);
-    lastUi?.requestRender?.();
+    lastRenderer()?.requestRender?.();
   }, Math.max(0, ms) + 20);
   timer.unref?.();
 }
@@ -647,9 +505,9 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   if (fold) return routeCodemodeFold(tool, event, fold.section);
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
-    if (event?.type === "move" && hoverTracking) {
+    if (event?.type === "move" && hoverIsTracked()) {
       const row: HoverRow | null = y === nested.from ? `job:${nested.id}` : null;
-      if (row) hoverClaimed = true;
+      if (row) markHoverClaimed();
       if (setHover(row ? tool : null, row, tool.ui)) tool.ui?.requestRender?.();
     }
     if (click && y === nested.from) {
@@ -665,8 +523,8 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   // Pointer motion: light up the row under it, but never consume the packet —
   // pi still needs it for drag-selection. Repaint only when the row changes.
   if (event?.type === "move") {
-    if (!hoverTracking) return undefined;
-    hoverClaimed = true;
+    if (!hoverIsTracked()) return undefined;
+    markHoverClaimed();
     const row = hoverRowAt(tool, plan, y);
     const changed = setHover(row ? tool : null, row, tool.ui);
     if (changed) tool.ui?.requestRender?.();
@@ -723,12 +581,6 @@ const CARRIER_CLICK = Symbol.for("pi-toolbox:carrier-click");
 type CarrierClickMap = { header: number | null; from: number; to: number };
 
 /**
- * Last renderer a tool handed us. Carrier components have no `ui` of their own,
- * and a hovered row needs a repaint, so we borrow the neighbouring tool's.
- */
-let lastUi: Renderer | undefined;
-
-/**
  * A carrier message inside an open group: one `🧠` row per thinking run. The
  * collapsed row is the whole point — the group header counts the runs, and the
  * rows are where the model's reasoning actually shows up in the transcript.
@@ -744,7 +596,7 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   const plan = carrierPlan(component, { ids: toolCallIds(message), runs });
   // The run count just changed and the summary line is drawn by someone else:
   // ask for the frame that catches it up.
-  if (plan.counted) lastUi?.requestRender?.();
+  if (plan.counted) lastRenderer()?.requestRender?.();
   // A live run goes quiet on its own after its last token. By then pi may be
   // painting nothing at all, so the frame that drops the row is ours.
   if (plan.settlesIn !== undefined) scheduleSettle(component, plan.settlesIn);
@@ -766,7 +618,7 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
       theme,
       width,
       icons,
-      hoverState.tool === component && hoverState.row === "header",
+      isRowHovered(component, "header"),
       Date.now(),
     );
     if (line !== undefined) {
@@ -776,7 +628,7 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
   }
   if (!plan.rows) return { lines };
   const gutter = groupGutter(theme);
-  const hovered = hoverState.tool === component && hoverState.row === "row";
+  const hovered = isRowHovered(component, "row");
   // `thinkingVisibilityOverrides` is pi's own per-run switch: false = shown, and
   // pi renders the markdown itself. We flip the same map, so its click and
   // ours can never disagree about what is open.
@@ -855,12 +707,12 @@ function installCarrierMouse(component: any): void {
   };
   component.handleMouse = (event: any) => {
     if (event?.type === "move") {
-      if (!hoverTracking) return pass(event);
+      if (!hoverIsTracked()) return pass(event);
       const row = rowAt(event.y);
       // Only a row claims the packet; the alt-screen hook drops the band when
       // nothing does, so motion across the rest of the message clears it.
-      if (row) hoverClaimed = true;
-      if (setHover(row ? component : null, row, lastUi)) lastUi?.requestRender?.();
+      if (row) markHoverClaimed();
+      if (setHover(row ? component : null, row, lastRenderer())) lastRenderer()?.requestRender?.();
       return pass(event);
     }
     if (event?.type !== "click" || (event.button !== "left" && event.button !== 0)) return pass(event);
@@ -881,7 +733,7 @@ function installCarrierMouse(component: any): void {
       component.updateContent?.(component.lastMessage);
       component.invalidate?.();
       setHover(null, null);
-      lastUi?.requestRender?.();
+      lastRenderer()?.requestRender?.();
       return { handled: true };
     }
     if (row === "header") {
@@ -893,7 +745,7 @@ function installCarrierMouse(component: any): void {
         for (const member of closeGroup(component)) (member as GroupedTool).setExpanded(false);
       }
       setHover(null, null);
-      lastUi?.requestRender?.();
+      lastRenderer()?.requestRender?.();
       return { handled: true };
     }
     const overrides = component.thinkingVisibilityOverrides;
@@ -902,7 +754,7 @@ function installCarrierMouse(component: any): void {
     component.updateContent?.(component.lastMessage);
     component.invalidate?.();
     setHover(null, null);
-    lastUi?.requestRender?.();
+    lastRenderer()?.requestRender?.();
     return { handled: true };
   };
 }
@@ -1092,7 +944,7 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
       overrides?.set?.(index, overrides?.get?.(index) === false);
       component.updateContent?.(component.lastMessage);
       component.invalidate?.();
-      lastUi?.requestRender?.();
+      lastRenderer()?.requestRender?.();
       return { handled: true };
     }));
   }

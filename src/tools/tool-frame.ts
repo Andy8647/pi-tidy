@@ -41,10 +41,7 @@ import { pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./t
 import { formatToolLine } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
-  installHoverTracking,
   codemodeFoldAt,
-  codemodeHover,
-  hoverBand,
   NOT_GROUPED,
   renderGroupedTool,
   routeCodemodeFold,
@@ -55,6 +52,7 @@ import {
   type CodemodeRowSpan,
   type GroupedTool,
 } from "./tool-group-view.ts";
+import { codemodeHover, hoverBand, installHoverTracking } from "../hover.ts";
 
 interface MouseTarget {
   render(width: number): string[];
