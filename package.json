@@ -19,17 +19,17 @@
     "syntax-highlighting"
   ],
   "files": [
-    "*.ts",
+    "src",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
-  "main": "./index.ts",
-  "types": "./index.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./index.ts",
-      "default": "./index.ts"
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "scripts": {
@@ -39,7 +39,7 @@
   },
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./src/index.ts"
     ],
     "image": "https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png",
     "video": "https://cdn.jsdelivr.net/gh/Andy8647/pi-tidy@v0.4.3/assets/demo.mp4"

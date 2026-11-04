@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { patchContainerBoxes } from "../message-frame.ts";
-import { visibleText } from "../frame-draw.ts";
+import { patchContainerBoxes } from "../src/messages/message-frame.ts";
+import { visibleText } from "../src/draw/frame-draw.ts";
 
 initTheme("dark");
 const colors = { user: "toolTitle", custom: "warning" };

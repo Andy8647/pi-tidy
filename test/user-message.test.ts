@@ -19,8 +19,8 @@ const fakeTheme = {
 };
 (globalThis as any)[THEME_KEY] = fakeTheme;
 
-const { patchUserMessages, patchContainerBoxes } = await import("../frame.ts");
-const { tidyEnabled } = await import("../live.ts");
+const { patchUserMessages, patchContainerBoxes } = await import("../src/frame.ts");
+const { tidyEnabled } = await import("../src/live.ts");
 const { UserMessageComponent } = await import("@earendil-works/pi-coding-agent");
 
 const BG_FILL_RE = /\x1b\[48;[0-9;]*m|\x1b\[(?:4[0-7]|10[0-7])m/;

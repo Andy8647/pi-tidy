@@ -5,7 +5,7 @@
  */
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { ThemeLike } from "./theme-access.ts";
+import type { ThemeLike } from "../theme-access.ts";
 
 // Solid background fills: truecolor/256 "48;…" sequences and the standard
 // 40-47 / 100-107 bg colors. pi's shell and some built-in renderers (edit)

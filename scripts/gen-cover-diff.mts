@@ -1,5 +1,5 @@
 import { generateDiffString, initTheme } from "@earendil-works/pi-coding-agent";
-import { renderSplitDiff } from "../split-diff.ts";
+import { renderSplitDiff } from "../src/tools/split-diff.ts";
 
 initTheme("dark");
 const theme = (globalThis as any)[Symbol.for("@earendil-works/pi-coding-agent:theme")];

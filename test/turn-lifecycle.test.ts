@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import tidy from "../index.ts";
+import tidy from "../src/index.ts";
 import { harness, loadTidy } from "./renderer-harness.ts";
-import { folded, messageKey, turnStore, TURN_ENTRY } from "../turn-state.ts";
+import { folded, messageKey, turnStore, TURN_ENTRY } from "../src/turns/turn-state.ts";
 
 const user = { role: "user", timestamp: 1000, content: "Check this" };
 const first = { role: "assistant", provider: "openai", model: "test", timestamp: 1100, durationMs: 10, stopReason: "toolUse", content: [

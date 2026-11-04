@@ -54,22 +54,22 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint, VERSION } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatBashCallHighlighted } from "./bash-highlight.ts";
+import { formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
-import { collapsedResultBudget, shrinkResultPreview } from "./result-preview.ts";
-import { connectTurns } from "./turn-lifecycle.ts";
-import { turnOptions } from "./turn-state.ts";
+import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
+import { connectTurns } from "./turns/turn-lifecycle.ts";
+import { turnOptions } from "./turns/turn-state.ts";
 import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
-import { patchBashExecutions } from "./bash-mode-frame.ts";
-import { patchErrorLines } from "./error-lines.ts";
-import { patchUserMessages } from "./user-message.ts";
-import { formatWriteCallText } from "./write-preview.ts";
-import { connectJobs, registerNestedJobs, type EventBusLike } from "./background-jobs.ts";
-import { installGroupBoundaries } from "./tool-group-view.ts";
+import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
+import { patchErrorLines } from "./messages/error-lines.ts";
+import { patchUserMessages } from "./messages/user-message.ts";
+import { formatWriteCallText } from "./tools/write-preview.ts";
+import { connectJobs, registerNestedJobs, type EventBusLike } from "./tools/background-jobs.ts";
+import { installGroupBoundaries } from "./tools/tool-group-view.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
-export { highlightBashCommand, formatBashCallHighlighted } from "./bash-highlight.ts";
+export { highlightBashCommand, formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 export { stripBackgroundFills, patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 
 interface BashRenderState {

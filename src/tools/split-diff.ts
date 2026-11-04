@@ -14,7 +14,7 @@
 
 import { getLanguageFromPath, highlightCode, keyHint } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { ThemeLike } from "./theme-access.ts";
+import type { ThemeLike } from "../theme-access.ts";
 
 /** Blank cells on each side of the panes (pi's Box uses the same padding). */
 const PAD = 1;

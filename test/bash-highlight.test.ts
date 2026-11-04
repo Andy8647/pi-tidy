@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Worker } from "node:worker_threads";
 
-const MODULE_URL = new URL("../bash-highlight.ts", import.meta.url).href;
+const MODULE_URL = new URL("../src/tools/bash-highlight.ts", import.meta.url).href;
 
 const WORKER_SOURCE = `
 const { parentPort, workerData } = require("node:worker_threads");

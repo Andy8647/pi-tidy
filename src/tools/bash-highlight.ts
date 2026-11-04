@@ -3,7 +3,7 @@
  * grammar is too weak: no command names, flags, paths, or pipe operators)
  */
 
-import type { ThemeLike } from "./theme-access.ts";
+import type { ThemeLike } from "../theme-access.ts";
 
 interface BashCallArgs {
   command?: string;

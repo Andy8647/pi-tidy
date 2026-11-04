@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { clipToWidth } from "../frame-draw.ts";
+import { clipToWidth } from "../src/draw/frame-draw.ts";
 
 // pi-tui's truncateToWidth segments the whole string even when nothing is cut,
 // which is why clipToWidth measures first. These pin the equivalence: a fitting

@@ -17,8 +17,8 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
   bold: (text: string) => `<b>${text}</b>`,
 };
 
-const { patchContainerBoxes, patchMessageBoxes } = await import("../frame.ts");
-const { USER_MESSAGE_TIME } = await import("../message-frame.ts");
+const { patchContainerBoxes, patchMessageBoxes } = await import("../src/frame.ts");
+const { USER_MESSAGE_TIME } = await import("../src/messages/message-frame.ts");
 const {
   BranchSummaryMessageComponent,
   CompactionSummaryMessageComponent,

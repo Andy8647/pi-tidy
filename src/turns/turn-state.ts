@@ -1,4 +1,4 @@
-import { liveSlot } from "./live.ts";
+import { liveSlot } from "../live.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type TurnOutcome = "running" | "completed" | "interrupted" | "error" | "incomplete" | "unknown";

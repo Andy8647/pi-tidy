@@ -18,8 +18,8 @@ import {
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
-import { patchToolBoxFrames } from "../tool-frame.ts";
-import { resetGroups } from "../tool-groups.ts";
+import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
+import { resetGroups } from "../src/tools/tool-groups.ts";
 
 initTheme("dark");
 

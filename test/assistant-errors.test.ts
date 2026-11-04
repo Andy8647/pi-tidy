@@ -20,10 +20,10 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import factory from "../index.ts";
-import { installErrorLines, patchErrorLines } from "../error-lines.ts";
-import { getTheme } from "../theme-access.ts";
-import { turnOptions } from "../turn-state.ts";
+import factory from "../src/index.ts";
+import { installErrorLines, patchErrorLines } from "../src/messages/error-lines.ts";
+import { getTheme } from "../src/theme-access.ts";
+import { turnOptions } from "../src/turns/turn-state.ts";
 import { harness, loadTidy } from "./renderer-harness.ts";
 
 initTheme("dark");

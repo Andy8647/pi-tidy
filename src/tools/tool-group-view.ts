@@ -17,13 +17,13 @@ import {
   ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobsForTool, noteJobMessage,
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
-import { padToWidth } from "./frame-draw.ts";
-import { agentRunning, tidyEnabled } from "./live.ts";
-import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "./turn-view.ts";
-import { folded, turnFor, turnOptions } from "./turn-state.ts";
+import { padToWidth } from "../draw/frame-draw.ts";
+import { agentRunning, tidyEnabled } from "../live.ts";
+import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
+import { folded, turnFor, turnOptions } from "../turns/turn-state.ts";
 import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
-import { getTheme, type ThemeLike } from "./theme-access.ts";
-import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "./frame-draw.ts";
+import { getTheme, type ThemeLike } from "../theme-access.ts";
+import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "../draw/frame-draw.ts";
 import {
   formatGroupLine,
   formatThoughtLabel,

@@ -22,9 +22,9 @@
 
 import { AssistantMessageComponent, InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { type Component, Spacer, Text } from "@earendil-works/pi-tui";
-import { drawFrame, labeledTopBorder, stripBackgroundFills, trimBlankEdges, visibleText } from "./frame-draw.ts";
-import { liveSlot, tidyEnabled } from "./live.ts";
-import { getTheme } from "./theme-access.ts";
+import { drawFrame, labeledTopBorder, stripBackgroundFills, trimBlankEdges, visibleText } from "../draw/frame-draw.ts";
+import { liveSlot, tidyEnabled } from "../live.ts";
+import { getTheme } from "../theme-access.ts";
 
 export interface ErrorLineOptions {
   /** Fold a repeated error row into the first one as `×N`, and frame it. */

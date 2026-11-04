@@ -15,8 +15,8 @@ import {
   summarizeArgs,
   summarizeNestedCalls,
   summarizeResult,
-} from "../tool-lines.ts";
-import { buildGroupSummary } from "../tool-groups.ts";
+} from "../src/tools/tool-lines.ts";
+import { buildGroupSummary } from "../src/tools/tool-groups.ts";
 
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
 

@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { patchToolBoxFrames } from "../frame.ts";
-import { agentRunning, tidyEnabled } from "../live.ts";
-import { resetGroups } from "../tool-groups.ts";
+import { patchToolBoxFrames } from "../src/frame.ts";
+import { agentRunning, tidyEnabled } from "../src/live.ts";
+import { resetGroups } from "../src/tools/tool-groups.ts";
 
 initTheme("dark");
 const options = { icons: false, groupTools: true };

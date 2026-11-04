@@ -26,8 +26,8 @@ import {
   summaryFor,
   takeLateJoin,
   THOUGHT_LIVE_MS,
-} from "../tool-groups.ts";
-import { agentRunning } from "../live.ts";
+} from "../src/tools/tool-groups.ts";
+import { agentRunning } from "../src/live.ts";
 
 interface FakeTool {
   kind: "tool";
@@ -454,9 +454,9 @@ test("groupOpen set by a reloaded module reaches the patches already installed",
     // there, while the render patch the first load installed keeps calling this
     // instance's `newGroup()`. Only a shared slot bridges the two. The query is
     // what makes node hand out a second instance.
-    const freshModule = "../tool-groups.ts?reload=1";
-    const reloaded = (await import(freshModule)) as typeof import("../tool-groups.ts");
-    assert.notEqual(reloaded, await import("../tool-groups.ts"), "the point is a second module instance");
+    const freshModule = "../src/tools/tool-groups.ts?reload=1";
+    const reloaded = (await import(freshModule)) as typeof import("../src/tools/tool-groups.ts");
+    assert.notEqual(reloaded, await import("../src/tools/tool-groups.ts"), "the point is a second module instance");
     reloaded.setGroupOpenDefault(true);
 
     resetGroups();

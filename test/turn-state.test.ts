@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { TurnStore, TURN_ENTRY, messageKey, unionMs, type TurnMessage } from "../turn-state.ts";
+import { TurnStore, TURN_ENTRY, messageKey, unionMs, type TurnMessage } from "../src/turns/turn-state.ts";
 
 const user = (timestamp: number): TurnMessage => ({ role: "user", timestamp, content: "check this" });
 const reply = (timestamp: number, text = "Done", durationMs: number | undefined = 100): TurnMessage => ({

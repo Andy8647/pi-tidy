@@ -6,9 +6,9 @@
 
 import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { highlightBashCommand } from "./bash-highlight.ts";
-import { clipToWidth, visibleText } from "./frame-draw.ts";
-import { toolKindIcon } from "./icons.ts";
-import type { ThemeLike } from "./theme-access.ts";
+import { clipToWidth, visibleText } from "../draw/frame-draw.ts";
+import { toolKindIcon } from "../draw/icons.ts";
+import type { ThemeLike } from "../theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
 import type { GroupSummary } from "./tool-groups.ts";
 

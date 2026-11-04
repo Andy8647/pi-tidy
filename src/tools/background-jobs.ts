@@ -16,7 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { liveSlot } from "./live.ts";
+import { liveSlot } from "../live.ts";
 
 export type JobStatus = "running" | "done" | "failed" | "killed" | "gone";
 

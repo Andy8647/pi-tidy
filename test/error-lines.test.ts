@@ -19,7 +19,7 @@ const theme = {
 };
 (globalThis as any)[THEME_KEY] = theme;
 
-const { installErrorLines, patchErrorLines } = await import("../frame.ts");
+const { installErrorLines, patchErrorLines } = await import("../src/frame.ts");
 const { Spacer, Text, visibleWidth } = await import("@earendil-works/pi-tui");
 
 const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+$/, "");

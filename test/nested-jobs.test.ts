@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   connectJobs, jobsForTool, noteJobMessage, registerNestedJobs, resetJobs, setJobOptions,
-} from "../background-jobs.ts";
+} from "../src/tools/background-jobs.ts";
 
 function host() {
   const handlers = new Map<string, Array<(event: any) => any>>();

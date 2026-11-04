@@ -278,7 +278,7 @@ the group levels stay in step with pi's per-box expand flag.
 
 ### Background jobs
 
-pi has no notion of a job that outlives its tool call, so `background-jobs.ts`
+pi has no notion of a job that outlives its tool call, so `src/tools/background-jobs.ts`
 has a small provider interface. pi-processes is the one provider: its
 `processes:*` events on pi's shared extension bus keep a row live, its persisted
 `ad-process:notification` messages rebuild a reloaded session, and a process it

@@ -47,7 +47,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const revisions = roots.map(sha);
   const worker = fileURLToPath(new URL("bench-render.ts", import.meta.url));
   // Turn folding arrived in 0.7.0: an older base has no module to render it with.
-  const baseHasTurns = existsSync(resolve(roots[0]!, "turn-state.ts"));
+  const baseHasTurns = ["turn-state.ts", "src/turns/turn-state.ts"].some((file) => existsSync(resolve(roots[0]!, file)));
   const results: ({ base: Measurement; head: Measurement } | { head: Measurement })[] = [];
   const measure = (index: number, count: number, mode: string): Measurement =>
     JSON.parse(execFileSync(process.execPath, [worker, roots[index]!, String(count), mode], {

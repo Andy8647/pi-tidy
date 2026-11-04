@@ -7,7 +7,7 @@
  * unpainted rather than breaking the render.
  */
 
-import type { ThemeLike } from "./theme-access.ts";
+import type { ThemeLike } from "../theme-access.ts";
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWriteToolDefinition, initTheme, ToolExecutionComponent, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import tidy from "../index.ts";
+import tidy from "../src/index.ts";
 import { collectWarnings, harness, loadTidy as load } from "./renderer-harness.ts";
 
 /** Tidy's own defaults for the parts these tests do not exercise. */

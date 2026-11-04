@@ -19,7 +19,7 @@
 import { homedir } from "node:os";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "./frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
 import {
   composeCodemodeBody,
   codemodeSections,
@@ -29,14 +29,14 @@ import {
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
-import { clipToWidth } from "./frame-draw.ts";
-import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "./icons.ts";
+import { clipToWidth } from "../draw/frame-draw.ts";
+import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
-import { liveSlot, tidyEnabled } from "./live.ts";
-import { expandTurnForTool, hideTurnTool, railTurnTool } from "./turn-state.ts";
-import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "./turn-view.ts";
+import { liveSlot, tidyEnabled } from "../live.ts";
+import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-state.ts";
+import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { renderSplitDiff } from "./split-diff.ts";
-import { getTheme, type ThemeLike } from "./theme-access.ts";
+import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
 import { formatToolLine } from "./tool-lines.ts";
 import {

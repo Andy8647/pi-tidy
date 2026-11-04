@@ -25,9 +25,9 @@
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { clipToWidth, rawIndexOfVisible, trimTrailingSpaces, visibleText } from "./frame-draw.ts";
-import { toolKindIcon } from "./icons.ts";
-import type { ThemeLike } from "./theme-access.ts";
+import { clipToWidth, rawIndexOfVisible, trimTrailingSpaces, visibleText } from "../draw/frame-draw.ts";
+import { toolKindIcon } from "../draw/icons.ts";
+import type { ThemeLike } from "../theme-access.ts";
 import { summarizeArgs } from "./tool-lines.ts";
 
 /** pi's nested-call status glyphs, before the tool's name. */

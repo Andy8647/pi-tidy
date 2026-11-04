@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createBashToolDefinition, initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
-import tidy from "../index.ts";
+import tidy from "../src/index.ts";
 import { collectWarnings, harness, loadTidy as load } from "./renderer-harness.ts";
 
 initTheme("dark");

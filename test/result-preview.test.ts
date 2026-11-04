@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { collapsedResultBudget, shrinkResultPreview } from "../result-preview.ts";
+import { collapsedResultBudget, shrinkResultPreview } from "../src/tools/result-preview.ts";
 
 function preview(maxVisualLines: number) {
   const node = {

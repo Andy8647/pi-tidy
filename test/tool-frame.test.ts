@@ -17,7 +17,7 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
   bold: (text: string) => `<b>${text}</b>`,
 };
 
-const { patchContainerBoxes, patchToolBoxFrames } = await import("../frame.ts");
+const { patchContainerBoxes, patchToolBoxFrames } = await import("../src/frame.ts");
 const { ToolExecutionComponent, UserMessageComponent } = await import("@earendil-works/pi-coding-agent");
 const { Text } = await import("@earendil-works/pi-tui");
 
