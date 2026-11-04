@@ -11,6 +11,7 @@ import {
   formatThoughtLine,
   formatToolLine,
   previewText,
+  formatToolRows,
   summarizeArgs,
   summarizeNestedCalls,
   summarizeResult,
@@ -66,13 +67,29 @@ test("a multi-line value is one row, whichever argument it arrives in", () => {
   assert.match(row, /^ ✓ chrome-devtools_evaluate_script \(\) => \{/u);
 });
 
+test("a row shortens the path of a leading cd, and only that", () => {
+  const row = (command: string) => summarizeArgs("bash", { command }, 200);
+  assert.equal(row("cd ~/Projects/fork/pi/pi-tidy && rg -n x"), "cd …/pi-tidy && rg -n x");
+  assert.equal(row("cd /opt/homebrew/lib/; ls"), "cd …/lib; ls");
+  assert.equal(row('cd "/Users/me/My Docs/app" && ls'), "cd …/app && ls");
+  assert.equal(row("cd ~/Projects/fork/pi && pnpm test\nsecond"), "cd …/pi && pnpm test (+1 lines)");
+  // Nothing to gain, or nothing that could be said shorter without lying.
+  for (const same of ["cd ~ && ls", "cd /tmp && ls", "cd ~/x && ls", "cd ../../.. && ls", 'cd "$HOME/a/b/c" && ls', "cd $(git rev-parse --show-toplevel)/a/b && ls"]) {
+    assert.equal(row(same), same);
+  }
+  // With no command behind it, the path is the command.
+  assert.equal(row("cd ~/Projects/fork/pi/pi-tidy"), "cd ~/Projects/fork/pi/pi-tidy");
+  assert.equal(row("cd ~/Projects/fork/pi/pi-tidy || exit 1"), "cd ~/Projects/fork/pi/pi-tidy || exit 1");
+  assert.equal(row("rg cd ~/Projects/fork/pi && ls"), "rg cd ~/Projects/fork/pi && ls");
+});
+
 test("tool line carries the status glyph, name and duration", () => {
   const ok = formatToolLine(
     { toolName: "bash", args: { command: "ls -la" }, isPartial: false, result: { durationMs: 340 } },
     theme,
     { icons: false },
   );
-  assert.equal(ok, " ✓ bash ls -la  0.3s");
+  assert.equal(ok, " ✓ bash ls -la  no output · 0.3s");
 
   const running = formatToolLine({ toolName: "bash", args: { command: "sleep 5" }, isPartial: true }, theme, { icons: false });
   assert.equal(running, " ⋯ bash sleep 5");
@@ -104,7 +121,8 @@ const textResult = (text: string, extra: { isError?: boolean; details?: unknown 
 
 test("result summary: what each built-in tool produced, in a few words", () => {
   assert.equal(summarizeResult("bash", textResult("a\nb\n\nc")), "3 lines");
-  assert.equal(summarizeResult("bash", textResult("")), "", "no output: no note");
+  assert.equal(summarizeResult("bash", textResult("")), "no output");
+  assert.equal(summarizeResult("bash", textResult("(no output)")), "no output");
   assert.equal(summarizeResult("bash", textResult("boom\n\nCommand exited with code 2", { isError: true })), "exit 2");
   // A truncated result reports the original size, not the shown slice.
   assert.equal(
@@ -315,6 +333,128 @@ test("a group's metrics sit in columns against the row's right edge", () => {
   assert.ok(a.endsWith("1.2s"), a);
   assert.ok(b.endsWith("0.1s"), b);
   assert.equal(a.length - "1.2s".length, b.length - "0.1s".length);
+});
+
+test("in a group the outcome follows the name, and the kind icon lines up with the brain", () => {
+  const align = { name: 6 };
+  const call = (extra: object) =>
+    text(formatToolLine({ toolName: "bash", args: { command: "ls" }, isPartial: false, ...extra }, theme, { icons: true, width: 60, align }));
+  const row = call({ result: textResult("a") });
+  const thought = text(formatThoughtLine("weighing it", theme, { icons: true, align }));
+  assert.match(row, /^ \S bash ✓ {4}ls/u, row);
+  assert.match(thought, /^ \S thinking {2}weighing it/u, thought);
+  assert.equal(row.indexOf("ls"), thought.indexOf("weighing"), `${row}\n${thought}`);
+  assert.match(call({ result: textResult("no", { isError: true }) }), /^ \S bash ✗ /u);
+  assert.match(call({ isPartial: true }), /^ \S bash ⋯ /u);
+  // A row on its own has no column to keep, and leads with the outcome.
+  assert.match(text(formatToolLine({ toolName: "bash", args: { command: "ls" }, isPartial: true }, theme, { icons: false, width: 60 })), /^ ⋯ bash ls/);
+});
+
+test("a background job's row in a group has the same shape", () => {
+  const job = { id: "1", name: "dev server", status: "running" } as any;
+  const align = { name: 6 };
+  const row = text(formatToolLine({ toolName: "bash", args: {}, isPartial: false }, theme, { icons: false, job, spinner: "◐", align }));
+  assert.match(row, /^ bash ◐ {4}dev server/, row);
+});
+
+test("a group row highlights a bash command when asked, and only a bash command", () => {
+  const tagged: any = { fg: (color: string, value: string) => `<${color}>${value}</>` };
+  const row = (toolName: string, args: unknown, options: object = {}) =>
+    formatToolLine({ toolName, args, isPartial: true }, tagged, { icons: false, width: 80, highlight: true, ...options });
+  assert.ok(row("bash", { command: "rg -n x" }).includes("<syntaxFunction>rg</>"), row("bash", { command: "rg -n x" }));
+  assert.ok(!row("bash", { command: "rg -n x" }, { highlight: false }).includes("syntax"));
+  assert.ok(row("read", { path: "/tmp/a/b.ts" }).endsWith(" <toolOutput>/tmp/a/b.ts</>"));
+  // The clip's own escapes are not tokens, and the row still fits.
+  const long = formatToolLine(
+    { toolName: "bash", args: { command: `rg ${"x".repeat(200)}` }, isPartial: true },
+    theme,
+    { icons: false, width: 40, highlight: true },
+  );
+  assert.equal(visibleWidth(long), 40, long);
+  assert.ok(text(long).endsWith("…"), long);
+  // A silent failure stays dim from end to end.
+  const silent = formatToolLine(
+    { toolName: "bash", args: { command: "rg x" }, isPartial: false, result: { isError: true, content: [{ type: "text", text: "Command exited with code 1" }] } },
+    tagged,
+    { icons: false, width: 80, highlight: true },
+  );
+  assert.ok(!silent.includes("syntax"), silent);
+});
+
+test("two rows: a call that fits keeps one, one that does not goes on to a second", () => {
+  const rows = (command: string, width = 60) =>
+    formatToolRows({ toolName: "bash", args: { command }, isPartial: false, result: { ...textResult("a"), durationMs: 100 } }, theme, {
+      icons: false, width, rowLines: 2, align: { name: 6 },
+    }).map(text);
+  assert.equal(rows("ls -la").length, 1);
+
+  const words = Array.from({ length: 20 }, (_, i) => `word${i}`).join(" ");
+  const [first, second] = rows(`rg ${words}`);
+  assert.ok(first!.endsWith("1 line · 0.1s"), first);
+  assert.equal(visibleWidth(first!), 60, first);
+  assert.ok(!first!.includes("…"), `nothing is cut on the first row: ${first}`);
+  // It continues in the arguments' column, at a whole word.
+  assert.equal(second!.search(/\S/), first!.indexOf("rg "));
+  assert.match(second!.trim(), /^word\d+ /);
+  assert.ok(second!.endsWith("…"), second);
+  assert.ok(visibleWidth(second!) <= 60, second);
+
+  // No space near enough: a hard cut that loses nothing.
+  const [a, b] = rows(`x${"y".repeat(45)}z${"q".repeat(10)}`);
+  assert.ok(a!.includes("x") && b!.trim().endsWith("q"), `${a}\n${b}`);
+  assert.equal(`${a}${b}`.replace(/1 line.*?s/, "").replace(/\s/g, "").replace(/^bash✓/, ""), `x${"y".repeat(45)}z${"q".repeat(10)}`);
+
+  // A multi-line command that fits shows its next line, and what is left.
+  const [one, two] = rows("cat <<EOF\n\nhello\nworld\nEOF");
+  assert.match(one!, /cat <<EOF/);
+  assert.equal(two!.trim(), "hello (+2 lines)");
+  assert.equal(rows("cat <<EOF\nhello")[1]!.trim(), "hello");
+
+  // With one row allowed, nothing changes.
+  const single = formatToolRows({ toolName: "bash", args: { command: `rg ${words}` }, isPartial: true }, theme, { icons: false, width: 60, rowLines: 1 });
+  assert.equal(single.length, 1);
+});
+
+test("two rows: a quote stays one colour across the cut, and no colour runs past it", () => {
+  const paint = (color: string, value: string) => `\x1b[3${color.length % 8}m${value}\x1b[39m`;
+  const coloured: any = { fg: paint };
+  const command = `rg "${"a ".repeat(40)}end" file.ts`;
+  const [first, second] = formatToolRows({ toolName: "bash", args: { command }, isPartial: true }, coloured, {
+    icons: false, width: 60, rowLines: 2, align: { name: 6 }, highlight: true,
+  });
+  const string = `\x1b[3${"syntaxString".length % 8}m`;
+  assert.ok(first!.includes(string), first);
+  assert.ok(second!.includes(string), `the second row is still inside the string: ${JSON.stringify(second)}`);
+  assert.ok(first!.endsWith("\x1b[39m") && second!.endsWith("\x1b[39m"), JSON.stringify(second));
+  assert.equal(text(second!).trim().startsWith("a "), true, second);
+});
+
+test("reading an image says so instead of counting its caption", () => {
+  const image = { content: [{ type: "text", text: "Read image file [image/png]" }, { type: "image", data: "x", mimeType: "image/png" }] };
+  assert.equal(summarizeResult("read", image), "image");
+  assert.equal(summarizeResult("read", { ...image, isError: true }), "");
+});
+
+test("a settled thought among calls keeps its label and dims only its text", () => {
+  const tagged: any = { fg: (color: string, value: string) => `<${color}>${value}</>` };
+  const align = { name: 7 };
+  const quiet = formatThoughtLine("weighing it", tagged, { icons: false, align, quiet: true, thinkingColor: "accent" });
+  assert.ok(quiet.includes("<accent>thinking</>"), quiet);
+  assert.ok(quiet.endsWith("<dim>weighing it</>"), quiet);
+  assert.ok(formatThoughtLine("weighing it", tagged, { icons: false, align, thinkingColor: "accent" }).endsWith("<thinkingText>weighing it</>"));
+});
+
+test("a clipped row leaves no reset behind that would end a hover band", () => {
+  const long = "word ".repeat(60);
+  assert.ok(!previewText(long, 40).includes("\x1b"), JSON.stringify(previewText(long, 40)));
+  const coloured: any = { fg: (_: string, value: string) => `\x1b[36m${value}\x1b[39m` };
+  const row = formatToolLine({ toolName: "read", args: { path: `/${"x".repeat(100)}` }, isPartial: true }, coloured, { icons: false, width: 40 });
+  assert.ok(!row.includes("\x1b[0m"), JSON.stringify(row));
+});
+
+test("a settled preview is cut only by the width it is given", () => {
+  const long = "word ".repeat(60);
+  assert.equal(visibleWidth(previewText(long, 150)), 150);
 });
 
 test("a live preview slides on word breaks, and holds still until it overflows", () => {

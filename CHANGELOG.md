@@ -4,6 +4,48 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-11-04
+
+**A run now folds by default.** When a run ends, its process folds to one `▸ took …` line above a framed final reply.
+This changes what you see on update unless your settings already name these keys. To go back:
+
+```json
+{ "tidy": { "collapseTurns": "off", "frameFinalReply": false } }
+```
+
+### Changed
+
+**An opened run hangs on a rail.** The summary's marker moves to the first column, and a rail runs down from it into the
+final reply's left border, in the reply's colour. Groups sit one cell in, boxes two. A box from `alwaysShowTools` joins
+the rail of a group that is open right above or below it. The summary drops its call counts while opened, because the
+group headers carry them.
+
+**A group's rows are easier to scan.** The `✓` or `✗` follows the tool's name, so tool icons and the thinking brain share
+a column. Thinking text is dim and runs up to the metrics column. bash commands are highlighted (`highlightBash`), and a
+leading `cd` shows only its last directory (`cd …/pi-tidy && rg x`); the opened box keeps the full command.
+
+**Rows say what happened.** A bash call that printed nothing says `no output`, and reading an image says `image`, where it
+said `1 line`.
+
+### Added
+
+**`toolRowLines`.** Set it to `2` and a call that does not fit its row goes on to a second one: the rest of a long command,
+or the next line of a multi-line one with `(+N lines)`. Calls that fit keep one row. The default stays `1`.
+
+### Fixed
+
+**Opening an always-shown box no longer throws thinking out of its group.** Opening a `write` or `edit` box moved its
+step's thinking out of the group and took one off the `N thoughts` count.
+
+**A failed run keeps its failure in view when it folds.** A run that ended in an error with no text folded the error away,
+and only the summary's `error` was left.
+
+**The hover band reaches the end of a clipped row.** It used to stop at the `…`.
+
+**The metrics columns follow a result that lands late.** They were only measured again when a call joined the group.
+
+**An opened row keeps its columns.** Opening a call moved its row one cell right, and opening a thought moved it two.
+
 ## [0.7.3] - 2026-11-03
 
 ### Fixed

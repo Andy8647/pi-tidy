@@ -461,11 +461,12 @@ export function carrierPlan(component: object, input: CarrierInput = {}): Carrie
       carrierByKey.set(key, { component, group });
     }
   }
-  for (const id of ids) {
+  // With calls already listed the runs stay rows of that list, whether the box
+  // under them is open or not: opening it must not throw its thinking out of the group.
+  if (group.members.length === 0) for (const id of ids) {
     if (!pinnedById.get(id)?.deref()?.expanded) continue;
-    // Its call draws as pi's own box and pi draws the step's thinking with it:
-    // those runs are not rows of this group, so they must not be counted in a
-    // list that will never show them.
+    // No list to sit in: pi draws the step's thinking with the call's own box, so
+    // those runs must not be counted in a group that will never show them.
     const included = group.counted.get(component) ?? 0;
     if (included > 0) {
       group.thoughts -= included;
@@ -553,6 +554,7 @@ export function planFor(tool: ToolLike, pinned = false, job?: JobTiming, now = D
       // Its carrier rendered just before it, before it could be found.
       if (tool.expanded) lateJoin = true;
     }
+    if (!groupAbovePinned.has(tool)) groupAbovePinned.set(tool, current);
     noteBoundary(tool);
     return PINNED;
   }
@@ -576,6 +578,22 @@ export function planFor(tool: ToolLike, pinned = false, job?: JobTiming, now = D
     return { header, line: false, full: false, gutter: true, revealIn: RUNNING_ROW_DELAY_MS - age };
   }
   return { header, line: !tool.expanded, full: tool.expanded, gutter: true };
+}
+
+/** The group that was open when a pinned tool ended it. */
+const groupAbovePinned = new WeakMap<object, Group>();
+
+/**
+ * Whether a group's rail meets this pinned box. Only an open group has a rail. Above:
+ * the group it ended is open, so its rail comes down to the box's corner. Below: the
+ * group behind it is open, so its rail leaves from the other corner. Any text in
+ * between is a boundary of its own and leaves the group behind this box empty.
+ */
+export function pinnedJoints(tool: object): { above: boolean; below: boolean } {
+  const before = groupAbovePinned.get(tool);
+  const after = groupOfBoundary.get(tool);
+  const hasRail = (group: Group | undefined) => !!group && group.level === 1 && group.members.length > 0;
+  return { above: hasRail(before), below: hasRail(after) };
 }
 
 /** The calls this component's group holds, in render order. */

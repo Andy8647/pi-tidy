@@ -1,5 +1,5 @@
 import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, sameLines } from "./frame-draw.ts";
+import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, sameLines, visibleText } from "./frame-draw.ts";
 import { tidyEnabled } from "./live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "./tool-group-view.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -54,15 +54,16 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
   // A running turn's line is second-granular, so half a second of staleness is
   // invisible; a settled one never changes again.
   const tick = turn.outcome === "running" ? Math.floor(now / 500) : 0;
+  const isFolded = folded(turn);
   const cached = summaryCache.get(turn);
-  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered) {
+  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded) {
     return cached.line;
   }
   const line = buildSummaryLine(turn, theme, width, hovered, now);
-  summaryCache.set(turn, { version: turn.version, tick, width, hovered, line });
+  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, line });
   return line;
 }
-const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; line: string }>();
+const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; line: string }>();
 function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: boolean, now = Date.now()): string {
   const store = turnStore.get();
   const total = turn.startedAt === undefined ? undefined : (turn.endedAt ?? now) - turn.startedAt;
@@ -78,14 +79,64 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   if (nestedFailed) parts.push(theme.fg("error", `${nestedFailed} nested failed`));
   parts.push(theme.fg("muted", `LLM ${duration(store.llmTime(turn, now))}`));
   parts.push(theme.fg("muted", `tools ${duration(store.toolTime(turn, now))}`));
-  parts.push(theme.fg("toolTitle", `${turn.tools.size} calls`));
-  const counts = new Map<string, number>();
-  for (const { name } of turn.tools.values()) {
-    const kind = name.startsWith("mcp__") ? "mcp" : name;
-    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  // Open, the group headers below already count the calls.
+  if (folded(turn)) {
+    parts.push(theme.fg("toolTitle", `${turn.tools.size} calls`));
+    const counts = new Map<string, number>();
+    for (const { name } of turn.tools.values()) {
+      const kind = name.startsWith("mcp__") ? "mcp" : name;
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    }
+    for (const [name, count] of counts) parts.push(theme.fg("muted", `${name}×${count}`));
   }
-  for (const [name, count] of counts) parts.push(theme.fg("muted", `${name}×${count}`));
-  return clipToWidth(` ${parts.join(theme.fg("muted", " · "))}`, width, "…");
+  return clipToWidth(parts.join(theme.fg("muted", " · ")), width, "…");
+}
+
+/**
+ * Cells an open turn's rail takes from what hangs on it. The rail runs down column 0,
+ * under the summary's `▾` and on into the reply's left border. Rows bring their own
+ * lead; a box starts at its corner and needs one more so it does not touch the rail.
+ */
+export const TURN_RAIL_CELLS = 1;
+export const TURN_RAIL_BOX_CELLS = 2;
+
+const railedRows = new WeakMap<readonly string[], { rail: string; out: string[] }>();
+const joinedRows = new WeakMap<readonly string[], { above: boolean; below: boolean; out: readonly string[] }>();
+
+/** Turn a box's corners into joints where a rail meets them. Other rows are left alone. */
+export function joinBoxCorners(rows: readonly string[], above: boolean, below: boolean): readonly string[] {
+  if (!above && !below) return rows;
+  const cached = joinedRows.get(rows);
+  if (cached?.above === above && cached.below === below) return cached.out;
+  const out = [...rows];
+  if (above) {
+    const top = out.findIndex((row) => visibleText(row).startsWith("╭"));
+    if (top >= 0) out[top] = out[top]!.replace("╭", "├");
+  }
+  if (below) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!visibleText(out[i]!).startsWith("╰")) continue;
+      out[i] = out[i]!.replace("╰", "├");
+      break;
+    }
+  }
+  joinedRows.set(rows, { above, below, out });
+  return out;
+}
+
+/**
+ * Hang rows on an open turn's rail. A row's opening OSC 133 marker stays first:
+ * terminals misrender a zone that starts after a border. Rows usually come back as
+ * the same array, and then so does this.
+ */
+export function railRows(rows: readonly string[], theme: ThemeLike, pad = ""): string[] {
+  // The colour of the summary's marker above it and the reply's border below it.
+  const rail = `${theme.fg("accent", "│")}${pad}`;
+  const cached = railedRows.get(rows);
+  if (cached?.rail === rail) return cached.out;
+  const out = rows.map((row) => (row.startsWith(ZONE_A) ? `${ZONE_A}${rail}${row.slice(ZONE_A.length)}` : `${rail}${row}`));
+  railedRows.set(rows, { rail, out });
+  return out;
 }
 
 /** Box owns the horizontal mouse transform; its padding cells become border glyphs. */
@@ -130,6 +181,26 @@ function installMouse(component: any): void {
   component.handleMouse = wrapped;
 }
 
+/**
+ * A run that ended in a failure with no text has no reply to keep. What the failure
+ * said stays out of the fold instead: a summary's `error` cannot say what went wrong.
+ */
+function failedLast(turn: Turn): string | undefined {
+  const last = turn.lastAssistant ? turn.messages.get(turn.lastAssistant) : undefined;
+  return last && ["error", "aborted", "length"].includes(last.stopReason ?? "") ? turn.lastAssistant : undefined;
+}
+
+/**
+ * Whether this message's process hangs on its open turn's rail. The reply it led to
+ * stands clear of it at full width; until the turn ends, nothing is the reply yet.
+ */
+export function messageOnRail(component: any): boolean {
+  if (!tidyEnabled.get() || turnOptions.get().collapseTurns === "off") return false;
+  const turn = turnFor(component.lastMessage);
+  if (!turn || folded(turn) || !hasProcess(turn)) return false;
+  return turn.outcome === "running" || messageKey(component.lastMessage) !== turn.final;
+}
+
 /** Decorate the existing message view, never a second markdown renderer. */
 export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => string[]): string[] {
   component[LAYOUT] = undefined;
@@ -140,11 +211,17 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   if (!turn || !theme) return draw(width);
   const key = messageKey(component.lastMessage);
   const closed = options.collapseTurns !== "off" && folded(turn);
-  const visible = turn.outcome === "running" ? turn.latestText : turn.final;
+  const visible = turn.outcome === "running" ? turn.latestText : turn.final ?? failedLast(turn);
   const header = options.collapseTurns !== "off" && key === turn.firstAssistant && hasProcess(turn);
   if (closed && key !== visible && !header) return [];
   const framed = options.frameFinalReply && turn.outcome !== "running" && key === turn.final && width >= 4;
-  const body = closed && key !== visible ? [] : draw(framed ? width - 2 : width, framed);
+  const railOpen = options.collapseTurns !== "off" && !closed && hasProcess(turn);
+  const railed = messageOnRail(component);
+  const body = closed && key !== visible
+    ? []
+    : railed
+      ? railRows(draw(Math.max(1, width - TURN_RAIL_CELLS)), theme)
+      : draw(framed ? width - 2 : width, framed);
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
@@ -159,7 +236,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
       )
     : "";
   const cache = component[CACHE];
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.framed === framed && sameLines(cache.body, body)) {
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -178,7 +255,9 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     finally { component[LAYOUT] = layout; }
   } };
   if (framed) {
-    view.addChild(new Text(labeledTopBorder(width, theme, "accent", label), 0, 0));
+    // The rail comes down into the reply's corner and carries on as its left border.
+    const top = labeledTopBorder(width, theme, "accent", label);
+    view.addChild(new Text(railOpen ? top.replace("╭", "├") : top, 0, 0));
     const box = new ReplyBody(theme);
     box.addChild(source);
     view.addChild(box);
@@ -187,7 +266,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const out = view.render(width);
   const layout = { view, header };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, framed, body, out, layout };
+  component[CACHE] = { turn, width, line, label, framed, railOpen, body, out, layout };
   installMouse(component);
   return out;
 }

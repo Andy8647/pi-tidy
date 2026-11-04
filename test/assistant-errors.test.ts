@@ -57,7 +57,7 @@ const cwd = process.cwd();
 const bashDef = createBashToolDefinition(cwd);
 const strip = (s: string) => s.replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|_[^\x07]*\x07)/g, "").trimEnd();
 // A group header; `afterRun` adds the turn's own summary line (`▾ running …`) above it.
-const headers = (lines: string[]) => lines.filter((line) => /^\s*[▾▸] \d+ calls? · /.test(line));
+const headers = (lines: string[]) => lines.filter((line) => /^\s*(?:│ )?[▾▸] \d+ calls? · /.test(line));
 const errorTops = (lines: string[]) => lines.filter((line) => /╭─ error/.test(line));
 const BODY = '401: {"message":"API 密钥无效","type":"invalid_api_key"}';
 
@@ -306,7 +306,7 @@ for (const options of [
     const { frames, streamed, settled } = failingReply(`fail with ${options.collapseTurns}`, retries);
     assert.deepEqual(outOfFrame, [], "a component rendered outside the chat's frame");
     const above = frames.find((lines) => {
-      const header = lines.findIndex((line) => /^\s*[▾▸] \d+ calls? · /.test(line));
+      const header = lines.findIndex((line) => /^\s*(?:│ )?[▾▸] \d+ calls? · /.test(line));
       return header > 0 && lines.slice(0, header).some((line) => line.includes("thinking"));
     });
     assert.equal(above, undefined, `a thinking row above the header:\n${above?.join("\n")}`);
@@ -314,16 +314,9 @@ for (const options of [
     assert.equal(split, undefined, `a frame drew two headers:\n${split?.join("\n")}`);
     assert.match(headers(streamed)[0] ?? "", /6 calls · bash×6/, streamed.join("\n"));
     assert.equal(errorTops(streamed).length, 1, `one error frame while it streams:\n${streamed.join("\n")}`);
-    // pi's "Retry failed" row is a chat row of its own, outside the turn.
-    if (options.collapseTurns === "off" || retries) {
-      assert.equal(errorTops(settled).length, 1, `one error frame once settled:\n${settled.join("\n")}`);
-    } else {
-      // Known gap, not this patch's: a folded turn keeps only its final reply,
-      // and a failure with no text is no final reply, so the error folds away
-      // with the process and only the summary's `error` says so. Fix with the
-      // 0.8.0 default; see HANDOFF.md.
-      assert.match(settled.join("\n"), /▸ .*· error · /, settled.join("\n"));
-    }
+    // A failure with no text is no final reply, and it still stays out of the fold.
+    assert.equal(errorTops(settled).length, 1, `one error frame once settled:\n${settled.join("\n")}`);
+    if (options.collapseTurns !== "off") assert.match(settled.join("\n"), /▸ .*· error · /, settled.join("\n"));
     // Not a frame inside another frame.
     assert.ok(!settled.some((line) => /^\s*│.*╭─ error/.test(line)), settled.join("\n"));
   });

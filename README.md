@@ -14,7 +14,7 @@ every box gets a rounded transparent frame.
 
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
-- **Turn folding** *(experimental, off by default)* — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
+- **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color, its `[kind]` label set into the top border
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
@@ -30,17 +30,17 @@ every box gets a rounded transparent frame.
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
 - **Scroll-safe caching** — an unchanged box costs one string comparison per frame
 
-## Turn folding (experimental)
+## Turn folding
 
-Off by default, and updating does not turn it on. Merge these keys into the `tidy` object in
+On by default since 0.8.0. To go back, merge these keys into the `tidy` object in
 `~/.pi/agent/settings.json` and restart pi:
 
 ```json
-{ "tidy": { "collapseTurns": "afterRun", "frameFinalReply": true } }
+{ "tidy": { "collapseTurns": "off", "frameFinalReply": false } }
 ```
 
 The keys are independent: `collapseTurns: "live"` folds while the run is still arriving, and
-`frameFinalReply: true` works without turn folding. `"off"` and `false` turn them back off.
+`frameFinalReply: true` works without turn folding.
 
 A run folds to one line, where it started:
 
@@ -59,6 +59,10 @@ hidden process gets no summary.
 the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
 not counted twice). Retries and overlap mean the parts need not sum to the total; missing historical
 timings show `—`.
+
+Opened, the process hangs on a rail under the summary's marker, and the rail runs into the final
+reply's border. A box from `alwaysShowTools` joins the rail of a group that is open right above or
+below it. A run that fails with no text keeps the failure in view when it folds.
 
 `frameFinalReply` frames only a settled final text reply, keeping pi's Markdown and mouse targets —
 an intermediate tool-calling message is never promoted. The border names the model that answered
@@ -145,8 +149,8 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "frameMessages": true,
     "userMessageStyle": "frame",
     "userMessageAlign": "left",
-    "collapseTurns": "off",
-    "frameFinalReply": false,
+    "collapseTurns": "afterRun",
+    "frameFinalReply": true,
     "userMessagePaddingY": 1,
     "userMessageColors": { "rail": "accent", "rule": "borderMuted" },
     "icons": true,
@@ -156,6 +160,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "thinkingColor": "warning",
     "groupTools": true,
     "groupOpen": false,
+    "toolRowLines": 1,
     "alwaysShowTools": ["edit", "write"],
     "backgroundJobs": true,
     "hideJobNotifications": true,
@@ -188,13 +193,14 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
 | `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
 | `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its border icon together. `rail` and `off` are unchanged. Long messages still use the available width |
-| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"off"` | **Experimental, opt-in.** Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
-| `frameFinalReply` | boolean | `false` | **Experimental, opt-in.** Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
+| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"afterRun"` | Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
+| `frameFinalReply` | boolean | `true` | Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
 | `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
 | `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
 | `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box (a `codemode` box still reads as its call list) |
 | `groupOpen` | boolean | `false` | A group's *initial* level: `true` starts each new group open (`▾` header, one row per call) instead of folded to its summary line. Only the level it is born with — clicking the `▾` header or `ctrl+o`'s collapse-all stays folded, and nothing is persisted |
+| `toolRowLines` | `1` \| `2` | `1` | Rows a call in an open group may take. With `2`, a call that does not fit goes on to a second row: the rest of a long command, or the next line of a multi-line one. Calls that fit keep one row |
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
 | `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
 | `dedupeErrors` | boolean | `true` | pi prints its own error rows — a failed request, an extension that threw — once per retry attempt, provider body and all. Fold the repeats into the first one as `×N` and frame that row (`╭─ error ×3 ─╮`). One row per failure instead of one per attempt. A request that fails for good, with nothing else to show, gets the same framed row; retried attempts that fail the same way share one row with a count, and pi's "Retry failed after N attempts" replaces it when pi gives up. Warnings, notes and an abort stay as pi drew them |

@@ -4,7 +4,7 @@ import {
   AssistantMessageComponent, UserMessageComponent, ToolExecutionComponent,
   createReadToolDefinition, createEditToolDefinition, createWriteToolDefinition, initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Container, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { visibleText } from "../frame-draw.ts";
 import { patchToolBoxFrames } from "../tool-frame.ts";
 import { resetGroups } from "../tool-groups.ts";
@@ -67,7 +67,7 @@ function rawFrame(chat: Container): string[] {
 }
 const frame = (chat: Container) => rawFrame(chat).map(visibleText);
 const headers = (chat: Container) => frame(chat).filter(line => /\b1 call\b/.test(line));
-function send(chat: Container, type: "click" | "move", predicate: (line: string) => boolean) {
+function send(chat: Container, type: "click" | "move", predicate: (line: string, y: number) => boolean) {
   const lines = frame(chat);
   const y = lines.findIndex(predicate);
   assert.ok(y >= 0, lines.join("\n"));
@@ -97,11 +97,76 @@ test("restored folded turns keep thoughts in the groups split by pinned tools", 
       const groups = headers(chat);
       const context = `${mode}, groupOpen=${groupOpen}, ${pinned}, expanded=${expanded}`;
       assert.equal(groups.length, 2, context);
-      assert.match(groups[0], expanded ? /1 thought\b/ : /2 thoughts\b/, context);
+      assert.match(groups[0], /2 thoughts\b/, context);
       assert.match(groups[1], /1 thought\b/, context);
       const rows = frame(chat);
       assert.ok(rows.findIndex(line => line.includes("THOUGHT_2")) > rows.findIndex(line => line === groups[1]), context);
     }
+  }
+});
+
+test("on the rail, a pinned box joins the groups' rail at the corners that meet it", () => {
+  const row = (lines: string[], corner: RegExp) => lines.find((line) => corner.test(line));
+  // Whatever `alwaysShowTools` names, not only the file tools.
+  for (const pinned of ["edit", "write", "codemode"]) {
+    // Open group above, calls below: both corners are joints.
+    const open = fixture("afterRun", true, pinned);
+    openTurn(open.chat, "afterRun");
+    const both = frame(open.chat);
+    assert.ok(row(both, /^│ ├─.*╮$/), `${pinned}:\n${both.join("\n")}`);
+    assert.ok(row(both, /^│ ├─+╯$/), `${pinned}:\n${both.join("\n")}`);
+    assert.ok(!row(both, /^│ [╭╰]/), `${pinned}:\n${both.join("\n")}`);
+
+    // A folded group has no rail, on either side of the box.
+    const folded = fixture("afterRun", false, pinned);
+    openTurn(folded.chat, "afterRun");
+    const neither = frame(folded.chat);
+    assert.ok(row(neither, /^│ ╭─.*╮$/), `${pinned}:\n${neither.join("\n")}`);
+    assert.ok(row(neither, /^│ ╰─+╯$/), `${pinned}:\n${neither.join("\n")}`);
+
+    // Each corner follows the group on its own side as that group opens and folds.
+    const nth = (lines: string[], n: number) => lines.map((line, y) => (/\b1 call\b/.test(line) ? y : -1)).filter((y) => y >= 0)[n]!;
+    const toggle = (n: number) => {
+      const lines = frame(folded.chat);
+      const y = nth(lines, n);
+      folded.chat.handleMouse({ type: "click", button: "left", x: 4, y, screenX: 4, screenY: y, width: W, height: lines.length, shift: false, alt: false, ctrl: false } as TuiMouseEvent);
+      return frame(folded.chat);
+    };
+    let lines = toggle(1);
+    assert.ok(row(lines, /^│ ╭─.*╮$/) && row(lines, /^│ ├─+╯$/), `the group below opened:\n${lines.join("\n")}`);
+    lines = toggle(0);
+    assert.ok(row(lines, /^│ ├─.*╮$/) && row(lines, /^│ ├─+╯$/), `both open:\n${lines.join("\n")}`);
+    lines = toggle(1);
+    assert.ok(row(lines, /^│ ├─.*╮$/) && row(lines, /^│ ╰─+╯$/), `the group below folded:\n${lines.join("\n")}`);
+  }
+
+  // With the turn folded, nothing is on a rail.
+  const closed = fixture("afterRun", true);
+  assert.ok(!frame(closed.chat).some((line) => /^│ ├/.test(line)));
+});
+
+test("a pinned box with nothing listed around it keeps its corners", () => {
+  resetGroups();
+  const { chat } = fixture("off", true);
+  const off = frame(chat);
+  assert.ok(off.some((line) => line.startsWith("╭─")), `no rail, no joints:\n${off.join("\n")}`);
+  assert.ok(!off.some((line) => /^\s*├─.*╮$/.test(line)), off.join("\n"));
+});
+
+test("on the rail, no row is wider than the screen, lit or not", () => {
+  enableHoverForTests();
+  try {
+    const { chat } = fixture("afterRun", true);
+    frame(chat); openTurn(chat, "afterRun");
+    const rows = frame(chat);
+    assert.ok(rows.some((line) => line.startsWith("│ │ thinking")), rows.join("\n"));
+    for (const [y, line] of rows.entries()) {
+      if (!line.startsWith("│")) continue;
+      send(chat, "move", (_, at) => at === y);
+      for (const drawn of rawFrame(chat)) assert.ok(visibleWidth(drawn) <= W, `hovering ${line}:\n${visibleText(drawn)}`);
+    }
+  } finally {
+    resetHover(); disableHoverForTests();
   }
 });
 

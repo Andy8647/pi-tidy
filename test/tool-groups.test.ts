@@ -348,20 +348,18 @@ test("edit/write always show, and split the group so order stays honest", () => 
   assert.deepEqual(frame([boundary(), e1, carrier(e2), e2]), ["text", "box:edit", "box:write"]);
 });
 
-test("an edit's thinking follows the edit's own expand state", () => {
+test("an edit's thinking stays in the group whatever the edit's own expand state", () => {
   resetGroups();
   const [r, e] = [tool("read"), pinned("edit")];
   const transcript: Entry[] = [boundary(), r, carrier(e), e];
   assert.deepEqual(frame(transcript), ["text", "C1", "box:edit"]);
   assert.equal(summaryFor(r)?.thoughts, 1, "the step is folded in, and level 1 lists its run");
   ctrlO(transcript, true);
-  assert.deepEqual(frame(transcript), ["text", "V1", "|box:read", "thinking", "box:edit"]);
-  // pi draws that step itself now (its box, and its thinking with it): the run is
-  // no longer a row of this group, so the count must not keep it.
-  assert.equal(summaryFor(r)?.thoughts, 0);
+  assert.deepEqual(frame(transcript), ["text", "V1", "|box:read", "|thinking", "box:edit"]);
+  assert.equal(summaryFor(r)?.thoughts, 1);
   ctrlO(transcript, false);
   frame(transcript);
-  assert.equal(summaryFor(r)?.thoughts, 1, "folded back in, it is listed again");
+  assert.equal(summaryFor(r)?.thoughts, 1);
 });
 
 test("ctrl+o expands every box, ctrl+o again folds back to the C line", () => {
