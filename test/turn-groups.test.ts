@@ -8,8 +8,8 @@ import { Container, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-
 import { visibleText } from "../src/draw/frame-draw.ts";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
-import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
-import { TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
+import { claimHover, disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
+import { expandTurnForTool, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 
 initTheme("dark");
 const cwd = process.cwd();
@@ -214,4 +214,37 @@ test("turn and group headers on one carrier have independent hover and click tar
   } finally {
     resetHover(); disableHoverForTests();
   }
+});
+
+test("a settled carrier hands back the same rows until something on them changes", () => {
+  const { chat } = fixture("afterRun", true, "read");
+  // Not the group's first step: it has no header, and no other cache above it.
+  const carrier = chat.children[3] as any;
+  const tool = chat.children[2] as any;
+  chat.render(W);
+  expandTurnForTool(tool.toolCallId, true);
+  chat.render(W);
+
+  // Pi renders the whole transcript per frame: this is what keeps a long one cheap.
+  const rows = carrier.render(W);
+  assert.match(visibleText(rows.join("\n")), /THOUGHT_1/);
+  assert.equal(carrier.render(W), rows, "same array, so the rail's cache hits as well");
+
+  const narrow = carrier.render(W - 20);
+  assert.notEqual(narrow, rows, "a new width redraws");
+  assert.ok(narrow.every((line: string) => visibleWidth(line) <= W - 20));
+  const wide = carrier.render(W);
+  assert.deepEqual(wide, rows, "and coming back draws the same bytes");
+
+  enableHoverForTests();
+  const before = carrier.render(W);
+  claimHover(carrier, "row");
+  const lit = carrier.render(W);
+  assert.notDeepEqual(lit, before, "the hovered row wears its band");
+  claimHover(null, null);
+  assert.deepEqual(carrier.render(W), before, "and loses it again");
+  disableHoverForTests();
+
+  carrier.lastMessage.content[0].thinking = "A_NEW_THOUGHT";
+  assert.match(visibleText(carrier.render(W).join("\n")), /A_NEW_THOUGHT/, "new text is drawn, not served from the last frame");
 });
