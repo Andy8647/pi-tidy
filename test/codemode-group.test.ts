@@ -15,7 +15,7 @@ import { Container, Text } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../src/frame.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
 import { tidyEnabled } from "../src/live.ts";
-import { enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
+import { enableHoverForTests, resetHover } from "../src/hover.ts";
 
 initTheme("dark");
 patchToolBoxFrames({ icons: false, groupTools: true });

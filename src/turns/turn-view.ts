@@ -1,7 +1,7 @@
 import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { tidyEnabled } from "../live.ts";
-import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../tools/tool-group-view.ts";
+import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
 

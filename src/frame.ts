@@ -5,6 +5,7 @@
  *   tool-frame.ts       ToolExecutionComponent: the box, its clicks
  *   tool-group-view.ts  how a box looks and reacts inside a group
  *   tool-groups.ts      the grouping state machine
+ *   hover.ts            the row under the pointer, shared by tool and turn rows
  *   message-frame.ts    compaction / branch / skill / custom / user boxes
  *   user-message.ts     the default "rail" user message
  *   bash-mode-frame.ts  the user's own `!` / `!!` bash runs

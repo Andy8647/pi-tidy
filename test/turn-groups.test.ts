@@ -8,7 +8,7 @@ import { Container, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-
 import { visibleText } from "../src/draw/frame-draw.ts";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
-import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
+import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
 import { TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 
 initTheme("dark");

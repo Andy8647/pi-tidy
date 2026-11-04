@@ -6,7 +6,7 @@ import { Container, visibleWidth } from "@earendil-works/pi-tui";
 import tidy from "../src/index.ts";
 import { connectJobs, resetJobs, type EventBusLike } from "../src/tools/background-jobs.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
-import { enableHoverForTests, resetHover } from "../src/tools/tool-group-view.ts";
+import { enableHoverForTests, resetHover } from "../src/hover.ts";
 import { harness, loadTidy } from "./renderer-harness.ts";
 
 initTheme("dark");
