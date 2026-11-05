@@ -4,6 +4,22 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**`bashResultLines` no longer depends on `highlightBash`.** With highlighting off, the setting was ignored and collapsed
+bash boxes showed pi's 5 lines. They now follow the setting, whose default is 1. If you had highlighting off and want the
+5 lines back, set `tidy.bashResultLines: 5`.
+
+**`thinkingColor` accepts `#rrggbb`, as documented.** A hex value made every thinking row disappear.
+
+### Changed
+
+**The configuration reference is grouped by what each key affects**, and every key now says when it applies. It also
+records two limits that were not written down: `diffLines` only works while an edit's diff is drawn as two panes, and
+`hideJobNotifications` only works with `collapseTurns: "off"`.
+
 ## [0.8.1] - 2026-11-05
 
 ### Added

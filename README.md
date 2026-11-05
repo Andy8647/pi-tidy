@@ -34,7 +34,7 @@ every box gets a rounded transparent frame.
 ## Turn folding
 
 On by default since 0.8.0. To go back, merge these keys into the `tidy` object in
-`~/.pi/agent/settings.json` and restart pi:
+`~/.pi/agent/settings.json` and run `/reload`:
 
 ```json
 { "tidy": { "collapseTurns": "off", "frameFinalReply": false } }
@@ -99,8 +99,8 @@ pi install npm:pi-tidy
 ```
 
 Requires pi ≥ 1.1.0 (component mouse events, tool durations); on an older pi it
-says so at session start. Bash highlighting and the custom write preview also need
-`pi.registerToolRenderer()` (pi 1.3.0). Without that API they are skipped and Tidy
+says so at session start. Bash highlighting, the bash output budget and the custom
+write preview also need `pi.registerToolRenderer()` (pi 1.3.0). Without that API they are skipped and Tidy
 says so once, rather than falling back to a tool override that would stop another
 extension from loading.
 
@@ -140,91 +140,92 @@ if the tag and the manifest version disagree.
 
 ## Configuration
 
-Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`:
+Add keys to the `tidy` object in `~/.pi/agent/settings.json`, then run `/reload`. A key you leave
+out keeps its default:
 
 ```json
-{
-  "tidy": {
-    "enabled": true,
-    "highlightBash": true,
-    "frameMessages": true,
-    "userMessageStyle": "frame",
-    "userMessageAlign": "left",
-    "collapseTurns": "afterRun",
-    "frameFinalReply": true,
-    "userMessagePaddingY": 1,
-    "userMessageColors": { "rail": "accent", "rule": "borderMuted" },
-    "icons": true,
-    "bashResultLines": 1,
-    "writeLines": 10,
-    "diffLines": 20,
-    "thinkingColor": "warning",
-    "groupTools": true,
-    "groupOpen": false,
-    "toolRowLines": 1,
-    "alwaysShowTools": ["edit", "write"],
-    "backgroundJobs": true,
-    "hideJobNotifications": true,
-    "dedupeErrors": true,
-    "cleanCopy": true,
-    "toolColors": {
-      "bash": "bashMode",
-      "read": "toolTitle",
-      "edit": "syntaxVariable",
-      "write": "syntaxVariable",
-      "grep": "syntaxOperator",
-      "find": "syntaxOperator",
-      "ls": "syntaxOperator",
-      "mcp": "customMessageLabel"
-    },
-    "messageBorderColors": {
-      "user": "toolTitle",
-      "compaction": "customMessageLabel",
-      "branch": "mdCode",
-      "skill": "accent",
-      "custom": "warning"
-    }
-  }
-}
+{ "tidy": { "collapseTurns": "off", "userMessageStyle": "rail", "bashResultLines": 3 } }
 ```
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable/disable the extension |
-| `highlightBash` | boolean | `true` | Syntax-highlight bash commands |
-| `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
-| `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon and time set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon and time set into the top rule. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
-| `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its label together. Under `rail` only the label moves, along the top rule; the rail and the text stay left. `off` is unchanged. Long messages still use the available width |
-| `userMessageTime` | boolean | `true` | Show when you sent a message, next to the user icon in a `frame` or `rail` message's top edge (`14:06`, with the date when it is not from today). The icon needs `icons`, and so does the time. The final reply's border keeps its own time |
-| `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"afterRun"` | Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
-| `frameFinalReply` | boolean | `true` | Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
-| `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
-| `userMessageColors` | object | `{ "rail": "accent", "rule": "borderMuted" }` | Colours of the `rail` style's `│` and rules. Each is a theme color name or `#rrggbb` |
-| `icons` | boolean | `true` | Nerd Font icons on every box. Requires a Nerd Font; set `false` otherwise |
-| `groupTools` | boolean | `true` | Fold the tool calls between two assistant text blocks (or a user message) into one summary line; click it for one row per call, click a row to open its output beneath it (no box inside the group), click the `▾` header to fold the group. `false` renders every call as its own box (a `codemode` box still reads as its call list) |
-| `groupOpen` | boolean | `false` | A group's *initial* level: `true` starts each new group open (`▾` header, one row per call) instead of folded to its summary line. Only the level it is born with — clicking the `▾` header or `ctrl+o`'s collapse-all stays folded, and nothing is persisted |
-| `toolRowLines` | `1` \| `2` | `1` | Rows a call in an open group may take. With `2`, a call that does not fit goes on to a second row: the rest of a long command, or the next line of a multi-line one. Calls that fit keep one row |
-| `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
-| `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
-| `dedupeErrors` | boolean | `true` | pi prints its own error rows — a failed request, an extension that threw — once per retry attempt, provider body and all. Fold the repeats into the first one as `×N` and frame that row (`╭─ error ×3 ─╮`). One row per failure instead of one per attempt. A request that fails for good, with nothing else to show, gets the same framed row; retried attempts that fail the same way share one row with a count, and pi's "Retry failed after N attempts" replaces it when pi gives up. Warnings, notes and an abort stay as pi drew them |
-| `cleanCopy` | boolean | `true` | Take tidy's frames, corners and the `rail` user message's glyphs out of what pi's fullscreen selection copies, on select or with the copy key. A selection with none of them copies as pi would. A terminal's own selection (shift or option and drag) never reaches tidy |
-| `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep their own box (with the diff) and end the group before them, so later calls start a new one. Set `[]` to fold edits and writes into the group like everything else — click their row for the box |
-| `splitDiff` | boolean | `true` | Render an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff |
-| `splitDiffMinWidth` | number | `72` | Box width below which the split is dropped for pi's unified diff — two panes need room to stay readable |
-| `thinkingColor` | theme color | `warning` | Colour of the brain, the `N thoughts` count and an expanded thinking box. Any theme color name or `#rrggbb` |
-| `diffLines` | number | `20` | Diff rows drawn while an edit box is collapsed. The window is anchored at the first changed line (a third of the budget of context above it), with `… (N more lines, M total, ctrl+o to expand)` under it — pi's own edit renderer has no budget at all, so this is the only thing keeping a long diff from owning the screen. `ctrl+o` draws all of it, `0` keeps just the summary row |
-| `bashResultLines` | number | `1` | Visual lines of bash *output* shown while collapsed. pi's renderer hard-codes 5 with no setting; raise this for more context, `0` to hide output until you expand |
-| `writeLines` | number | `10` | Visual lines of a written file shown while the box is collapsed (pi's own number, now adjustable). `0` keeps just the header until you expand. Requires Pi's `registerToolRenderer` API |
-| `toolColors` | object | see above | Border color per tool name for successful executions (pending stays grey, errors stay red, unlisted tools take `accent`). When set, the map **replaces** the defaults — `{}` disables per-tool colors |
-| `messageBorderColors` | object | see above | Per-kind message-box border colors; merged over the defaults |
+Colors are theme color names, so they follow the active theme. `thinkingColor` and
+`userMessageColors` also take `#rrggbb`.
 
-All color values are theme fg color names (`ThemeColor`), so they follow the
-active theme. Default palette rationale: tool boxes reserve green/red/grey for
-execution status, so message kinds get hues that don't collide —
-`customMessageLabel` (mauve, matching the `[compaction]` label) for
-compactions, `mdCode` (peach) for branch summaries, `accent` (sky) for skill
-invocations, `warning` (yellow) for extension notices. For right-aligned user frames, set
-`userMessageAlign: "right"` with `userMessageStyle: "frame"` and `frameMessages: true`.
+### General
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `enabled` | `true` | Turns the whole extension on or off | Always |
+| `icons` | `true` | Nerd Font icons on boxes, rows and message labels. Set `false` if your terminal font has no Nerd Font glyphs | Always. Off, a user message loses its label, so its time goes too |
+
+### User messages
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `userMessageStyle` | `"frame"` | `frame`: a rounded frame as wide as the text, with the user icon and time in its top border. `rail`: a full-width rule above and below, an accent `│` in front of every row, and the icon and time in the top rule. `off`: pi's own look | `frame` needs `frameMessages`; without it you get pi's own look. `rail` does not need it |
+| `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages still use the available width | `frame` moves the message and its label. `rail` moves only the label, so it needs `icons`. `off` ignores it |
+| `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and `userMessageStyle` `frame` or `rail` |
+| `userMessagePaddingY` | `1` | Rows between each rule and the text, `0` to `3` | `userMessageStyle: "rail"` only |
+| `userMessageColors` | `{ "rail": "accent", "rule": "borderMuted" }` | Colors of the `│` and the rules | `userMessageStyle: "rail"` only. `rail` also colors your `!` commands' frames |
+
+### Final reply and turn folding
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `collapseTurns` | `"afterRun"` | Folds a whole run's process to one line. `afterRun` waits until the run settles, `live` folds while it runs and keeps the latest assistant text visible, `off` never folds | Always, with grouping on or off |
+| `frameFinalReply` | `true` | Puts the final assistant reply in a full-width frame, with the provider glyph, model name and time in the top border | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
+
+See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
+
+### Other message boxes
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by an extension's own renderer keeps its look. Does not affect the rail, the final reply or tool boxes |
+| `messageBorderColors` | `{ "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | Needs `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
+
+### Tool folding
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `groupTools` | `true` | Folds the tool calls between two assistant text blocks (or a user message) into one summary line. Click it for one row per call, click a row for its output, click the `▾` header to fold. `false` gives every call its own box (a `codemode` box still reads as its call list) | Always |
+| `groupOpen` | `false` | Starts each new group open (`▾` header, one row per call). Only the level a group is born with: clicking the header or `ctrl+o`'s collapse-all stays folded, and nothing is saved | Needs `groupTools` |
+| `toolRowLines` | `1` | Rows a call in an open group may take. With `2`, a call that does not fit goes on to a second row. Calls that fit keep one | Needs `groupTools` |
+| `alwaysShowTools` | `["edit", "write"]` | Tools that never fold: they keep their own box and end the group before them. `[]` folds edits and writes like everything else | Needs `groupTools`; with it off every tool has its own box anyway. A folded turn still hides these boxes |
+
+### Tool output
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `highlightBash` | `true` | Syntax-highlights bash commands | Needs pi 1.3 |
+| `bashResultLines` | `1` | Visual lines of output in a collapsed bash box. pi's own number is 5, with no setting. `0` hides the output until you expand | Needs pi 1.3. A failed command keeps pi's preview. `ctrl+o` shows everything |
+| `writeLines` | `10` | Visual lines of a written file in a collapsed box. `0` keeps just the header | Needs pi 1.3. `ctrl+o` shows everything |
+| `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide; narrower ones get pi's unified diff |
+| `splitDiffMinWidth` | `72` | Box width below which the panes give way to pi's unified diff | Needs `splitDiff` |
+| `diffLines` | `20` | Diff rows in a collapsed edit box, starting a third of the budget above the first change, with `… (N more lines, M total, ctrl+o to expand)` under them. `0` keeps just the summary row | Only when the panes are drawn. pi's unified diff has no limit, so with `splitDiff: false` or in a narrower box a long diff is shown whole |
+
+### Colors
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `toolColors` | `{ "bash": "bashMode", "read": "toolTitle", "edit": "syntaxVariable", "write": "syntaxVariable", "grep": "syntaxOperator", "find": "syntaxOperator", "ls": "syntaxOperator", "mcp": "customMessageLabel" }` | Border color per tool, on success. Pending stays grey, errors red, unlisted tools take `accent`. The map **replaces** the defaults, so `{}` turns per-tool colors off | Tool boxes only, not the rows in a group |
+| `thinkingColor` | `"warning"` | Color of the brain, the `N thoughts` count and an expanded thinking box | Always, with grouping on or off |
+
+Tool boxes keep green, red and grey for a call's state, so the default message colors avoid them:
+mauve for compactions, peach for branch summaries, sky for skills and yellow for extension notices.
+
+### Background jobs
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `backgroundJobs` | `true` | A call that started a job shows the job's live state on its row and in the summary. A running job keeps its row while folded; a finished one folds away. The spinner turns once a second for a job's first 5 minutes, then stands still | Needs pi-processes and `groupTools`: the state lives on a group's row, so a tool in `alwaysShowTools` has none to show it on |
+| `hideJobNotifications` | `true` | Stops drawing a job's notifications (`[process] "ticker" matched stdout: READY`) once its row shows them. The model still receives them | Needs `backgroundJobs`, `groupTools` and **`collapseTurns: "off"`**. With turn folding on, the default, notifications stay visible, because the row that would own them may be hidden |
+
+### Other
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `dedupeErrors` | `true` | pi prints its own error rows (a failed request, an extension that threw) once per retry attempt. Folds the repeats into the first as `×N` and frames that row (`╭─ error ×3 ─╮`). pi's "Retry failed after N attempts" replaces it when pi gives up | Error rows only. Warnings, notes and an abort stay as pi drew them |
+| `cleanCopy` | `true` | Takes tidy's frames, corners and rail glyphs out of what you copy, on select or with the copy key | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy |
 
 ## How it works
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { clipToWidth } from "../src/draw/frame-draw.ts";
+import { clipToWidth, drawFrame, labeledTopBorder } from "../src/draw/frame-draw.ts";
 
 // pi-tui's truncateToWidth segments the whole string even when nothing is cut,
 // which is why clipToWidth measures first. These pin the equivalence: a fitting
@@ -31,4 +31,17 @@ test("a row that is too wide is still clipped to the width", () => {
   assert.ok(clipped.startsWith("abcd"));
   assert.equal(visibleWidth(clipped), 4);
   assert.equal(clipToWidth("abcdefghij", 0), "");
+});
+
+test("a frame takes #rrggbb, which theme.fg itself would throw on", () => {
+  const strict = {
+    fg(color: string, text: string) {
+      if (color.startsWith("#")) throw new Error(`Unknown theme color: ${color}`);
+      return text;
+    },
+    bold: (text: string) => text,
+  };
+  const red = "\x1b[38;2;255;0;0m";
+  assert.ok(drawFrame(["x"], 10, strict as any, "#ff0000")[0]!.includes(red));
+  assert.ok(labeledTopBorder(20, strict as any, "#ff0000", "label").includes(red));
 });

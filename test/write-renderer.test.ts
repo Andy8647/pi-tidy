@@ -32,7 +32,7 @@ for (const tidyFirst of [true, false]) {
     assert.deepEqual(h.conflicts, []);
     assert.equal(h.tools.size, 1);
     assert.strictEqual(h.tools.get("write"), sandboxed, "schema, metadata and execute are untouched");
-    assert.equal(h.resolvers.length, 1, "only a renderer is registered");
+    assert.equal(h.resolvers.length, 2, "only renderers are registered: bash's and write's");
     assert.notStrictEqual(h.resolve("write")?.renderCall, sandboxed.renderCall);
     assert.strictEqual(h.resolve("write")?.renderResult, sandboxed.renderResult);
     await assert.rejects(
@@ -48,7 +48,7 @@ test("Tidy does not register write even without another execution extension", ()
   const h = harness();
   loadTidy(h.pi);
   assert.equal(h.tools.size, 0);
-  assert.equal(h.resolvers.length, 1);
+  assert.equal(h.resolvers.length, 2);
   assert.equal(typeof h.resolve("write")?.renderCall, "function");
   assert.equal(h.resolve("unregistered"), undefined);
 });
