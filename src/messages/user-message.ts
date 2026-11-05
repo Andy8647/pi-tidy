@@ -1,13 +1,12 @@
 /**
- * User messages as a rail: a full-width rule above and below, an accent `│`
- * in front of every content row, and — with `icons` — the user icon in front
- * of the text, the way tidy's other boxes lead with their kind's icon. Rows
- * after the first hang under the text, not under the icon.
+ * User messages as a rail: a full-width rule above and below and an accent `│`
+ * in front of every content row. With `icons`, the user icon and the message's
+ * time sit in the top rule, as they sit in the frame style's top border.
  *
  * pi's UserMessageComponent is one Markdown child that already carries the
  * markdown theme, pi's markdown options and the registered markdown
  * transformers (pi-ide-context's selection references among them). The rail
- * renders that child one cell narrower and replaces only its chrome — the
+ * renders that child narrower and replaces only its chrome — the
  * background fill and the blank padding rows — so the text pipeline stays
  * pi's own.
  *
@@ -15,8 +14,9 @@
  * passes through for every style but "rail", so the two stack in either order.
  */
 
-import { UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { sameLines, stripBackgroundFills, trimBlankEdges } from "../draw/frame-draw.ts";
+import { InteractiveMode, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { formatMessageTime, italicDim, sameLines, stripBackgroundFills, trimBlankEdges } from "../draw/frame-draw.ts";
 import { MESSAGE_ICONS } from "../draw/icons.ts";
 import { liveSlot, tidyEnabled } from "../live.ts";
 import { paint } from "../draw/paint.ts";
@@ -32,13 +32,17 @@ export interface UserMessageOptions {
   ruleColor: string;
   /** Rail-only rows between each rule and the text. */
   paddingY: number;
-  /** The user icon in front of the text (`tidy.icons`). */
+  /** The user icon in the top rule (`tidy.icons`). */
   icons: boolean;
+  /** The message's time next to the icon (`tidy.userMessageTime`). */
+  time: boolean;
+  /** The end of the top rule the label sits at. The rail and the text stay left. */
+  align: "left" | "right";
 }
 
 /**
- * The rail glyph is fixed: pi-starline's clean copy recognises user message
- * rows by it and strips it from the clipboard.
+ * The rail glyph is fixed: clean-copy.ts recognises user message rows by it and
+ * strips it from the clipboard, and older pi-starline versions do the same.
  */
 export const USER_RAIL_GLYPH = "│";
 
@@ -53,7 +57,53 @@ interface UserMessageInternals {
   /** Horizontal padding pi gives the Markdown child (1 by default). */
   outputPad?: number;
   render(width: number): string[];
-  __tidyRailCache?: { width: number; sample: string; paddingY: number; icons: boolean; raw: string[]; out: string[] };
+  __tidyRailCache?: {
+    width: number;
+    sample: string;
+    paddingY: number;
+    icons: boolean;
+    align: "left" | "right";
+    labelMinute: number;
+    labelTime: number | undefined;
+    raw: string[];
+    out: string[];
+  };
+}
+
+/** Where the user message's clock is kept: pi's component only holds the text. */
+export const USER_MESSAGE_TIME = Symbol.for("pi-tidy:user-message-time");
+const USER_TIME_PATCH = Symbol.for("pi-tidy:user-time-patch");
+
+export function installUserMessageTimes(): void {
+  const proto = (InteractiveMode as any)?.prototype;
+  const original = proto?.addMessageToChat;
+  if (typeof original !== "function" || original[USER_TIME_PATCH]) return;
+  const wrapped = function (this: any, message: any, options?: any) {
+    const chat = this?.chatContainer;
+    const before = Array.isArray(chat?.children) ? chat.children.length : -1;
+    const result = original.call(this, message, options);
+    if (message?.role === "user" && typeof message.timestamp === "number" && before >= 0) {
+      for (let i = before; i < chat.children.length; i++) {
+        const child = chat.children[i];
+        if (child instanceof UserMessageComponent) (child as any)[USER_MESSAGE_TIME] = message.timestamp;
+      }
+    }
+    return result;
+  };
+  (wrapped as any)[USER_TIME_PATCH] = true;
+  proto.addMessageToChat = wrapped;
+}
+
+/** The child's left padding, behind the styles pi resets in front of it (`\x1b[49m \x1b[39mtext`). */
+const LEADING_PAD_RE = /^((?:\x1b\[[0-9;:]*m)*) /;
+
+/** A full-width rule with a label set into it: `─ label ─────`. Plain when it does not fit. */
+function labeledRule(width: number, theme: ThemeLike, color: string, label: string, align: "left" | "right"): string {
+  const rest = width - 3 - visibleWidth(label);
+  if (!label || rest < 1) return paint(theme, color, "─".repeat(width));
+  return align === "right"
+    ? `${paint(theme, color, `${"─".repeat(rest)} `)}${label}${paint(theme, color, " ─")}`
+    : `${paint(theme, color, "─ ")}${label}${paint(theme, color, ` ${"─".repeat(rest)}`)}`;
 }
 
 const userMessageOptions = liveSlot<UserMessageOptions | undefined>("user-message-options", undefined);
@@ -64,19 +114,20 @@ function renderRail(
   theme: ThemeLike,
   options: UserMessageOptions,
 ): string[] | undefined {
-  // Row layout: rail, a space, [icon, a space], text. The child pads its text
-  // by `outputPad` on both sides; one cell of that on the left is taken off
-  // again, so it renders that much wider than the text it holds.
+  // Row layout: rail, a space, text. The child pads its text by `outputPad` on both
+  // sides; one cell of that on the left is taken off again, so it renders that much
+  // wider than the text it holds.
   const childPad = (component.outputPad ?? 1) > 0;
-  const iconCells = options.icons ? 2 : 0;
-  const textWidth = width - 2 - iconCells;
+  const textWidth = width - 2;
   const raw: string[] = [];
   for (const child of component.children) raw.push(...child.render(textWidth + (childPad ? 1 : 0)));
 
   const rail = paint(theme, options.railColor, USER_RAIL_GLYPH);
-  const icon = options.icons ? `${paint(theme, options.railColor, MESSAGE_ICONS.user)} ` : "";
-  const hang = " ".repeat(iconCells);
   const rule = paint(theme, options.ruleColor, "─".repeat(width));
+  const time = options.icons && options.time ? (component as any)[USER_MESSAGE_TIME] : undefined;
+  // A message's clock text changes only when its day rolls over, so the label is
+  // built on a cache miss and the minute is what expires it.
+  const labelMinute = typeof time === "number" ? Math.floor(Date.now() / 60_000) : 0;
   // The painted cells double as a theme sample: a theme switch with identical
   // content must not hit the cache.
   const sample = rail + rule;
@@ -87,6 +138,9 @@ function renderRail(
     cache.sample === sample &&
     cache.paddingY === options.paddingY &&
     cache.icons === options.icons &&
+    cache.align === options.align &&
+    cache.labelMinute === labelMinute &&
+    cache.labelTime === time &&
     sameLines(cache.raw, raw)
   )
     return cache.out;
@@ -94,15 +148,26 @@ function renderRail(
   const content = trimBlankEdges(raw.map(stripBackgroundFills));
   if (content.length === 0) return undefined;
 
+  const label = options.icons
+    ? paint(theme, options.railColor, MESSAGE_ICONS.user) +
+      (typeof time === "number" ? ` ${italicDim(theme, formatMessageTime(time))}` : "")
+    : "";
   const padRows = Array.from({ length: options.paddingY }, () => rail);
-  const rows = content.map((line, index) => {
-    const text = childPad && line.startsWith(" ") ? line.slice(1) : line;
-    return `${rail} ${index === 0 ? icon : hang}${text}`;
-  });
-  const out = [rule, ...padRows, ...rows, ...padRows, rule];
+  const rows = content.map((line) => `${rail} ${childPad ? line.replace(LEADING_PAD_RE, "$1") : line}`);
+  const out = [labeledRule(width, theme, options.ruleColor, label, options.align), ...padRows, ...rows, ...padRows, rule];
   out[0] = OSC133_ZONE_START + out[0];
   out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
-  component.__tidyRailCache = { width, sample, paddingY: options.paddingY, icons: options.icons, raw, out };
+  component.__tidyRailCache = {
+    width,
+    sample,
+    paddingY: options.paddingY,
+    icons: options.icons,
+    align: options.align,
+    labelMinute,
+    labelTime: time,
+    raw,
+    out,
+  };
   return out;
 }
 
@@ -113,6 +178,7 @@ function renderRail(
  */
 export function patchUserMessages(options: UserMessageOptions): void {
   userMessageOptions.set(options);
+  if (options.style === "rail") installUserMessageTimes();
   const proto = UserMessageComponent.prototype as unknown as UserMessageInternals & { __tidyUserRail?: boolean };
   if (proto.__tidyUserRail) return;
   proto.__tidyUserRail = true;

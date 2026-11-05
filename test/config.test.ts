@@ -115,6 +115,18 @@ test("turn folding and final reply frames are on by default and turn off indepen
   });
 });
 
+test("clean copy is on by default and only a boolean turns it off", () => {
+  for (const [value, expected] of [[undefined, true], [false, false], [true, true], ["no", true]] as const) {
+    withSettings({ tidy: { cleanCopy: value } }, () => assert.equal(loadConfig().cleanCopy, expected));
+  }
+});
+
+test("a user message's time shows by default and only a boolean hides it", () => {
+  for (const [value, expected] of [[undefined, true], [false, false], [true, true], ["no", true]] as const) {
+    withSettings({ tidy: { userMessageTime: value } }, () => assert.equal(loadConfig().userMessageTime, expected));
+  }
+});
+
 test("user message padding is clamped and colors merge over the defaults", () => {
   withSettings({ tidy: { userMessagePaddingY: 0, userMessageColors: { rail: "#cba6f7", rule: 3 } } }, () => {
     const config = loadConfig();

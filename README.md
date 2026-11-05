@@ -18,7 +18,7 @@ every box gets a rounded transparent frame.
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color, its `[kind]` label set into the top border
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
-- **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front), or pi's own look
+- **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
 - **Thinking, folded in** — a step that only thinks leaves a `thinking` row inside its group (a brain, the word, one line of what the model thought, sliding over the newest words while it streams); the summary counts the runs (`🧠 5 thoughts`), and a click opens that step's thinking full length, in a framed box with `󰧑 thinking` in its border. pi's `hideThinkingBlock` is ignored on purpose: the row is the same either way, and the click is the one way to read it
 - **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, and a click opens the command, working directory and last 20 output lines without expanding the call
@@ -27,6 +27,7 @@ every box gets a rounded transparent frame.
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators
+- **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
 - **Scroll-safe caching** — an unchanged box costs one string comparison per frame
 
@@ -165,6 +166,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
     "backgroundJobs": true,
     "hideJobNotifications": true,
     "dedupeErrors": true,
+    "cleanCopy": true,
     "toolColors": {
       "bash": "bashMode",
       "read": "toolTitle",
@@ -191,8 +193,9 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `enabled` | boolean | `true` | Enable/disable the extension |
 | `highlightBash` | boolean | `true` | Syntax-highlight bash commands |
 | `frameMessages` | boolean | `true` | Frame compaction/branch/skill/custom-message boxes like tool boxes, and your own `!` / `!!` bash runs (in the user message color, with the user icon and the `!` you typed) |
-| `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon in front of the text, later rows hanging under the text. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
-| `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its border icon together. `rail` and `off` are unchanged. Long messages still use the available width |
+| `userMessageStyle` | `"frame"` \| `"rail"` \| `"off"` | `"frame"` | How user messages look. `frame`: the rounded message frame, as wide as the text (never wider than the screen), with the user icon and time set into its top border, in `messageBorderColors.user` (needs `frameMessages`). `rail`: a full-width rule above and below, an accent `│` in front of every row, and (with `icons`) the user icon and time set into the top rule. `off`: pi's own. `frameUserMessages` from before 0.5 is no longer read |
+| `userMessageAlign` | `"left"` \| `"right"` | `"left"` | Align a `frame` user message and its label together. Under `rail` only the label moves, along the top rule; the rail and the text stay left. `off` is unchanged. Long messages still use the available width |
+| `userMessageTime` | boolean | `true` | Show when you sent a message, next to the user icon in a `frame` or `rail` message's top edge (`14:06`, with the date when it is not from today). The icon needs `icons`, and so does the time. The final reply's border keeps its own time |
 | `collapseTurns` | `"off"` \| `"afterRun"` \| `"live"` | `"afterRun"` | Fold a whole run's process. `afterRun` waits for final settlement; `live` folds while running and keeps the latest assistant text visible. Works with grouping on or off |
 | `frameFinalReply` | boolean | `true` | Put only the settled final assistant reply in a full-width transparent frame, with that message's provider glyph and model name in the top-left border. Independent of turn folding and `frameMessages` |
 | `userMessagePaddingY` | number | `1` | Rail-only rows between each rule and the text of a `rail` message, `0`–`3` |
@@ -204,6 +207,7 @@ Add a `tidy` key to your `~/.pi/agent/settings.json`; changes apply on `/reload`
 | `backgroundJobs` | boolean | `true` | A call that started a background job (pi-processes) shows the job's live state on its row and in the summary. A *running* job keeps its row while folded; a finished one folds away (the summary counts it). The spinner turns once a second for a job's first 5 minutes, then stands still (a dev server can run for hours) |
 | `hideJobNotifications` | boolean | `true` | Don't draw a job's notification messages (`[process] "ticker" matched stdout: READY`) once its row shows them. Only drawing — the model still receives them. Jobs without a row keep their messages |
 | `dedupeErrors` | boolean | `true` | pi prints its own error rows — a failed request, an extension that threw — once per retry attempt, provider body and all. Fold the repeats into the first one as `×N` and frame that row (`╭─ error ×3 ─╮`). One row per failure instead of one per attempt. A request that fails for good, with nothing else to show, gets the same framed row; retried attempts that fail the same way share one row with a count, and pi's "Retry failed after N attempts" replaces it when pi gives up. Warnings, notes and an abort stay as pi drew them |
+| `cleanCopy` | boolean | `true` | Take tidy's frames, corners and the `rail` user message's glyphs out of what pi's fullscreen selection copies, on select or with the copy key. A selection with none of them copies as pi would. A terminal's own selection (shift or option and drag) never reaches tidy |
 | `alwaysShowTools` | string[] | `["edit", "write"]` | Tools that never fold: they keep their own box (with the diff) and end the group before them, so later calls start a new one. Set `[]` to fold edits and writes into the group like everything else — click their row for the box |
 | `splitDiff` | boolean | `true` | Render an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff |
 | `splitDiffMinWidth` | number | `72` | Box width below which the split is dropped for pi's unified diff — two panes need room to stay readable |
@@ -292,6 +296,12 @@ component mouse events); pi-tidy never turns on mouse reporting itself. Only lef
 clicks on its own rows are taken — presses and drags pass through, so text
 selection works as usual. Without fullscreen there are no clicks: `ctrl+o` still
 toggles every box.
+
+A selection in the transcript copies without tidy's chrome (`cleanCopy`). A frame is
+recognised by its shape: rounded corners of equal width in one column, with a vertical
+on both sides of every row. A table's square corners and a blockquote's `│` stay. So
+does the rail beside an open run's rows, which a selection cannot tell from a quote,
+and a rounded box a model drew in an unframed message is taken for a frame.
 
 A row you can click lights up under the pointer, and the pointer turns into a hand
 while it is on one (OSC 22: Ghostty, kitty, foot and WezTerm draw it; other

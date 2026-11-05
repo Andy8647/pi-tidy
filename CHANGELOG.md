@@ -4,6 +4,36 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-11-05
+
+### Added
+
+**Copies leave the frames behind.** Text selected in pi's fullscreen mode now reaches the clipboard without tidy's
+frames, corners and rail glyphs, on select and with the copy key, with or without pi-starline (#56). A terminal's own
+selection (shift or option and drag) never reaches tidy, so it still brings them along. If you relied on the old copies,
+`tidy.cleanCopy: false` turns this off. Until pi-starline's next release, its copy key still handles the selections it
+recognises, and its hint counts characters its own way.
+
+**A rail message carries its icon and time in the top rule.** With `userMessageStyle: "rail"`, the user icon moves out of
+the text into the top rule, next to the time the frame style already showed. `userMessageAlign: "right"` moves that label to
+the right end of the rule; the rail and the text stay left. The text also sits one cell closer to the rail: a cell of pi's
+padding that was meant to come off never did.
+
+**`tidy.userMessageTime: false` hides a user message's time**, in both styles. The final reply's border keeps its own.
+
+### Fixed
+
+**An opened run draws fast again.** 0.8.0 slowed down an opened run by 40-90%: settled thinking rows were rebuilt on
+every frame. They are reused now, which takes 20-46% off a frame in that state at 1,500 components. The render benchmark
+now measures opened runs, which is how this got through.
+
+**A short message's frame has room around its label.** The box was exactly as wide as the icon and time in its top
+border, leaving a stub of border on each side (#49). It is now four cells wider.
+
+### Changed
+
+**The startup list may name `pi-tidy/src`.** The sources moved under `src/`. Nothing else changes for you.
+
 ## [0.8.0] - 2026-11-04
 
 **A run now folds by default.** When a run ends, its process folds to one `▸ took …` line above a framed final reply.

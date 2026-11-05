@@ -23,8 +23,10 @@ export interface TidyConfig {
    * accent `│` in front of the text) or "off" (pi's own).
    */
   userMessageStyle: UserMessageStyle;
-  /** Alignment of a framed user message and its border icon. */
+  /** Alignment of a framed user message and its label; a rail's label only. */
   userMessageAlign: "left" | "right";
+  /** Show a user message's time next to its icon. */
+  userMessageTime: boolean;
   /** Fold a whole run live or only after settlement. */
   collapseTurns: CollapseTurns;
   /** Frame only the settled final assistant reply, independently of folding. */
@@ -74,6 +76,8 @@ export interface TidyConfig {
    * drew them.
    */
   dedupeErrors: boolean;
+  /** Take tidy's frames and rails out of what pi's fullscreen selection copies. */
+  cleanCopy: boolean;
   /**
    * Render an edit's diff as two panes (old | new) with line numbers, a
    * coloured bar and a tinted row per changed line. Falls back to pi's
@@ -124,6 +128,7 @@ const DEFAULTS: TidyConfig = {
   frameMessages: true,
   userMessageStyle: "frame",
   userMessageAlign: "left",
+  userMessageTime: true,
   collapseTurns: "afterRun",
   frameFinalReply: true,
   userMessagePaddingY: 1,
@@ -138,6 +143,7 @@ const DEFAULTS: TidyConfig = {
   backgroundJobs: true,
   hideJobNotifications: true,
   dedupeErrors: true,
+  cleanCopy: true,
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
@@ -183,6 +189,7 @@ export function loadConfig(): TidyConfig {
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
       userMessageStyle: userMessageStyle(toolbox),
       userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
+      userMessageTime: typeof toolbox?.userMessageTime === "boolean" ? toolbox.userMessageTime : DEFAULTS.userMessageTime,
       collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
       frameFinalReply: typeof toolbox?.frameFinalReply === "boolean" ? toolbox.frameFinalReply : DEFAULTS.frameFinalReply,
       userMessagePaddingY:
@@ -206,6 +213,7 @@ export function loadConfig(): TidyConfig {
       hideJobNotifications:
         typeof toolbox?.hideJobNotifications === "boolean" ? toolbox.hideJobNotifications : DEFAULTS.hideJobNotifications,
       dedupeErrors: typeof toolbox?.dedupeErrors === "boolean" ? toolbox.dedupeErrors : DEFAULTS.dedupeErrors,
+      cleanCopy: typeof toolbox?.cleanCopy === "boolean" ? toolbox.cleanCopy : DEFAULTS.cleanCopy,
       splitDiff: typeof toolbox?.splitDiff === "boolean" ? toolbox.splitDiff : DEFAULTS.splitDiff,
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,

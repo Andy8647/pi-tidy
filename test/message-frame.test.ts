@@ -18,7 +18,7 @@ const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 };
 
 const { patchContainerBoxes, patchMessageBoxes } = await import("../src/frame.ts");
-const { USER_MESSAGE_TIME } = await import("../src/messages/message-frame.ts");
+const { USER_MESSAGE_TIME } = await import("../src/messages/user-message.ts");
 const {
   BranchSummaryMessageComponent,
   CompactionSummaryMessageComponent,
@@ -195,7 +195,8 @@ test("a framed user message hugs its text and carries the user icon in its top b
     // the box is never narrower than it needs.
     patchContainerBoxes(COLORS, { icons: true, includeUser: true });
     const iconedShort = new UserMessageComponent("hi" as never).render(60).map(plain);
-    assert.deepEqual(iconedShort, ["╭─ \u{f007} ─╮", "│ hi  │", "╰─────╯"]);
+    // Wider than its label, so the top border stays a border (#49).
+    assert.deepEqual(iconedShort, ["╭─ \u{f007} ─────╮", "│ hi      │", "╰─────────╯"]);
     const iconed = new UserMessageComponent("hello there" as never).render(60).map(plain);
     assert.deepEqual(iconed, ["╭─ \u{f007} ─────────╮", "│ hello there │", "╰─────────────╯"]);
     patchContainerBoxes(COLORS, { icons: false, includeUser: true });

@@ -12,7 +12,6 @@ import {
   BranchSummaryMessageComponent,
   CompactionSummaryMessageComponent,
   CustomMessageComponent,
-  InteractiveMode,
   SkillInvocationMessageComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -32,6 +31,7 @@ import {
 import { MESSAGE_ICONS } from "../draw/icons.ts";
 import { liveSlot, tidyEnabled } from "../live.ts";
 import { getTheme } from "../theme-access.ts";
+import { installUserMessageTimes, USER_MESSAGE_TIME } from "./user-message.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Message boxes (compaction / branch summary)
@@ -177,6 +177,8 @@ export interface ContainerBoxOptions {
   includeUser?: boolean;
   /** Align the framed user message and its label; other message kinds stay left. */
   userAlign?: "left" | "right";
+  /** The framed user message's time next to its icon. */
+  userTime?: boolean;
   /** False turns installed patches into pass-throughs and installs nothing new. */
   enabled?: boolean;
 }
@@ -187,6 +189,7 @@ interface ResolvedContainerOptions {
   icons: boolean;
   includeUser: boolean;
   userAlign: "left" | "right";
+  userTime: boolean;
 }
 
 const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("container-box-options", undefined);
@@ -194,46 +197,23 @@ const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("contain
 /**
  * A user message's frame hugs its text: a one-word prompt gets a small box
  * instead of a full-width one, and a long one still stops at the full width.
- * The text keeps the one-cell inset it has on the left on its right as well,
- * and the box is never narrower than the icon in its top border.
+ * The text keeps the one-cell inset it has on the left on its right as well.
+ * The box stays wider than its label: `╭─ ` and ` ─╮` alone leave the top border
+ * a stub on each side, which reads as a cramped label and not as a border (#49).
  */
 function hugContent(content: string[], width: number, labelWidth: number): { lines: string[]; width: number } {
   const lines = content.map(trimTrailingSpaces);
   const widest = lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
-  const floor = labelWidth > 0 ? labelWidth + 6 : 0;
+  const floor = labelWidth > 0 ? labelWidth + 10 : 0;
   return { lines, width: Math.min(width, Math.max(widest + 3, floor)) };
-}
-
-/** Where the user message's clock is kept: pi's component only holds the text. */
-export const USER_MESSAGE_TIME = Symbol.for("pi-tidy:user-message-time");
-const USER_TIME_PATCH = Symbol.for("pi-tidy:user-time-patch");
-
-function installUserMessageTimes(): void {
-  const proto = (InteractiveMode as any)?.prototype;
-  const original = proto?.addMessageToChat;
-  if (typeof original !== "function" || original[USER_TIME_PATCH]) return;
-  const wrapped = function (this: any, message: any, options?: any) {
-    const chat = this?.chatContainer;
-    const before = Array.isArray(chat?.children) ? chat.children.length : -1;
-    const result = original.call(this, message, options);
-    if (message?.role === "user" && typeof message.timestamp === "number" && before >= 0) {
-      for (let i = before; i < chat.children.length; i++) {
-        const child = chat.children[i];
-        if (child instanceof UserMessageComponent) (child as any)[USER_MESSAGE_TIME] = message.timestamp;
-      }
-    }
-    return result;
-  };
-  (wrapped as any)[USER_TIME_PATCH] = true;
-  proto.addMessageToChat = wrapped;
 }
 
 export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
 ): void {
-  const { icons = false, includeUser = false, enabled = true, userAlign = "left" } = options;
-  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign });
+  const { icons = false, includeUser = false, enabled = true, userAlign = "left", userTime = true } = options;
+  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userTime });
   if (!enabled) return;
   if (includeUser) installUserMessageTimes();
 
@@ -261,7 +241,7 @@ export function patchContainerBoxes(
         const { icons } = live;
         const align = isUserMessage ? live.userAlign : "left";
         const borderColor = live.borderColors[kind];
-        const userTime = isUserMessage ? (this as any)[USER_MESSAGE_TIME] : undefined;
+        const userTime = isUserMessage && live.userTime ? (this as any)[USER_MESSAGE_TIME] : undefined;
         // The clock is painted into the border every frame, but its text only
         // changes when the day it belongs to rolls over. Key the cache on the
         // minute the label was built for and format the two dates on a miss,

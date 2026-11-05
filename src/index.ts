@@ -12,9 +12,11 @@
  *   frameMessages: boolean  — rounded frame on message boxes and on the user's
  *     own `!` / `!!` bash runs (default: true)
  *   userMessageStyle: "frame" | "rail" | "off" — user messages in a rounded
- *     frame hugging the text with the user icon in its top border, as rules
- *     plus an accent rail, or pi's own (default: frame)
- *   userMessageAlign: "left" | "right" — framed user message and icon (default: left)
+ *     frame hugging the text, as rules plus an accent rail, or pi's own; the
+ *     first two carry the user icon in their top edge (default: frame)
+ *   userMessageAlign: "left" | "right" — a framed message and its label, or a
+ *     rail's label (default: left)
+ *   userMessageTime: boolean — the message's time next to its icon (default: true)
  *   collapseTurns: "off" | "afterRun" | "live" — outer process fold (default: afterRun)
  *   frameFinalReply: boolean — frame the settled final reply (default: true)
  *   userMessagePaddingY: number — rail-only rows around a "rail" message's
@@ -36,7 +38,9 @@
  *     an extension that threw) once per retry attempt; fold the repeats into
  *     the first one as `×N` and frame it (default: true). Warnings and notes
  *     are left exactly as pi drew them
- *   splitDiff: boolean      — edit diffs as two panes (old | new) with line
+ *   cleanCopy: boolean       — take tidy's frames and rails out of what pi's
+ *     fullscreen selection copies (default: true)
+ *   splitDiff: boolean     — edit diffs as two panes (old | new) with line
  *     numbers, coloured bars and a tint per changed row (default: true)
  *   splitDiffMinWidth: number — box width below which the split falls back to
  *     pi's unified diff (default: 72)
@@ -55,6 +59,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint, VERSION } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted } from "./tools/bash-highlight.ts";
+import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
@@ -272,6 +277,7 @@ export default function (pi: ExtensionAPI): void {
       icons: config.icons,
       includeUser: config.userMessageStyle === "frame",
       userAlign: config.userMessageAlign,
+      userTime: config.userMessageTime,
       enabled: config.frameMessages,
     });
     patchUserMessages({
@@ -280,6 +286,8 @@ export default function (pi: ExtensionAPI): void {
       ruleColor: config.userMessageColors.rule,
       paddingY: config.userMessagePaddingY,
       icons: config.icons,
+      time: config.userMessageTime,
+      align: config.userMessageAlign,
     });
     patchBashExecutions({
       enabled: config.frameMessages,
@@ -293,6 +301,13 @@ export default function (pi: ExtensionAPI): void {
     patchErrorLines({ enabled: config.dedupeErrors });
   } catch (error) {
     console.debug("[pi-tidy] message box frame patch failed:", error);
+  }
+
+  cleanCopy.set(config.cleanCopy);
+  if (config.cleanCopy && !installCleanCopy()) {
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify("pi-tidy: this pi has no selection text to clean, so copies keep their frames.", "warning");
+    });
   }
 
   // The user message rail and frame above draw on their own and never call
