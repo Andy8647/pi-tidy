@@ -369,7 +369,8 @@ test("the final frame takes the assistant color and the time format", () => {
   try {
     const rows = chat.render(W);
     const top = rows.find((line) => line.includes("claude-sonnet-4-5"));
-    assert.ok(top?.includes("\x1b[38;2;207;209;166m"), "the border is the configured hex");
+    // Truecolor, or the nearest 256-color entry on a terminal without it.
+    assert.match(top ?? "", /\x1b\[38;(?:2;207;209;166|5;\d+)m/, "the border is the configured hex");
     assert.ok(top?.includes(String(new Date(final.timestamp).getFullYear())));
   } finally {
     turnOptions.set(options);
