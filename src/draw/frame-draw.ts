@@ -18,11 +18,30 @@ export function stripBackgroundFills(line: string): string {
   return line.replace(BG_FILL_RE, "");
 }
 
-/** Local clock; the date appears only when the message is not from today. */
-export function formatMessageTime(timestamp: number, now = Date.now()): string {
+const TIME_TOKENS = /YYYY|MM?|DD?|HH?|mm|ss/g;
+
+/**
+ * Local time. `auto` is the clock, with the date only when the message is not from
+ * today; anything else is a pattern of `YYYY M MM D DD H HH mm ss` and literal text.
+ */
+export function formatMessageTime(timestamp: number, format = "auto", now = Date.now()): string {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return "";
   const pad = (value: number) => String(value).padStart(2, "0");
+  if (format !== "auto") {
+    const parts: Record<string, string> = {
+      YYYY: String(date.getFullYear()),
+      M: String(date.getMonth() + 1),
+      MM: pad(date.getMonth() + 1),
+      D: String(date.getDate()),
+      DD: pad(date.getDate()),
+      H: String(date.getHours()),
+      HH: pad(date.getHours()),
+      mm: pad(date.getMinutes()),
+      ss: pad(date.getSeconds()),
+    };
+    return format.replace(TIME_TOKENS, (token) => parts[token] as string);
+  }
   const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   return date.toDateString() === new Date(now).toDateString()
     ? clock
@@ -188,19 +207,67 @@ export function trimBlankEdges(lines: string[]): string[] {
   return start === 0 && end === lines.length ? lines : lines.slice(start, end);
 }
 
+export type HeaderStyle = "inline" | "split";
+
+/**
+ * What a message's top edge says: who it is from and when. `split` sets a rule between
+ * the two and a longer one in front (`── model ── 13:09 ───`), and goes back to `inline`
+ * on an edge too narrow for that. Both parts arrive painted; `lead` is the rule's length
+ * in front of the label.
+ */
+export function messageHeader(
+  theme: ThemeLike,
+  color: string,
+  identity: string,
+  time: string,
+  style: HeaderStyle,
+  width: number,
+): { label: string; lead: number } {
+  const inline = { label: time ? `${identity} ${time}` : identity, lead: 1 };
+  if (style !== "split") return inline;
+  const label = time ? `${identity} ${paint(theme, color, "──")} ${time}` : identity;
+  // `╭── ` and ` ──╮`.
+  return visibleWidth(label) + 8 <= width ? { label, lead: 2 } : inline;
+}
+
 /**
  * A rounded top border with a label set into it: `╭─ label ─────╮`. Falls
  * back to the plain border when the label does not fit. `label` arrives
  * painted; only the rule is colored here.
  */
-export function labeledTopBorder(width: number, theme: ThemeLike, color: string, label: string, align: "left" | "right" = "left"): string {
+export function labeledTopBorder(
+  width: number,
+  theme: ThemeLike,
+  color: string,
+  label: string,
+  align: "left" | "right" = "left",
+  lead = 1,
+): string {
   const inner = Math.max(2, width - 2);
   const bc = (s: string) => paint(theme, color, s);
-  const rest = inner - 3 - visibleWidth(label);
+  const rest = inner - 2 - lead - visibleWidth(label);
   if (rest < 1) return bc(`╭${"─".repeat(inner)}╮`);
+  const start = "─".repeat(lead);
   return align === "right"
-    ? `${bc(`╭${"─".repeat(rest)} `)}${label}${bc(" ─╮")}`
-    : `${bc("╭─ ")}${label}${bc(` ${"─".repeat(rest)}╮`)}`;
+    ? `${bc(`╭${"─".repeat(rest)} `)}${label}${bc(` ${start}╮`)}`
+    : `${bc(`╭${start} `)}${label}${bc(` ${"─".repeat(rest)}╮`)}`;
+}
+
+/** A rule with a label set into it: `─ label ─────`. Plain when the label does not fit. */
+export function labeledRule(
+  width: number,
+  theme: ThemeLike,
+  color: string,
+  label: string,
+  align: "left" | "right" = "left",
+  lead = 1,
+): string {
+  const rest = width - 2 - lead - visibleWidth(label);
+  if (!label || rest < 1) return paint(theme, color, "─".repeat(width));
+  const start = "─".repeat(lead);
+  return align === "right"
+    ? `${paint(theme, color, `${"─".repeat(rest)} `)}${label}${paint(theme, color, ` ${start}`)}`
+    : `${paint(theme, color, `${start} `)}${label}${paint(theme, color, ` ${"─".repeat(rest)}`)}`;
 }
 
 /**

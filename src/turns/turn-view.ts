@@ -1,5 +1,6 @@
 import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, sameLines, visibleText } from "../draw/frame-draw.ts";
+import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
+import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
@@ -55,21 +56,22 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
   // invisible; a settled one never changes again.
   const tick = turn.outcome === "running" ? Math.floor(now / 500) : 0;
   const isFolded = folded(turn);
+  const color = turnOptions.get().assistantColor;
   const cached = summaryCache.get(turn);
-  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded) {
+  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color) {
     return cached.line;
   }
   const line = buildSummaryLine(turn, theme, width, hovered, now);
-  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, line });
+  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, line });
   return line;
 }
-const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; line: string }>();
+const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; line: string }>();
 function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: boolean, now = Date.now()): string {
   const store = turnStore.get();
   const total = turn.startedAt === undefined ? undefined : (turn.endedAt ?? now) - turn.startedAt;
   const state = turn.outcome;
   const marker = folded(turn) ? hovered ? "▶" : "▸" : "▾";
-  const parts = [theme.fg("accent", `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`)];
+  const parts = [paint(theme, turnOptions.get().assistantColor, `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`)];
   if (!["completed", "running", "unknown"].includes(state)) parts.push(theme.fg("error", state));
   const llmFailures = [...turn.messages.values()].filter((message) => message.role === "assistant" && message.stopReason === "error").length;
   if (llmFailures) parts.push(theme.fg("error", `${llmFailures} LLM failed`));
@@ -131,7 +133,7 @@ export function joinBoxCorners(rows: readonly string[], above: boolean, below: b
  */
 export function railRows(rows: readonly string[], theme: ThemeLike, pad = ""): string[] {
   // The colour of the summary's marker above it and the reply's border below it.
-  const rail = `${theme.fg("accent", "│")}${pad}`;
+  const rail = `${paint(theme, turnOptions.get().assistantColor, "│")}${pad}`;
   const cached = railedRows.get(rows);
   if (cached?.rail === rail) return cached.out;
   const out = rows.map((row) => (row.startsWith(ZONE_A) ? `${ZONE_A}${rail}${row.slice(ZONE_A.length)}` : `${rail}${row}`));
@@ -144,9 +146,10 @@ const ZONE_A = "\x1b]133;A\x07";
 const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
 class ReplyBody extends Box {
   private theme: ThemeLike;
-  constructor(theme: ThemeLike) { super(1, 0); this.theme = theme; }
+  private color: string;
+  constructor(theme: ThemeLike, color: string) { super(1, 0); this.theme = theme; this.color = color; }
   override render(width: number): string[] {
-    const border = this.theme.fg("accent", "│");
+    const border = paint(this.theme, this.color, "│");
     return super.render(width).map((line) => {
       // pi's OSC 133 zones belong at the row's edges. The frame used to leave
       // them inside: zone A landed after the left border, and B/C before the
@@ -225,18 +228,23 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
-  const label = framed
-    ? clipToWidth(
-        theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)) +
-          (typeof component.lastMessage.timestamp === "number" ? ` ${italicDim(theme, formatMessageTime(component.lastMessage.timestamp))}` : ""),
-        // The border needs `╭─ ` and ` ─╮` around the label; a longer model id
-        // (one with its release date in it) has to lose cells, not the whole row.
-        Math.max(1, width - 6),
-        "…",
+  const color = options.assistantColor;
+  const replyHeader = framed
+    ? messageHeader(
+        theme,
+        color,
+        paint(theme, color, replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
+        typeof component.lastMessage.timestamp === "number" ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat)) : "",
+        options.headerStyle,
+        width,
       )
-    : "";
+    : undefined;
+  // The border needs `╭─ ` and ` ─╮` around the label; a longer model id
+  // (one with its release date in it) has to lose cells, not the whole row.
+  const label = replyHeader ? clipToWidth(replyHeader.label, Math.max(1, width - 6), "…") : "";
+  const lead = replyHeader?.lead ?? 1;
   const cache = component[CACHE];
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -256,17 +264,17 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   } };
   if (framed) {
     // The rail comes down into the reply's corner and carries on as its left border.
-    const top = labeledTopBorder(width, theme, "accent", label);
+    const top = labeledTopBorder(width, theme, color, label, "left", lead);
     view.addChild(new Text(railOpen ? top.replace("╭", "├") : top, 0, 0));
-    const box = new ReplyBody(theme);
+    const box = new ReplyBody(theme, color);
     box.addChild(source);
     view.addChild(box);
-    view.addChild(new Text(theme.fg("accent", `╰${"─".repeat(width - 2)}╯`), 0, 0));
+    view.addChild(new Text(paint(theme, color, `╰${"─".repeat(width - 2)}╯`), 0, 0));
   } else view.addChild(source);
   const out = view.render(width);
   const layout = { view, header };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, framed, railOpen, body, out, layout };
+  component[CACHE] = { turn, width, line, label, lead, color, framed, railOpen, body, out, layout };
   installMouse(component);
   return out;
 }

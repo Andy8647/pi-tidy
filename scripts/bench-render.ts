@@ -119,12 +119,12 @@ if (mode === "expanded") {
 }
 if (mode === "turns") {
   if (!turnModule) throw new Error(`turns: turn folding is not in ${root}`);
-  turnModule.turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: false, icons: true });
+  turnModule.turnOptions.set({ ...turnModule.turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: false, icons: true });
 }
 if (opened) {
   if (!turnModule) throw new Error(`${mode}: turn folding is not in ${root}`);
   // Tidy's defaults, with every run opened: this is where the rail is drawn.
-  turnModule.turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: true, icons: true });
+  turnModule.turnOptions.set({ ...turnModule.turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: true, icons: true });
   for (const tool of tools) turnModule.expandTurnForTool((tool as unknown as { toolCallId: string }).toolCallId, true);
 }
 for (let frame = 0; frame < 20; frame++) chat.render(width);

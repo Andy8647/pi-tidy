@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { HeaderStyle } from "./draw/frame-draw.ts";
 import type { UserMessageStyle } from "./messages/user-message.ts";
 import type { CollapseTurns } from "./turns/turn-state.ts";
 
 export interface MessageBorderColors {
+  /** The final reply's frame, an open run's rail and its `▾` marker. Also `#rrggbb`. */
+  assistant: string;
   user: string;
   compaction: string;
   branch: string;
@@ -31,6 +34,10 @@ export interface TidyConfig {
   collapseTurns: CollapseTurns;
   /** Frame only the settled final assistant reply, independently of folding. */
   frameFinalReply: boolean;
+  /** `auto`, or a pattern of `YYYY M MM D DD H HH mm ss` and literal text. */
+  messageTimeFormat: string;
+  /** What a message's top edge looks like: `inline` or `split`. */
+  messageHeaderStyle: HeaderStyle;
   /** Rail-only rows between each rule and the text of a "rail" user message. */
   userMessagePaddingY: number;
   /** "rail" user message colors: theme color names or `#rrggbb`. */
@@ -132,6 +139,8 @@ const DEFAULTS: TidyConfig = {
   userMessageTime: true,
   collapseTurns: "afterRun",
   frameFinalReply: true,
+  messageTimeFormat: "auto",
+  messageHeaderStyle: "inline",
   userMessagePaddingY: 1,
   userMessageColors: { rail: "accent", rule: "borderMuted" },
   icons: true,
@@ -150,6 +159,7 @@ const DEFAULTS: TidyConfig = {
   diffLines: 20,
   thinkingColor: "warning",
   messageBorderColors: {
+    assistant: "accent",
     user: "toolTitle",
     compaction: "customMessageLabel",
     branch: "mdCode",
@@ -193,6 +203,11 @@ export function loadConfig(): TidyConfig {
       userMessageTime: typeof toolbox?.userMessageTime === "boolean" ? toolbox.userMessageTime : DEFAULTS.userMessageTime,
       collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
       frameFinalReply: typeof toolbox?.frameFinalReply === "boolean" ? toolbox.frameFinalReply : DEFAULTS.frameFinalReply,
+      messageTimeFormat:
+        typeof toolbox?.messageTimeFormat === "string" && toolbox.messageTimeFormat.trim()
+          ? toolbox.messageTimeFormat
+          : DEFAULTS.messageTimeFormat,
+      messageHeaderStyle: toolbox?.messageHeaderStyle === "split" ? "split" : DEFAULTS.messageHeaderStyle,
       userMessagePaddingY:
         Number.isInteger(toolbox?.userMessagePaddingY) && toolbox.userMessagePaddingY >= 0
           ? Math.min(3, toolbox.userMessagePaddingY)

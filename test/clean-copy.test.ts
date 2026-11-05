@@ -133,7 +133,7 @@ test("a labelled top rule opens a rail message, and opens only", () => {
 
 test("what tidy draws for a rail message, at either end, copies as its text", () => {
   for (const align of ["left", "right"] as const) {
-    patchUserMessages({ style: "rail", railColor: "accent", ruleColor: "border", paddingY: 1, icons: true, time: true, align });
+    patchUserMessages({ style: "rail", railColor: "accent", ruleColor: "border", paddingY: 1, icons: true, time: true, align, timeFormat: "auto", headerStyle: "inline" });
     const component: any = new UserMessageComponent("first\n\nsecond" as never);
     component[USER_MESSAGE_TIME] = Date.now();
     const lines: string[] = component.render(40);
@@ -142,6 +142,24 @@ test("what tidy draws for a rail message, at either end, copies as its text", ()
     assert.deepEqual(texts(rows).filter((row) => row), ["first", "second"]);
     assert.equal(rows[0], null);
     assert.equal(rows.at(-1), null);
+  }
+});
+
+test("a split header copies clean, framed or on a rail, and so does a rule written into the time format", () => {
+  const label = "model \u2500\u2500 13:09";
+  const framed = drawFrame([" hello"], 30, theme, "accent");
+  framed[0] = labeledTopBorder(30, theme, "accent", label, "left", 2);
+  assert.deepEqual(texts(cleanTranscriptRows(framed, 0, framed.length - 1).rows), [null, "hello", null]);
+  const literal = drawFrame([" hello"], 40, theme, "accent");
+  literal[0] = labeledTopBorder(40, theme, "accent", "model \u2500\u2500 11\u67085\u65e5 \u2500 13:09");
+  assert.deepEqual(texts(cleanTranscriptRows(literal, 0, literal.length - 1).rows), [null, "hello", null]);
+  for (const align of ["left", "right"] as const) {
+    patchUserMessages({ style: "rail", railColor: "accent", ruleColor: "border", paddingY: 1, icons: true, time: true, align, timeFormat: "HH:mm", headerStyle: "split" });
+    const component: any = new UserMessageComponent("first" as never);
+    component[USER_MESSAGE_TIME] = Date.now();
+    const lines: string[] = component.render(40);
+    assert.match(stripVTControlCharacters(lines[0]!), /\u2500\u2500 \d\d:\d\d/);
+    assert.deepEqual(texts(cleanTranscriptRows(lines, 0, lines.length - 1).rows).filter((row) => row), ["first"]);
   }
 });
 

@@ -15,8 +15,16 @@
  */
 
 import { InteractiveMode, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
-import { formatMessageTime, italicDim, sameLines, stripBackgroundFills, trimBlankEdges } from "../draw/frame-draw.ts";
+import {
+  formatMessageTime,
+  type HeaderStyle,
+  italicDim,
+  labeledRule,
+  messageHeader,
+  sameLines,
+  stripBackgroundFills,
+  trimBlankEdges,
+} from "../draw/frame-draw.ts";
 import { MESSAGE_ICONS } from "../draw/icons.ts";
 import { liveSlot, tidyEnabled } from "../live.ts";
 import { paint } from "../draw/paint.ts";
@@ -38,6 +46,10 @@ export interface UserMessageOptions {
   time: boolean;
   /** The end of the top rule the label sits at. The rail and the text stay left. */
   align: "left" | "right";
+  /** `tidy.messageTimeFormat`. */
+  timeFormat: string;
+  /** `tidy.messageHeaderStyle`. */
+  headerStyle: HeaderStyle;
 }
 
 /**
@@ -63,6 +75,8 @@ interface UserMessageInternals {
     paddingY: number;
     icons: boolean;
     align: "left" | "right";
+    timeFormat: string;
+    headerStyle: HeaderStyle;
     labelMinute: number;
     labelTime: number | undefined;
     raw: string[];
@@ -97,15 +111,6 @@ export function installUserMessageTimes(): void {
 /** The child's left padding, behind the styles pi resets in front of it (`\x1b[49m \x1b[39mtext`). */
 const LEADING_PAD_RE = /^((?:\x1b\[[0-9;:]*m)*) /;
 
-/** A full-width rule with a label set into it: `─ label ─────`. Plain when it does not fit. */
-function labeledRule(width: number, theme: ThemeLike, color: string, label: string, align: "left" | "right"): string {
-  const rest = width - 3 - visibleWidth(label);
-  if (!label || rest < 1) return paint(theme, color, "─".repeat(width));
-  return align === "right"
-    ? `${paint(theme, color, `${"─".repeat(rest)} `)}${label}${paint(theme, color, " ─")}`
-    : `${paint(theme, color, "─ ")}${label}${paint(theme, color, ` ${"─".repeat(rest)}`)}`;
-}
-
 const userMessageOptions = liveSlot<UserMessageOptions | undefined>("user-message-options", undefined);
 
 function renderRail(
@@ -139,6 +144,8 @@ function renderRail(
     cache.paddingY === options.paddingY &&
     cache.icons === options.icons &&
     cache.align === options.align &&
+    cache.timeFormat === options.timeFormat &&
+    cache.headerStyle === options.headerStyle &&
     cache.labelMinute === labelMinute &&
     cache.labelTime === time &&
     sameLines(cache.raw, raw)
@@ -148,13 +155,19 @@ function renderRail(
   const content = trimBlankEdges(raw.map(stripBackgroundFills));
   if (content.length === 0) return undefined;
 
-  const label = options.icons
-    ? paint(theme, options.railColor, MESSAGE_ICONS.user) +
-      (typeof time === "number" ? ` ${italicDim(theme, formatMessageTime(time))}` : "")
-    : "";
+  const header = options.icons
+    ? messageHeader(
+        theme,
+        options.ruleColor,
+        paint(theme, options.railColor, MESSAGE_ICONS.user),
+        typeof time === "number" ? italicDim(theme, formatMessageTime(time, options.timeFormat)) : "",
+        options.headerStyle,
+        width,
+      )
+    : { label: "", lead: 1 };
   const padRows = Array.from({ length: options.paddingY }, () => rail);
   const rows = content.map((line) => `${rail} ${childPad ? line.replace(LEADING_PAD_RE, "$1") : line}`);
-  const out = [labeledRule(width, theme, options.ruleColor, label, options.align), ...padRows, ...rows, ...padRows, rule];
+  const out = [labeledRule(width, theme, options.ruleColor, header.label, options.align, header.lead), ...padRows, ...rows, ...padRows, rule];
   out[0] = OSC133_ZONE_START + out[0];
   out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
   component.__tidyRailCache = {
@@ -163,6 +176,8 @@ function renderRail(
     paddingY: options.paddingY,
     icons: options.icons,
     align: options.align,
+    timeFormat: options.timeFormat,
+    headerStyle: options.headerStyle,
     labelMinute,
     labelTime: time,
     raw,
