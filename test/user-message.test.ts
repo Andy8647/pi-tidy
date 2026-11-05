@@ -20,20 +20,39 @@ const fakeTheme = {
 (globalThis as any)[THEME_KEY] = fakeTheme;
 
 const { patchUserMessages, patchContainerBoxes } = await import("../src/frame.ts");
+const { USER_MESSAGE_TIME } = await import("../src/messages/user-message.ts");
+const { formatMessageTime } = await import("../src/draw/frame-draw.ts");
 const { tidyEnabled } = await import("../src/live.ts");
-const { UserMessageComponent } = await import("@earendil-works/pi-coding-agent");
+const { InteractiveMode, UserMessageComponent } = await import("@earendil-works/pi-coding-agent");
 
 const BG_FILL_RE = /\x1b\[48;[0-9;]*m|\x1b\[(?:4[0-7]|10[0-7])m/;
 const ZONE_START = "\x1b]133;A\x07";
 const ZONE_END = "\x1b]133;B\x07\x1b]133;C\x07";
 const W = 40;
 
-const RAIL = { style: "rail", railColor: "railCol", ruleColor: "ruleCol", paddingY: 1, icons: false } as const;
+const RAIL = { style: "rail", railColor: "railCol", ruleColor: "ruleCol", paddingY: 1, icons: false, time: true, align: "left" } as const;
 const USER_ICON = "\u{f007}";
 
 function plain(line: string): string {
   return line.replace(/\x1b\][^\x07]*\x07/g, "").replace(/<\/?[^>]+>/g, "").replace(/\x1b\[[0-9;]*m/g, "");
 }
+
+// First in the file: the patch stays once installed, and frame tests below install it too.
+test("the rail style records when a message was sent, with no frame style in sight", () => {
+  const proto: any = InteractiveMode.prototype;
+  const original = proto.addMessageToChat;
+  proto.addMessageToChat = function (this: any) {
+    this.chatContainer.children.push(new UserMessageComponent("hi" as never));
+  };
+  try {
+    patchUserMessages(RAIL);
+    const chat = { children: [] as any[] };
+    proto.addMessageToChat.call({ chatContainer: chat }, { role: "user", timestamp: 1234 });
+    assert.equal(chat.children[0][USER_MESSAGE_TIME], 1234);
+  } finally {
+    proto.addMessageToChat = original;
+  }
+});
 
 test("a short message: rules, padding rows and the rail, full width and no background", () => {
   patchUserMessages(RAIL);
@@ -46,6 +65,18 @@ test("a short message: rules, padding rows and the rail, full width and no backg
   assert.equal(plain(lines[2]).trimEnd(), "│ hi");
   assert.ok(lines[2].startsWith("<fg:railCol>│</fg> "), "one space between rail and text");
   assert.ok(!BG_FILL_RE.test(lines.join("\n")), "no background fill escapes");
+});
+
+test("the child's padding comes off behind the resets pi puts in front of it", () => {
+  // What pi's Markdown really hands over once its background is gone: `\x1b[49m \x1b[39mtext`.
+  (globalThis as any)[THEME_KEY] = { ...fakeTheme, bg: (_color: string, text: string) => `\x1b[49m${text}\x1b[49m` };
+  try {
+    patchUserMessages({ ...RAIL, paddingY: 0 });
+    const lines: string[] = new UserMessageComponent("hi" as never).render(W);
+    assert.equal(plain(lines[1]!).trimEnd(), "│ hi");
+  } finally {
+    (globalThis as any)[THEME_KEY] = fakeTheme;
+  }
 });
 
 test("paddingY 0 drops the rail-only rows", () => {
@@ -71,19 +102,100 @@ test("registered markdown transformers still run", () => {
   assert.ok(component.render(W).map(plain).join("\n").includes("hi (t)"));
 });
 
-test("with icons, the user icon leads the text in the rail color", () => {
+/** Real width: the fake theme's tags would count as visible text. */
+function withAnsiTheme<T>(run: () => T): T {
+  (globalThis as any)[THEME_KEY] = { ...fakeTheme, fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m` };
+  try {
+    return run();
+  } finally {
+    (globalThis as any)[THEME_KEY] = fakeTheme;
+  }
+}
+
+function timed(text: string, timestamp: number) {
+  const component: any = new UserMessageComponent(text as never);
+  component[USER_MESSAGE_TIME] = timestamp;
+  return component;
+}
+
+test("with icons, the user icon and the time sit in the top rule, not in the text", () => {
   patchUserMessages({ ...RAIL, paddingY: 0, icons: true });
-  const lines: string[] = new UserMessageComponent("hi" as never).render(W);
-  assert.equal(lines.length, 3, "still one row for one line of text");
-  assert.ok(lines[1].startsWith(`<fg:railCol>│</fg> <fg:railCol>${USER_ICON}</fg> `), lines[1]);
-  assert.equal(plain(lines[1]).trimEnd(), `│ ${USER_ICON} hi`);
+  const now = Date.now();
+  const rows: string[] = withAnsiTheme(() => timed("first\nsecond", now).render(W).map(plain));
+  const label = `${USER_ICON} ${formatMessageTime(now)}`;
+  assert.deepEqual(rows.map((row) => row.trimEnd()), [
+    `─ ${label} ${"─".repeat(W - 3 - label.length)}`,
+    "│ first",
+    "│ second",
+    "─".repeat(W),
+  ]);
+  assert.equal(rows[0]!.length, W);
 });
 
-test("with icons, later rows hang under the text, not under the icon", () => {
-  patchUserMessages({ ...RAIL, paddingY: 1, icons: true });
-  const lines: string[] = new UserMessageComponent("first\nsecond" as never).render(W);
-  const body = lines.slice(1, -1).map(plain).map((line) => line.trimEnd());
-  assert.deepEqual(body, ["│", `│ ${USER_ICON} first`, "│   second", "│"]);
+test("a right-aligned label moves along the rule; the rail and the text stay left", () => {
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true, align: "right" });
+  const now = Date.now();
+  const rows: string[] = withAnsiTheme(() => timed("hi", now).render(W).map(plain));
+  const label = `${USER_ICON} ${formatMessageTime(now)}`;
+  assert.equal(rows[0], `${"─".repeat(W - 3 - label.length)} ${label} ─`);
+  assert.equal(rows[1]!.trimEnd(), "│ hi");
+});
+
+test("`time: false` leaves the icon alone in the rule, and re-renders a cached message", () => {
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true });
+  const component = timed("hi", Date.now());
+  const top = () => withAnsiTheme(() => plain(component.render(W)[0]));
+  assert.ok(top().includes(formatMessageTime(Date.now())));
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true, time: false });
+  assert.match(top(), new RegExp(`^─ ${USER_ICON} ─+$`));
+});
+
+test("changing the alignment re-renders a cached message", () => {
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true });
+  const component = timed("hi", Date.now());
+  const top = () => withAnsiTheme(() => plain(component.render(W)[0]));
+  assert.ok(top().startsWith("─ "));
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true, align: "right" });
+  assert.ok(top().endsWith(" ─"));
+});
+
+test("without icons the rule stays plain, time or no time", () => {
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: false });
+  assert.equal(plain(timed("hi", Date.now()).render(W)[0]), "─".repeat(W));
+});
+
+test("a label that does not fit leaves a plain rule", () => {
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true });
+  const rows: string[] = withAnsiTheme(() => timed("hi", Date.now()).render(8).map(plain));
+  assert.equal(rows[0], "─".repeat(8));
+});
+
+test("a day rolling over brings the date into the label", (t) => {
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true });
+  const dayMs = 86_400_000;
+  const start = new Date(2026, 10, 5, 12, 0).getTime();
+  t.mock.timers.enable({ apis: ["Date"], now: start });
+  const component = timed("hi", start);
+  const top = () => withAnsiTheme(() => plain(component.render(W)[0]));
+  assert.ok(top().includes("12:00"));
+  assert.ok(!top().includes("11-05"));
+  t.mock.timers.setTime(start + dayMs);
+  assert.ok(top().includes("11-05 12:00"));
+});
+
+test("the frame style hides its time the same way", () => {
+  const colors = { user: "userCol", custom: "customCol" };
+  patchUserMessages({ ...RAIL, style: "frame" });
+  try {
+    patchContainerBoxes(colors, { icons: true, includeUser: true });
+    const component = timed("hi", Date.now());
+    const top = () => withAnsiTheme(() => plain(component.render(W)[0]));
+    assert.ok(top().includes(formatMessageTime(Date.now())));
+    patchContainerBoxes(colors, { icons: true, includeUser: true, userTime: false });
+    assert.match(top(), new RegExp(`^╭─ ${USER_ICON} ─+╮$`));
+  } finally {
+    patchContainerBoxes(colors, { includeUser: false });
+  }
 });
 
 test("switching icons on and off re-renders a cached message", () => {
@@ -91,7 +203,7 @@ test("switching icons on and off re-renders a cached message", () => {
   const component = new UserMessageComponent("hi" as never);
   assert.ok(!component.render(W).join("").includes(USER_ICON));
   patchUserMessages({ ...RAIL, paddingY: 0, icons: true });
-  assert.ok(component.render(W)[1].includes(USER_ICON));
+  assert.ok(component.render(W)[0].includes(USER_ICON));
 });
 
 test("hex colors paint truecolor, or the nearest 256-color entry in 256-color mode", () => {
