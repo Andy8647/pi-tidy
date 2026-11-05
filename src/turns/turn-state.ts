@@ -1,3 +1,4 @@
+import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
@@ -214,7 +215,14 @@ export class TurnStore {
 }
 
 export const turnStore = liveSlot("turn-store", new TurnStore());
-export const turnOptions = liveSlot("turn-presentation-options", { collapseTurns: "off" as CollapseTurns, frameFinalReply: false, icons: true });
+export const turnOptions = liveSlot("turn-presentation-options", {
+  collapseTurns: "off" as CollapseTurns,
+  frameFinalReply: false,
+  icons: true,
+  assistantColor: "accent",
+  timeFormat: "auto",
+  headerStyle: "inline" as HeaderStyle,
+});
 export function turnFor(message: TurnMessage | undefined): Turn | undefined {
   const key = messageKey(message);
   return key ? turnStore.get().byMessage.get(key) : undefined;

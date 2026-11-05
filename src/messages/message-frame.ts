@@ -20,8 +20,10 @@ import {
   clipToWidth,
   drawFrame,
   formatMessageTime,
+  type HeaderStyle,
   italicDim,
   labeledTopBorder,
+  messageHeader,
   sameLines,
   stripBackgroundFills,
   trimBlankEdges,
@@ -157,7 +159,7 @@ interface ContainerBoxInternals {
   /** Set when an extension renderer supplies its own styled component. */
   customComponent?: unknown;
   render(width: number): string[];
-  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; timeFormat: string; headerStyle: HeaderStyle; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
 }
 
 /**
@@ -179,6 +181,10 @@ export interface ContainerBoxOptions {
   userAlign?: "left" | "right";
   /** The framed user message's time next to its icon. */
   userTime?: boolean;
+  /** `tidy.messageTimeFormat`. */
+  timeFormat?: string;
+  /** `tidy.messageHeaderStyle`. */
+  headerStyle?: HeaderStyle;
   /** False turns installed patches into pass-throughs and installs nothing new. */
   enabled?: boolean;
 }
@@ -190,6 +196,8 @@ interface ResolvedContainerOptions {
   includeUser: boolean;
   userAlign: "left" | "right";
   userTime: boolean;
+  timeFormat: string;
+  headerStyle: HeaderStyle;
 }
 
 const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("container-box-options", undefined);
@@ -212,8 +220,8 @@ export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
 ): void {
-  const { icons = false, includeUser = false, enabled = true, userAlign = "left", userTime = true } = options;
-  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userTime });
+  const { icons = false, includeUser = false, enabled = true, userAlign = "left", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
+  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userTime, timeFormat, headerStyle });
   if (!enabled) return;
   if (includeUser) installUserMessageTimes();
 
@@ -274,15 +282,24 @@ export function patchContainerBoxes(
           cache.sample === sample &&
           cache.icons === icons &&
           cache.align === align &&
+          cache.timeFormat === live.timeFormat &&
+          cache.headerStyle === live.headerStyle &&
           cache.labelMinute === labelMinute &&
           cache.labelTime === userTime &&
           sameLines(cache.lines, content)
         )
           return cache.out;
 
-        const userLabel = isUserMessage && icons
-          ? theme.fg(borderColor, icon) + (typeof userTime === "number" ? ` ${italicDim(theme, formatMessageTime(userTime))}` : "")
-          : "";
+        const header = isUserMessage && icons
+          ? messageHeader(
+              theme,
+              borderColor,
+              theme.fg(borderColor, icon),
+              typeof userTime === "number" ? italicDim(theme, formatMessageTime(userTime, live.timeFormat)) : "",
+              live.headerStyle,
+              w,
+            )
+          : undefined;
 
         // A leading blank row separates the box from the transcript above it.
         // Custom messages need it: pi adds no spacer of its own there. A user
@@ -292,9 +309,9 @@ export function patchContainerBoxes(
         if (isUserMessage) {
           // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
           // row and copies without it. No icons, no label: a plain top border.
-          const framed = hugContent(content, w, visibleWidth(userLabel));
+          const framed = hugContent(content, w, visibleWidth(header?.label ?? ""));
           const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
-          if (userLabel) frame[0] = labeledTopBorder(framed.width, theme, borderColor, userLabel, align);
+          if (header) frame[0] = labeledTopBorder(framed.width, theme, borderColor, header.label, align, header.lead);
           const indent = align === "right" ? " ".repeat(w - framed.width) : "";
           out = indent ? frame.map((line) => indent + line) : frame;
         } else {
@@ -306,7 +323,7 @@ export function patchContainerBoxes(
           out[0] = OSC133_ZONE_START + out[0];
           out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
         }
-        this.__msgFrameCache = { width: w, sample, icons, align, labelMinute, labelTime: userTime, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, icons, align, timeFormat: live.timeFormat, headerStyle: live.headerStyle, labelMinute, labelTime: userTime, lines: content, out };
         return out;
       } catch {
         return originalRender.call(this, width);

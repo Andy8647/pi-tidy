@@ -177,7 +177,14 @@ export default function (pi: ExtensionAPI): void {
   }
   // Patches installed by an earlier load (before a /reload) read this live,
   // so turning the extension off takes effect without a restart.
-  turnOptions.set({ collapseTurns: config.collapseTurns, frameFinalReply: config.frameFinalReply, icons: config.icons });
+  turnOptions.set({
+    collapseTurns: config.collapseTurns,
+    frameFinalReply: config.frameFinalReply,
+    icons: config.icons,
+    assistantColor: config.messageBorderColors.assistant,
+    timeFormat: config.messageTimeFormat,
+    headerStyle: config.messageHeaderStyle,
+  });
   tidyEnabled.set(config.enabled);
   agentRunning.set(false);
   if (!config.enabled) return;
@@ -237,7 +244,9 @@ export default function (pi: ExtensionAPI): void {
       includeUser: config.userMessageStyle === "frame",
       userAlign: config.userMessageAlign,
       userTime: config.userMessageTime,
-      enabled: config.frameMessages,
+      timeFormat: config.messageTimeFormat,
+      headerStyle: config.messageHeaderStyle,
+        enabled: config.frameMessages,
     });
     patchUserMessages({
       style: config.userMessageStyle,
@@ -247,7 +256,9 @@ export default function (pi: ExtensionAPI): void {
       icons: config.icons,
       time: config.userMessageTime,
       align: config.userMessageAlign,
-    });
+      timeFormat: config.messageTimeFormat,
+      headerStyle: config.messageHeaderStyle,
+      });
     patchBashExecutions({
       enabled: config.frameMessages,
       icons: config.icons,

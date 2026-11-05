@@ -33,11 +33,11 @@ const USER_RAIL_PREFIX = `${USER_RAIL_GLYPH} `;
 
 const RULE_ROW_RE = /^─+$/;
 /** A rail message's top rule, with the user icon and time set into it. */
-const LABELED_RULE_RE = /^─+ [^─]+ ─+$/;
+const LABELED_RULE_RE = /^─+(?: [^─]+ ─+)+$/;
 /** The rails and indent a frame hangs on. */
 const HANG_RE = /^[│ ]*/;
 /** `├` is a corner where a rail meets it; a table's `├─┼─┤` never ends in a round one. */
-const FRAME_OPEN_RE = /^[╭├]─*(?: [^─]+ ─+)?╮$/;
+const FRAME_OPEN_RE = /^[╭├]─*(?: [^─]+ ─+)*╮$/;
 const FRAME_CLOSE_RE = /^[╰├]─*╯$/;
 
 function isRailRow(text: string): boolean {

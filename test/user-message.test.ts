@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { test } from "node:test";
 
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
@@ -30,7 +31,7 @@ const ZONE_START = "\x1b]133;A\x07";
 const ZONE_END = "\x1b]133;B\x07\x1b]133;C\x07";
 const W = 40;
 
-const RAIL = { style: "rail", railColor: "railCol", ruleColor: "ruleCol", paddingY: 1, icons: false, time: true, align: "left" } as const;
+const RAIL = { style: "rail", railColor: "railCol", ruleColor: "ruleCol", paddingY: 1, icons: false, time: true, align: "left", timeFormat: "auto", headerStyle: "inline" } as const;
 const USER_ICON = "\u{f007}";
 
 function plain(line: string): string {
@@ -265,4 +266,28 @@ test("pi's OSC 133 markers stay on the first and last line only", () => {
   const lines: string[] = new UserMessageComponent("a\n\nb" as never).render(W);
   assert.ok(lines[0].startsWith(ZONE_START) && lines.at(-1)!.startsWith(ZONE_END));
   assert.ok(lines.slice(1, -1).every((l) => !l.includes("\x1b]133;")), "no markers in between");
+});
+
+test("a rail message's time follows the format, and a new format is not served from the cache", () => {
+  const component: any = new UserMessageComponent("hi" as never);
+  component[USER_MESSAGE_TIME] = new Date(2026, 10, 5, 13, 9, 32).getTime();
+  const top = (): string => withAnsiTheme(() => plain(component.render(W)[0]));
+  patchUserMessages({ ...RAIL, icons: true, timeFormat: "HH:mm" });
+  assert.ok(top().includes("13:09"));
+  assert.ok(!top().includes("13:09:32"));
+  patchUserMessages({ ...RAIL, icons: true, timeFormat: "M月D日 HH:mm:ss" });
+  assert.ok(top().includes("11月5日 13:09:32"));
+});
+
+test("a split header sets a rule between the icon and the time, and fits a narrow rule", () => {
+  const component: any = new UserMessageComponent("hi" as never);
+  component[USER_MESSAGE_TIME] = new Date(2026, 10, 5, 13, 9, 32).getTime();
+  const top = (width: number): string => withAnsiTheme(() => plain(component.render(width)[0]));
+  patchUserMessages({ ...RAIL, icons: true, timeFormat: "HH:mm", headerStyle: "split" });
+  assert.ok(top(W).startsWith(`── ${USER_ICON} ── 13:09 ─`), top(W));
+  assert.ok(top(W).endsWith("─"));
+  assert.equal(visibleWidth(top(W)), W);
+  // `── ` + icon + ` ── ` + clock + ` ──` no longer fits: the plain label instead.
+  assert.ok(top(16).startsWith(`─ ${USER_ICON} 13:09 ─`), top(16));
+  assert.equal(visibleWidth(top(16)), 16);
 });

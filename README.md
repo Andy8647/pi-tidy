@@ -147,8 +147,8 @@ out keeps its default:
 { "tidy": { "collapseTurns": "off", "userMessageStyle": "rail", "bashResultLines": 3 } }
 ```
 
-Colors are theme color names, so they follow the active theme. `thinkingColor` and
-`userMessageColors` also take `#rrggbb`.
+Colors are theme color names, so they follow the active theme. `thinkingColor`, `userMessageColors`
+and `messageBorderColors.assistant` also take `#rrggbb`.
 
 ### General
 
@@ -173,6 +173,8 @@ Colors are theme color names, so they follow the active theme. `thinkingColor` a
 |-----|---------|--------------|-----------------|
 | `collapseTurns` | `"afterRun"` | Folds a whole run's process to one line. `afterRun` waits until the run settles, `live` folds while it runs and keeps the latest assistant text visible, `off` never folds | Always, with grouping on or off |
 | `frameFinalReply` | `true` | Puts the final assistant reply in a full-width frame, with the provider glyph, model name and time in the top border | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
+| `messageTimeFormat` | `"auto"` | The time in a message's top edge. `auto` is the clock, with the date when the message is not from today. Anything else is a pattern of `YYYY`, `M`, `MM`, `D`, `DD`, `H`, `HH`, `mm`, `ss` and literal text, such as `"M月D日 HH:mm:ss"`. Those letters are always read as tokens, so a word like `Mon` will not survive | Wherever a time is shown: a framed final reply, and a user message under `userMessageTime` |
+| `messageHeaderStyle` | `"inline"` | How a message's top edge sets out who and when. `inline`: `╭─ model 13:09 ───╮`. `split`: `╭── model ── 13:09 ───╮` | Where a label is drawn: a framed final reply, and a `frame` or `rail` user message with `icons`. With no time to separate, or on an edge too narrow for it, `split` looks like `inline` |
 
 See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
@@ -181,7 +183,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by an extension's own renderer keeps its look. Does not affect the rail, the final reply or tool boxes |
-| `messageBorderColors` | `{ "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | Needs `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
+| `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `frameFinalReply` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
 
 ### Tool folding
 

@@ -29,7 +29,7 @@ const final: any = { ...first, provider: "anthropic", model: "claude-sonnet-4-5"
 function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = false, groupTools = true) {
   resetGroups();
   patchToolBoxFrames({ groupTools, groupOpen, icons: false, splitDiff: true });
-  turnOptions.set({ collapseTurns: mode, frameFinalReply: true, icons: true });
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: mode, frameFinalReply: true, icons: true });
   const store = new TurnStore(); turnStore.set(store);
   store.begin(1000); store.note(user); store.note(first); store.note(middle);
   if (settled) store.note(final);
@@ -250,7 +250,7 @@ test("provider errors with no text or tools remain visible and can be inspected"
     const store = new TurnStore(); turnStore.set(store);
     if (historical) store.restore([user, error].map((message) => ({ type: "message", message })));
     else { store.begin(1000); store.note(user); store.note(error); store.settle(false, 1800); }
-    turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: true, icons: true });
+    turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: true, icons: true });
     const chat = new Container(); chat.addChild(new AssistantMessageComponent(error, true));
     assert.ok(frame(chat).join("\n").includes("error"));
     click(chat, (line) => line.includes("took"));
@@ -295,7 +295,7 @@ test("framed reply Markdown retains its native capture target and resized coordi
     target.component.handleMouse?.({ ...press, type: "drag", x: press.screenX - target.originX, y: press.screenY - target.originY, width: target.width, height: target.height });
     assert.equal(events.at(-1)?.y, 0);
   }
-  turnOptions.set({ collapseTurns: "off", frameFinalReply: false, icons: true });
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: "off", frameFinalReply: false, icons: true });
   const lines = chat.render(W).map(visibleText);
   const y = lines.findIndex((line) => line.includes("Fixed the result"));
   const x = lines[y].indexOf("Fixed");
@@ -310,7 +310,7 @@ test("caught nested failures remain visible, and final framing can be disabled i
   // A calling tool may succeed while one of its nested calls fails.
   const turn = store.byTool.get("a")!;
   turn.tools.get("a")!.nestedFailed = 1;
-  turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: false, icons: true });
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: false, icons: true });
   const lines = frame(chat).join("\n");
   assert.ok(lines.includes("1 nested failed"));
   assert.ok(lines.includes("Fixed the result"));
@@ -351,8 +351,29 @@ test("the turn summary lights up and takes the hand like a group row", () => {
 
 test("the clock is local and gains a date when it is not today", () => {
   const at = new Date(2026, 10, 1, 9, 5).getTime();
-  assert.equal(formatMessageTime(at, new Date(2026, 10, 1, 23, 0).getTime()), "09:05");
-  assert.equal(formatMessageTime(at, new Date(2026, 10, 2, 1, 0).getTime()), "11-01 09:05");
+  assert.equal(formatMessageTime(at, "auto", new Date(2026, 10, 1, 23, 0).getTime()), "09:05");
+  assert.equal(formatMessageTime(at, "auto", new Date(2026, 10, 2, 1, 0).getTime()), "11-01 09:05");
+});
+
+test("a time pattern reads tokens and leaves literal text alone", () => {
+  const at = new Date(2026, 10, 5, 13, 9, 32).getTime();
+  assert.equal(formatMessageTime(at, "M月D日 HH:mm:ss"), "11月5日 13:09:32");
+  assert.equal(formatMessageTime(at, "YYYY-MM-DD H:mm"), "2026-11-05 13:09");
+  assert.equal(formatMessageTime(new Date(2026, 0, 2, 3, 4).getTime(), "M/D H MM DD HH"), "1/2 3 01 02 03");
+});
+
+test("the final frame takes the assistant color and the time format", () => {
+  const { chat } = fixture();
+  const options = turnOptions.get();
+  turnOptions.set({ ...options, assistantColor: "#cfd1a6", timeFormat: "YYYY" });
+  try {
+    const rows = chat.render(W);
+    const top = rows.find((line) => line.includes("claude-sonnet-4-5"));
+    assert.ok(top?.includes("\x1b[38;2;207;209;166m"), "the border is the configured hex");
+    assert.ok(top?.includes(String(new Date(final.timestamp).getFullYear())));
+  } finally {
+    turnOptions.set(options);
+  }
 });
 
 test("the final frame carries the message's clock next to the model", () => {
@@ -395,7 +416,7 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   const store = new TurnStore(); turnStore.set(store);
   const plain = { ...final, content: [{ type: "text", text: "Just chatting" }] };
   store.begin(1000); store.note(user); store.note(plain); store.settle(false, 1800);
-  turnOptions.set({ collapseTurns: "afterRun", frameFinalReply: true, icons: true });
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: true, icons: true });
   const only = new Container(); only.addChild(new AssistantMessageComponent(plain, true));
   const rendered = frame(only).join("\n");
   const raw = only.render(W).join("\n");

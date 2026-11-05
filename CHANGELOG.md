@@ -6,6 +6,17 @@ What changed in each released version of pi-tidy (published as
 
 ## [Unreleased]
 
+### Added
+
+**`tidy.messageTimeFormat` sets how a message's time reads**, in user messages and the final reply's border (#59): `auto`,
+or a pattern such as `"M月D日 HH:mm:ss"`.
+
+**`tidy.messageHeaderStyle: "split"` sets a rule between who a message is from and its time** (#59):
+`╭── model ── 13:09 ───╮`, in user messages and the final reply's border. The default stays `inline`.
+
+**`tidy.messageBorderColors.assistant` colors the final reply** (#59): its frame and an opened run's rail and marker, as a
+theme color name or `#rrggbb`. The default stays `accent`.
+
 ### Fixed
 
 **`bashResultLines` no longer depends on `highlightBash`.** With highlighting off, the setting was ignored and collapsed

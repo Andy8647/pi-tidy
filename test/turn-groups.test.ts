@@ -20,7 +20,7 @@ let nextId = 0;
 function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expanded = false, restored = true) {
   resetGroups(); resetHover();
   patchToolBoxFrames({ groupTools: true, groupOpen, icons: false, alwaysShowTools: ["edit", "write", "codemode"] });
-  turnOptions.set({ collapseTurns: mode, frameFinalReply: true, icons: false });
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: mode, frameFinalReply: true, icons: false });
   const user = { role: "user", timestamp: 1000, content: "Go" };
   const messages: any[] = ["read", pinned, "read"].map((name, i) => ({
     role: "assistant", timestamp: 1100 + i * 100, provider: "openai", model: "test", durationMs: 10, stopReason: "toolUse",
