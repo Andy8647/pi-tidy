@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { HeaderStyle } from "./draw/frame-draw.ts";
 import type { UserMessageStyle } from "./messages/user-message.ts";
-import type { CollapseTurns } from "./turns/turn-state.ts";
+import type { CollapseTurns, FinalReplyStyle } from "./turns/turn-state.ts";
 
 export interface MessageBorderColors {
   /** The final reply's frame, an open run's rail and its `▾` marker. Also `#rrggbb`. */
@@ -23,7 +23,7 @@ export interface TidyConfig {
   /**
    * How user messages look: "frame" (the rounded message frame, hugging the
    * text, the user icon in its top border), "rail" (rules above and below, an
-   * accent `│` in front of the text) or "off" (pi's own).
+   * accent `│` in front of the text), "rules" (only the rules) or "off" (pi's own).
    */
   userMessageStyle: UserMessageStyle;
   /** Alignment of a framed user message and its label; a rail's label only. */
@@ -32,15 +32,19 @@ export interface TidyConfig {
   userMessageTime: boolean;
   /** Fold a whole run live or only after settlement. */
   collapseTurns: CollapseTurns;
-  /** Frame only the settled final assistant reply, independently of folding. */
-  frameFinalReply: boolean;
+  /**
+   * The settled final assistant reply, independently of folding: "frame" (a
+   * full-width rounded frame), "rail" (rules above and below, a `│` in front of
+   * the text), "rules" (only the rules) or "off" (pi's own).
+   */
+  finalReplyStyle: FinalReplyStyle;
   /** `auto`, or a pattern of `YYYY M MM D DD H HH mm ss` and literal text. */
   messageTimeFormat: string;
   /** What a message's top edge looks like: `inline` or `split`. */
   messageHeaderStyle: HeaderStyle;
-  /** Rail-only rows between each rule and the text of a "rail" user message. */
+  /** Rows between each rule and the text of a "rail" or "rules" user message. */
   userMessagePaddingY: number;
-  /** "rail" user message colors: theme color names or `#rrggbb`. */
+  /** "rail" and "rules" user message colors: theme color names or `#rrggbb`. */
   userMessageColors: { rail: string; rule: string };
   /** Prepend Nerd Font icons (tool kind / file type / message kind). */
   icons: boolean;
@@ -138,7 +142,7 @@ const DEFAULTS: TidyConfig = {
   userMessageAlign: "left",
   userMessageTime: true,
   collapseTurns: "afterRun",
-  frameFinalReply: true,
+  finalReplyStyle: "frame",
   messageTimeFormat: "auto",
   messageHeaderStyle: "inline",
   userMessagePaddingY: 1,
@@ -169,7 +173,7 @@ const DEFAULTS: TidyConfig = {
   toolColors: DEFAULT_TOOL_COLORS,
 };
 
-const USER_MESSAGE_STYLES: readonly UserMessageStyle[] = ["rail", "frame", "off"];
+const USER_MESSAGE_STYLES: readonly UserMessageStyle[] = ["rail", "rules", "frame", "off"];
 
 // The pre-0.5 `frameUserMessages` needs no reading: `true` asked for the frame,
 // which is the default now, and `false` meant "leave them to pi-starline",
@@ -177,6 +181,14 @@ const USER_MESSAGE_STYLES: readonly UserMessageStyle[] = ["rail", "frame", "off"
 function userMessageStyle(toolbox: any): UserMessageStyle {
   const style = toolbox?.userMessageStyle;
   return USER_MESSAGE_STYLES.includes(style) ? style : DEFAULTS.userMessageStyle;
+}
+
+const FINAL_REPLY_STYLES: readonly FinalReplyStyle[] = ["frame", "rail", "rules", "off"];
+
+// `frameFinalReply` from before 0.9 keeps working: `true` is "frame", `false` is "off".
+function finalReplyStyle(toolbox: any): FinalReplyStyle {
+  if (FINAL_REPLY_STYLES.includes(toolbox?.finalReplyStyle)) return toolbox.finalReplyStyle;
+  return toolbox?.frameFinalReply === false ? "off" : DEFAULTS.finalReplyStyle;
 }
 
 function stringEntries(value: unknown): Record<string, string> {
@@ -202,7 +214,7 @@ export function loadConfig(): TidyConfig {
       userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
       userMessageTime: typeof toolbox?.userMessageTime === "boolean" ? toolbox.userMessageTime : DEFAULTS.userMessageTime,
       collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
-      frameFinalReply: typeof toolbox?.frameFinalReply === "boolean" ? toolbox.frameFinalReply : DEFAULTS.frameFinalReply,
+      finalReplyStyle: finalReplyStyle(toolbox),
       messageTimeFormat:
         typeof toolbox?.messageTimeFormat === "string" && toolbox.messageTimeFormat.trim()
           ? toolbox.messageTimeFormat

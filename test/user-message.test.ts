@@ -291,3 +291,18 @@ test("a split header sets a rule between the icon and the time, and fits a narro
   assert.ok(top(16).startsWith(`─ ${USER_ICON} 13:09 ─`), top(16));
   assert.equal(visibleWidth(top(16)), 16);
 });
+
+test("the rules style is the rail without its glyph, at either end", () => {
+  const component: any = new UserMessageComponent("first\nsecond" as never);
+  component[USER_MESSAGE_TIME] = new Date(2026, 10, 5, 13, 9).getTime();
+  const rows = (): string[] => withAnsiTheme(() => component.render(W).map(plain));
+  for (const align of ["left", "right"] as const) {
+    patchUserMessages({ ...RAIL, style: "rules", paddingY: 0, icons: true, timeFormat: "HH:mm", align });
+    const out = rows().map((row) => row.trimEnd());
+    assert.ok(out[0]!.includes(`${USER_ICON} 13:09`));
+    assert.deepEqual(out.slice(1), [" first", " second", "─".repeat(W)]);
+  }
+  // Switching style on a /reload is not served the rail's cached rows.
+  patchUserMessages({ ...RAIL, paddingY: 0, icons: true, timeFormat: "HH:mm" });
+  assert.equal(rows()[1]!.trimEnd(), "│ first");
+});

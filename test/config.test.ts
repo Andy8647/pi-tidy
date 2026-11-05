@@ -87,6 +87,7 @@ test("user messages default to the frame; an unknown style falls back to it", ()
     assert.deepEqual(config.userMessageColors, { rail: "accent", rule: "borderMuted" });
   });
   withSettings({ tidy: { userMessageStyle: "rail" } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
+  withSettings({ tidy: { userMessageStyle: "rules" } }, () => assert.equal(loadConfig().userMessageStyle, "rules"));
   withSettings({ tidy: { userMessageStyle: "off" } }, () => assert.equal(loadConfig().userMessageStyle, "off"));
   // pre-0.5: `false` left user messages to pi-starline, which no longer draws them.
   withSettings({ tidy: { frameUserMessages: false } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
@@ -106,13 +107,27 @@ test("turn folding and final reply frames are on by default and turn off indepen
     withSettings({ tidy: { collapseTurns: mode, frameFinalReply: false } }, () => {
       const config = loadConfig();
       assert.equal(config.collapseTurns, mode === "off" || mode === "live" ? mode : "afterRun");
-      assert.equal(config.frameFinalReply, false);
+      assert.equal(config.finalReplyStyle, "off");
     });
   }
   withSettings({ tidy: {} }, () => {
     assert.equal(loadConfig().collapseTurns, "afterRun");
-    assert.equal(loadConfig().frameFinalReply, true);
+    assert.equal(loadConfig().finalReplyStyle, "frame");
   });
+});
+
+test("finalReplyStyle wins over the old frameFinalReply, which still works alone", () => {
+  for (const [settings, expected] of [
+    [{ finalReplyStyle: "rail" }, "rail"],
+    [{ finalReplyStyle: "rules" }, "rules"],
+    [{ finalReplyStyle: "rail", frameFinalReply: true }, "rail"],
+    [{ finalReplyStyle: "off", frameFinalReply: true }, "off"],
+    [{ finalReplyStyle: "boxed" }, "frame"],
+    [{ frameFinalReply: true }, "frame"],
+    [{ frameFinalReply: false }, "off"],
+  ] as const) {
+    withSettings({ tidy: settings }, () => assert.equal(loadConfig().finalReplyStyle, expected, JSON.stringify(settings)));
+  }
 });
 
 test("clean copy is on by default and only a boolean turns it off", () => {

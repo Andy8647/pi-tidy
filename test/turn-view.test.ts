@@ -5,6 +5,7 @@ import { Container, Markdown, visibleWidth, type TuiMouseEvent } from "@earendil
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
+import { cleanTranscriptRows } from "../src/clean-copy.ts";
 import { formatMessageTime, visibleText } from "../src/draw/frame-draw.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 import { joinBoxCorners, replyLabel, summaryLine, railRows } from "../src/turns/turn-view.ts";
@@ -371,6 +372,55 @@ test("the final frame takes the assistant color and the time format", () => {
     const top = rows.find((line) => line.includes("claude-sonnet-4-5"));
     assert.ok(top?.includes("\x1b[38;2;207;209;166m"), "the border is the configured hex");
     assert.ok(top?.includes(String(new Date(final.timestamp).getFullYear())));
+  } finally {
+    turnOptions.set(options);
+  }
+});
+
+test("a railed final reply has rules and a left rail, and copies as its text", () => {
+  const { chat } = fixture();
+  const options = turnOptions.get();
+  turnOptions.set({ ...options, replyStyle: "rail" });
+  try {
+    const rows = chat.render(W);
+    const plain = rows.map(visibleText);
+    const top = plain.findIndex((line) => line.includes("claude-sonnet-4-5"));
+    assert.match(plain[top]!, /^[─├]─* .*claude-sonnet-4-5.* ─+$/);
+    assert.ok(!plain[top]!.includes("╮"));
+    assert.equal(visibleWidth(rows[top]!), W);
+    const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
+    assert.ok(bottom > top + 1);
+    assert.equal(visibleWidth(rows[bottom]!), W);
+    for (const line of plain.slice(top + 1, bottom)) assert.match(line, /^│/);
+    const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
+    assert.equal(cleaned[0], null);
+    assert.equal(cleaned.at(-1), null);
+    assert.ok(cleaned.slice(1, -1).every((row) => row && !row.text.startsWith("│")));
+  } finally {
+    turnOptions.set(options);
+  }
+});
+
+test("a final reply with only rules has no verticals, keeps its width, and copies as its text", () => {
+  const { chat } = fixture();
+  const options = turnOptions.get();
+  turnOptions.set({ ...options, replyStyle: "rules" });
+  try {
+    const rows = chat.render(W);
+    const plain = rows.map(visibleText);
+    const top = plain.findIndex((line) => line.includes("claude-sonnet-4-5"));
+    const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
+    assert.ok(bottom > top + 1);
+    assert.equal(visibleWidth(rows[top]!), W);
+    assert.equal(visibleWidth(rows[bottom]!), W);
+    for (const line of plain.slice(top + 1, bottom)) {
+      assert.doesNotMatch(line, /^│/);
+      assert.doesNotMatch(line, /│\s*$/);
+    }
+    const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
+    assert.equal(cleaned[0], null);
+    assert.equal(cleaned.at(-1), null);
+    assert.ok(cleaned.slice(1, -1).some((row) => row && row.text.trim().length > 0 && !row.text.startsWith(" ")));
   } finally {
     turnOptions.set(options);
   }

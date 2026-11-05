@@ -1,5 +1,5 @@
 import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
+import { clipToWidth, formatMessageTime, italicDim, labeledRule, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
@@ -147,7 +147,9 @@ const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
 class ReplyBody extends Box {
   private theme: ThemeLike;
   private color: string;
-  constructor(theme: ThemeLike, color: string) { super(1, 0); this.theme = theme; this.color = color; }
+  private closed: boolean;
+  /** `closed` draws the right border too; a rail has only the left one. */
+  constructor(theme: ThemeLike, color: string, closed: boolean) { super(1, 0); this.theme = theme; this.color = color; this.closed = closed; }
   override render(width: number): string[] {
     const border = paint(this.theme, this.color, "│");
     return super.render(width).map((line) => {
@@ -159,7 +161,7 @@ class ReplyBody extends Box {
       const clean = markers.length ? line.replace(ZONE_MARKERS, "") : line;
       const start = markers.filter((marker) => marker === ZONE_A).join("");
       const end = markers.filter((marker) => marker !== ZONE_A).join("");
-      return start + border + sliceByColumn(clean, 1, width - 2) + border + end;
+      return start + border + sliceByColumn(clean, 1, width - 2) + (this.closed ? border : "") + end;
     });
   }
 }
@@ -224,7 +226,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     ? []
     : railed
       ? railRows(draw(Math.max(1, width - TURN_RAIL_CELLS)), theme)
-      : draw(framed ? width - 2 : width, framed);
+      : draw(framed && options.replyStyle !== "rules" ? width - 2 : width, framed);
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
@@ -244,7 +246,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const label = replyHeader ? clipToWidth(replyHeader.label, Math.max(1, width - 6), "…") : "";
   const lead = replyHeader?.lead ?? 1;
   const cache = component[CACHE];
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.replyStyle === options.replyStyle && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -264,17 +266,23 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   } };
   if (framed) {
     // The rail comes down into the reply's corner and carries on as its left border.
-    const top = labeledTopBorder(width, theme, color, label, "left", lead);
-    view.addChild(new Text(railOpen ? top.replace("╭", "├") : top, 0, 0));
-    const box = new ReplyBody(theme, color);
-    box.addChild(source);
-    view.addChild(box);
-    view.addChild(new Text(paint(theme, color, `╰${"─".repeat(width - 2)}╯`), 0, 0));
+    const flat = options.replyStyle !== "frame";
+    const top = flat
+      ? labeledRule(width, theme, color, label, "left", lead).replace("─", railOpen ? "├" : "─")
+      : labeledTopBorder(width, theme, color, label, "left", lead).replace("╭", railOpen ? "├" : "╭");
+    view.addChild(new Text(top, 0, 0));
+    if (options.replyStyle === "rules") view.addChild(source);
+    else {
+      const box = new ReplyBody(theme, color, !flat);
+      box.addChild(source);
+      view.addChild(box);
+    }
+    view.addChild(new Text(paint(theme, color, flat ? "─".repeat(width) : `╰${"─".repeat(width - 2)}╯`), 0, 0));
   } else view.addChild(source);
   const out = view.render(width);
   const layout = { view, header };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, lead, color, framed, railOpen, body, out, layout };
+  component[CACHE] = { turn, width, line, label, lead, color, replyStyle: options.replyStyle, framed, railOpen, body, out, layout };
   installMouse(component);
   return out;
 }
