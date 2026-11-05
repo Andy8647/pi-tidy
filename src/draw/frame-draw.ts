@@ -6,6 +6,7 @@
 
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "../theme-access.ts";
+import { paint } from "./paint.ts";
 
 // Solid background fills: truecolor/256 "48;…" sequences and the standard
 // 40-47 / 100-107 bg colors. pi's shell and some built-in renderers (edit)
@@ -194,7 +195,7 @@ export function trimBlankEdges(lines: string[]): string[] {
  */
 export function labeledTopBorder(width: number, theme: ThemeLike, color: string, label: string, align: "left" | "right" = "left"): string {
   const inner = Math.max(2, width - 2);
-  const bc = (s: string) => theme.fg(color, s);
+  const bc = (s: string) => paint(theme, color, s);
   const rest = inner - 3 - visibleWidth(label);
   if (rest < 1) return bc(`╭${"─".repeat(inner)}╮`);
   return align === "right"
@@ -220,7 +221,7 @@ export function drawFrame(
   keepBg?: ReadonlySet<number>,
 ): string[] {
   const inner = Math.max(2, width - 2);
-  const bc = (s: string) => theme.fg(color, s);
+  const bc = (s: string) => paint(theme, color, s);
   const out: string[] = [bc(`╭${"─".repeat(inner)}╮`)];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] as string;

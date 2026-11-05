@@ -8,6 +8,7 @@ import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { highlightBashCommand } from "./bash-highlight.ts";
 import { clipToWidth, visibleText } from "../draw/frame-draw.ts";
 import { toolKindIcon } from "../draw/icons.ts";
+import { paint } from "../draw/paint.ts";
 import type { ThemeLike } from "../theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
 import type { GroupSummary } from "./tool-groups.ts";
@@ -91,7 +92,7 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
     parts.splice(
       parts.length - (summary.failed > 0 ? 1 : 0),
       0,
-      theme.fg(options.thinkingColor ?? "warning", `${icon}${live ? "thinking" : plural(summary.thoughts, "thought")}`),
+      paint(theme, options.thinkingColor ?? "warning", `${icon}${live ? "thinking" : plural(summary.thoughts, "thought")}`),
     );
   }
   if (summary.jobsRunning > 0) {
@@ -529,7 +530,7 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
   const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
   const icon = glyph ? `${glyph} ` : "";
   const labelText = `${icon}thinking`;
-  const label = theme.fg(color, labelText);
+  const label = paint(theme, color, labelText);
   const body = theme.fg(options.quiet ? "dim" : "thinkingText", text);
   // Inside a group the label sits in the same column as the tool names, so the
   // thought's text starts where the arguments do (see formatToolLine).
@@ -548,7 +549,7 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
  */
 export function formatThoughtLabel(theme: ThemeLike, options: LineOptions = {}): string {
   const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
-  const label = theme.fg(options.thinkingColor ?? "warning", `${glyph ? `${glyph} ` : ""}thinking`);
+  const label = paint(theme, options.thinkingColor ?? "warning", `${glyph ? `${glyph} ` : ""}thinking`);
   return theme.italic ? theme.italic(label) : label;
 }
 

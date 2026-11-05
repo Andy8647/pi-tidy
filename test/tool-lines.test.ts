@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   formatGroupLine,
+  formatThoughtLabel,
   formatThoughtLine,
   formatToolLine,
   previewText,
@@ -543,4 +544,19 @@ test("without nested call details the script's first line comes back", () => {
     { icons: false },
   );
   assert.equal(row, " ✓ codemode console.log(1) (+1 lines)  0.1s");
+});
+
+test("the thinking color may be #rrggbb, which theme.fg itself would throw on", () => {
+  const strict = {
+    fg(color: string, text: string) {
+      if (color.startsWith("#")) throw new Error(`Unknown theme color: ${color}`);
+      return text;
+    },
+    bold: (text: string) => text,
+  };
+  const red = "\x1b[38;2;255;0;0m";
+  assert.ok(formatThoughtLine("hm", strict as any, { thinkingColor: "#ff0000" }).includes(red));
+  assert.ok(formatThoughtLabel(strict as any, { thinkingColor: "#ff0000" }).includes(red));
+  const summary = { ...buildGroupSummary([]), thoughts: 2 };
+  assert.ok(formatGroupLine(summary, strict as any, { thinkingColor: "#ff0000" }).includes(red));
 });

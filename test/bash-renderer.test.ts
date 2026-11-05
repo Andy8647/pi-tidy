@@ -115,12 +115,19 @@ test("the collapsed result budget is applied on top of the downstream result", (
   assert.equal(failed.options.maxVisualLines, 5);
 });
 
-test("highlightBash: false leaves bash entirely to whoever owns it", () => {
+test("highlightBash: false keeps the owner's command row, and the budget still applies", () => {
   const h = harness();
-  loadTidy(h.pi, { highlightBash: false });
-  const base = bashDefinition();
-  // The write resolver is still installed; bash must come back untouched.
-  assert.strictEqual(h.resolve("bash", base), base);
+  loadTidy(h.pi, { highlightBash: false, bashResultLines: 2 });
+  const base = { renderCall: () => ({ render: () => [] }), renderResult: () => preview(5) } as unknown as ToolRenderers;
+  const rendered = h.resolve("bash", base)!;
+  assert.strictEqual(rendered.renderCall, base.renderCall, "the command row is not ours to change");
+  const collapsed = (rendered.renderResult! as any)(
+    { content: [{ type: "text", text: "a\nb\nc" }], details: {}, isError: false },
+    { expanded: false, isPartial: false },
+    theme,
+    { isError: false },
+  );
+  assert.equal(collapsed.options.maxVisualLines, 2);
 });
 
 test("other tools pass through untouched", () => {
@@ -149,6 +156,14 @@ test("with highlighting off, older Pi is not told about bash", async () => {
   Reflect.deleteProperty(h.pi, "registerToolRenderer");
   loadTidy(h.pi, { highlightBash: false });
   assert.deepEqual(await collectWarnings(h.handlers), []);
+});
+
+test("with highlighting off, older Pi still hears about a budget the user set", async () => {
+  const h = harness();
+  Reflect.deleteProperty(h.pi, "registerToolRenderer");
+  loadTidy(h.pi, { highlightBash: false, bashResultLines: 3 });
+  const warnings = await collectWarnings(h.handlers);
+  assert.ok(warnings.some((message) => /bashResultLines/.test(message)), JSON.stringify(warnings));
 });
 
 test("disabled Tidy registers nothing at all", () => {

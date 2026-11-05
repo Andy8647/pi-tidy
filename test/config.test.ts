@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import os, { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -136,4 +136,17 @@ test("user message padding is clamped and colors merge over the defaults", () =>
   withSettings({ tidy: { userMessagePaddingY: 9 } }, () => assert.equal(loadConfig().userMessagePaddingY, 3));
   withSettings({ tidy: { userMessagePaddingY: -1 } }, () => assert.equal(loadConfig().userMessagePaddingY, 1));
   withSettings({ tidy: { userMessagePaddingY: 1.5 } }, () => assert.equal(loadConfig().userMessagePaddingY, 1));
+});
+
+test("the README documents every key, under its real default", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf-8");
+  const section = readme.slice(readme.indexOf("## Configuration\n"), readme.indexOf("## How it works\n"));
+  const rows = new Map(
+    [...section.matchAll(/^\| `(\w+)` \| `(.+?)` \|/gm)].map((match) => [match[1], JSON.parse(match[2]!)] as const),
+  );
+  withSettings({ tidy: {} }, () => {
+    const defaults = loadConfig() as unknown as Record<string, unknown>;
+    assert.deepEqual([...rows.keys()].sort(), Object.keys(defaults).sort());
+    for (const [key, value] of rows) assert.deepEqual(value, defaults[key], key);
+  });
 });

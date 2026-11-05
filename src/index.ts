@@ -6,53 +6,8 @@
  *   frame with status-aware border colors and no background fill
  * - bash commands are syntax-highlighted
  *
- * Configuration (settings.json → "tidy"; the pre-rename "toolbox" key still works):
- *   enabled: boolean        — enable/disable the extension (default: true)
- *   highlightBash: boolean  — syntax-highlight bash commands (default: true)
- *   frameMessages: boolean  — rounded frame on message boxes and on the user's
- *     own `!` / `!!` bash runs (default: true)
- *   userMessageStyle: "frame" | "rail" | "off" — user messages in a rounded
- *     frame hugging the text, as rules plus an accent rail, or pi's own; the
- *     first two carry the user icon in their top edge (default: frame)
- *   userMessageAlign: "left" | "right" — a framed message and its label, or a
- *     rail's label (default: left)
- *   userMessageTime: boolean — the message's time next to its icon (default: true)
- *   collapseTurns: "off" | "afterRun" | "live" — outer process fold (default: afterRun)
- *   frameFinalReply: boolean — frame the settled final reply (default: true)
- *   userMessagePaddingY: number — rail-only rows around a "rail" message's
- *     text (default: 1, at most 3)
- *   userMessageColors: { rail, rule } — theme color names or #rrggbb
- *     (defaults accent / borderMuted)
- *   icons: boolean          — Nerd Font icons on boxes (default: true)
- *   groupTools: boolean     — fold each segment's tool calls into one summary
- *     line; click for one row per call, a row for its box (default: true)
- *   toolRowLines: 1 | 2     — rows a group's call may take (default: 1)
- *   groupOpen: boolean      — each new group starts open: `▾` header, one row
- *     per call (default: false)
- *   alwaysShowTools: string[] — tools that never fold (default: edit, write)
- *   backgroundJobs: boolean — a call that started a pi-processes job shows the
- *     job's live state on its row (default: true)
- *   hideJobNotifications: boolean — skip drawing that job's notification
- *     messages; the model still gets them (default: true)
- *   dedupeErrors: boolean    — pi prints its own error rows (a failed request,
- *     an extension that threw) once per retry attempt; fold the repeats into
- *     the first one as `×N` and frame it (default: true). Warnings and notes
- *     are left exactly as pi drew them
- *   cleanCopy: boolean       — take tidy's frames and rails out of what pi's
- *     fullscreen selection copies (default: true)
- *   splitDiff: boolean     — edit diffs as two panes (old | new) with line
- *     numbers, coloured bars and a tint per changed row (default: true)
- *   splitDiffMinWidth: number — box width below which the split falls back to
- *     pi's unified diff (default: 72)
- *   diffLines: number       — diff rows drawn while an edit box is collapsed
- *     (default: 20, windowed at the first change; `ctrl+o` draws all of it,
- *     0 hides the body). pi's own edit renderer has no budget at all.
- *   thinkingColor: string   — color for thinking rows and the thinking box
- *     (default: warning, a yellow)
- *   messageBorderColors: per-kind theme fg colors for message-box borders
- *     (user/compaction/branch/skill/custom; defaults toolTitle/customMessageLabel/
- *      mdCode/accent/warning)
- *   toolColors: per-tool border color on success (replaces defaults when set)
+ * Configuration: settings.json → "tidy" (the pre-rename "toolbox" key still
+ * works). Every option and when it applies: README, "Configuration".
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -64,7 +19,7 @@ import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./fr
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { turnOptions } from "./turns/turn-state.ts";
-import { loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
+import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
 import { patchErrorLines } from "./messages/error-lines.ts";
@@ -94,7 +49,7 @@ interface BashRenderState {
  * active tool keeps execution, schema, shell and result renderer, and `next()`
  * hands us whatever it has (pi's built-in renderers when it defines none).
  */
-function registerBashRenderers(pi: ExtensionAPI, resultLines: number): void {
+function registerBashRenderers(pi: ExtensionAPI, resultLines: number, highlight: boolean): void {
   if (!hasRendererApi(pi)) return;
 
   pi.registerToolRenderer((toolName, next) => {
@@ -122,14 +77,17 @@ function registerBashRenderers(pi: ExtensionAPI, resultLines: number): void {
       return text;
     };
 
+    // The budget has nothing to do with highlighting: with `highlightBash` off the
+    // command row stays whoever owns it, and the result is still budgeted.
+    const call = highlight ? { renderCall } : {};
     // No result renderer downstream means nothing to budget; leave it absent
     // rather than inventing a bare component.
     const downstream = renderers.renderResult;
-    if (!downstream) return { ...renderers, renderCall };
+    if (!downstream) return { ...renderers, ...call };
 
     return {
       ...renderers,
-      renderCall,
+      ...call,
       renderResult(result: any, options: any, theme: any, context: any) {
         // Whatever the execution extension draws stays: we only lower the
         // preview budget inside it.
@@ -242,6 +200,7 @@ export default function (pi: ExtensionAPI): void {
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {
     if (config.highlightBash) unavailable.push("bash highlighting and the `bashResultLines` budget");
+    else if (config.bashResultLines !== DEFAULT_BASH_RESULT_LINES) unavailable.push("the `bashResultLines` budget");
     if (config.writeLines !== PI_WRITE_PREVIEW_LINES) unavailable.push("the custom write preview (`writeLines`)");
   }
   warnUnavailableRenderers(pi, unavailable);
@@ -320,12 +279,10 @@ export default function (pi: ExtensionAPI): void {
     console.debug("[pi-tidy] group boundary install failed:", error);
   }
 
-  if (config.highlightBash) {
-    try {
-      registerBashRenderers(pi, config.bashResultLines);
-    } catch (error) {
-      console.debug("[pi-tidy] bash renderer failed:", error);
-    }
+  try {
+    registerBashRenderers(pi, config.bashResultLines, config.highlightBash);
+  } catch (error) {
+    console.debug("[pi-tidy] bash renderer failed:", error);
   }
 
   try {
