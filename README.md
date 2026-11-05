@@ -37,11 +37,11 @@ On by default since 0.8.0. To go back, merge these keys into the `tidy` object i
 `~/.pi/agent/settings.json` and run `/reload`:
 
 ```json
-{ "tidy": { "collapseTurns": "off", "frameFinalReply": false } }
+{ "tidy": { "collapseTurns": "off", "finalReplyStyle": "off" } }
 ```
 
 The keys are independent: `collapseTurns: "live"` folds while the run is still arriving, and
-`frameFinalReply: true` works without turn folding.
+`finalReplyStyle` works without turn folding.
 
 A run folds to one line, where it started:
 
@@ -65,7 +65,7 @@ Opened, the process hangs on a rail under the summary's marker, and the rail run
 reply's border. A box from `alwaysShowTools` joins the rail of a group that is open right above or
 below it. A run that fails with no text keeps the failure in view when it folds.
 
-`frameFinalReply` frames only a settled final text reply, keeping pi's Markdown and mouse targets —
+`finalReplyStyle` draws only a settled final text reply, keeping pi's Markdown and mouse targets —
 an intermediate tool-calling message is never promoted. The border names the model that answered
 (from the message, not the current selection) with its provider glyph, clipped to `…` when it does
 not fit, and `icons: false` drops the glyph.
@@ -161,20 +161,20 @@ and `messageBorderColors.assistant` also take `#rrggbb`.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `userMessageStyle` | `"frame"` | `frame`: a rounded frame as wide as the text, with the user icon and time in its top border. `rail`: a full-width rule above and below, an accent `│` in front of every row, and the icon and time in the top rule. `off`: pi's own look | `frame` needs `frameMessages`; without it you get pi's own look. `rail` does not need it |
-| `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages still use the available width | `frame` moves the message and its label. `rail` moves only the label, so it needs `icons`. `off` ignores it |
-| `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and `userMessageStyle` `frame` or `rail` |
-| `userMessagePaddingY` | `1` | Rows between each rule and the text, `0` to `3` | `userMessageStyle: "rail"` only |
-| `userMessageColors` | `{ "rail": "accent", "rule": "borderMuted" }` | Colors of the `│` and the rules | `userMessageStyle: "rail"` only. `rail` also colors your `!` commands' frames |
+| `userMessageStyle` | `"frame"` | `frame`: a rounded frame as wide as the text, with the user icon and time in its top border. `rail`: a full-width rule above and below, an accent `│` in front of every row, and the icon and time in the top rule. `rules`: the same without the `│`, so a terminal's own selection copies the text without any verticals. `off`: pi's own look | `frame` needs `frameMessages`; without it you get pi's own look. `rail` and `rules` do not need it |
+| `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages still use the available width | `frame` moves the message and its label. `rail` and `rules` move only the label, so they need `icons`. `off` ignores it |
+| `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and any `userMessageStyle` but `off` |
+| `userMessagePaddingY` | `1` | Rows between each rule and the text, `0` to `3` | `userMessageStyle` `rail` or `rules` |
+| `userMessageColors` | `{ "rail": "accent", "rule": "borderMuted" }` | Colors of the `│` and the icon (`rail`), and the rules (`rule`) | `userMessageStyle` `rail` or `rules`. Under `rail`, `rail` also colors your `!` commands' frames |
 
 ### Final reply and turn folding
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `collapseTurns` | `"afterRun"` | Folds a whole run's process to one line. `afterRun` waits until the run settles, `live` folds while it runs and keeps the latest assistant text visible, `off` never folds | Always, with grouping on or off |
-| `frameFinalReply` | `true` | Puts the final assistant reply in a full-width frame, with the provider glyph, model name and time in the top border | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
-| `messageTimeFormat` | `"auto"` | The time in a message's top edge. `auto` is the clock, with the date when the message is not from today. Anything else is a pattern of `YYYY`, `M`, `MM`, `D`, `DD`, `H`, `HH`, `mm`, `ss` and literal text, such as `"M月D日 HH:mm:ss"`. Those letters are always read as tokens, so a word like `Mon` will not survive | Wherever a time is shown: a framed final reply, and a user message under `userMessageTime` |
-| `messageHeaderStyle` | `"inline"` | How a message's top edge sets out who and when. `inline`: `╭─ model 13:09 ───╮`. `split`: `╭── model ── 13:09 ───╮` | Where a label is drawn: a framed final reply, and a `frame` or `rail` user message with `icons`. With no time to separate, or on an edge too narrow for it, `split` looks like `inline` |
+| `finalReplyStyle` | `"frame"` | The final assistant reply, with the provider glyph, model name and time in its top edge. `frame`: a full-width rounded frame. `rail`: a full-width rule above and below and a `│` in front of every row. `rules`: only the rules, so a terminal's own selection copies the text without any verticals. `off`: pi's own look. `frameFinalReply` from before 0.9 still works: `true` is `frame`, `false` is `off` | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
+| `messageTimeFormat` | `"auto"` | The time in a message's top edge. `auto` is the clock, with the date when the message is not from today. Anything else is a pattern of `YYYY`, `M`, `MM`, `D`, `DD`, `H`, `HH`, `mm`, `ss` and literal text, such as `"M月D日 HH:mm:ss"`. Those letters are always read as tokens, so a word like `Mon` will not survive | Wherever a time is shown: a final reply drawn by `finalReplyStyle`, and a user message under `userMessageTime` |
+| `messageHeaderStyle` | `"inline"` | How a message's top edge sets out who and when. `inline`: `╭─ model 13:09 ───╮`. `split`: `╭── model ── 13:09 ───╮` | Where a label is drawn: a final reply drawn by `finalReplyStyle`, and a user message with `icons`. With no time to separate, or on an edge too narrow for it, `split` looks like `inline` |
 
 See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
@@ -183,7 +183,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by an extension's own renderer keeps its look. Does not affect the rail, the final reply or tool boxes |
-| `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `frameFinalReply` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
+| `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `finalReplyStyle` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
 
 ### Tool folding
 
@@ -227,7 +227,7 @@ mauve for compactions, peach for branch summaries, sky for skills and yellow for
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `dedupeErrors` | `true` | pi prints its own error rows (a failed request, an extension that threw) once per retry attempt. Folds the repeats into the first as `×N` and frames that row (`╭─ error ×3 ─╮`). pi's "Retry failed after N attempts" replaces it when pi gives up | Error rows only. Warnings, notes and an abort stay as pi drew them |
-| `cleanCopy` | `true` | Takes tidy's frames, corners and rail glyphs out of what you copy, on select or with the copy key | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy |
+| `cleanCopy` | `true` | Takes tidy's frames, corners, rail glyphs and rules out of what you copy, on select or with the copy key | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy. A `rules` user message with `icons: false` has no label to tell its rules from a model's, so they stay |
 
 ## How it works
 

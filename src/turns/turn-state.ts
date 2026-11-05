@@ -2,6 +2,7 @@ import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
+export type FinalReplyStyle = "frame" | "rail" | "rules" | "off";
 export type TurnOutcome = "running" | "completed" | "interrupted" | "error" | "incomplete" | "unknown";
 export interface TurnMessage {
   role: string;
@@ -218,6 +219,8 @@ export const turnStore = liveSlot("turn-store", new TurnStore());
 export const turnOptions = liveSlot("turn-presentation-options", {
   collapseTurns: "off" as CollapseTurns,
   frameFinalReply: false,
+  /** How a drawn final reply looks; `frameFinalReply` says whether it is drawn. */
+  replyStyle: "frame" as Exclude<FinalReplyStyle, "off">,
   icons: true,
   assistantColor: "accent",
   timeFormat: "auto",

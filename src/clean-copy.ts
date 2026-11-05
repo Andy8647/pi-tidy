@@ -32,8 +32,8 @@ export type CleanedRow = { text: string; leftTrim: number } | null;
 const USER_RAIL_PREFIX = `${USER_RAIL_GLYPH} `;
 
 const RULE_ROW_RE = /^─+$/;
-/** A rail message's top rule, with the user icon and time set into it. */
-const LABELED_RULE_RE = /^─+(?: [^─]+ ─+)+$/;
+/** A rail message's top rule, with who and when set into it; `├` where a run's rail meets it. */
+const LABELED_RULE_RE = /^[─├]─*(?: [^─]+ ─+)+$/;
 /** The rails and indent a frame hangs on. */
 const HANG_RE = /^[│ ]*/;
 /** `├` is a corner where a rail meets it; a table's `├─┼─┤` never ends in a round one. */
@@ -58,6 +58,7 @@ export function cleanTranscriptRows(
   const dropped = new Set<number>();
   const frameRows = new Map<number, { left: number; inset: number }>();
   const railRows = new Map<number, string>();
+  const flatRows = new Set<number>();
 
   // Rounded frames. Edges pair by width and column; a frame inside another pairs first.
   const open: Array<{ row: number; width: number; left: number }> = [];
@@ -104,6 +105,23 @@ export function cleanTranscriptRows(
     }
   }
 
+  // A message with only rules: a labeled top rule, an indented body, then the next plain
+  // rule of its width. The label is what tells it from a model's own rules, so a "rules"
+  // user message with no icons, and so no label, keeps its rules.
+  for (let row = 0; row < plain.length; row++) {
+    if (dropped.has(row) || !LABELED_RULE_RE.test(plain[row]!)) continue;
+    const width = visibleWidth(plain[row]!);
+    for (let end = row + 1; end < plain.length && !dropped.has(end) && !LABELED_RULE_RE.test(plain[end]!); end++) {
+      if (!RULE_ROW_RE.test(plain[end]!) || visibleWidth(plain[end]!) !== width) continue;
+      const body = Array.from({ length: end - row - 1 }, (_, index) => row + 1 + index);
+      if (body.length === 0 || !body.every((inner) => plain[inner]!.trim() === "" || plain[inner]!.startsWith(" "))) break;
+      dropped.add(row);
+      dropped.add(end);
+      for (const inner of body) flatRows.add(inner);
+      break;
+    }
+  }
+
   const rows: CleanedRow[] = [];
   let changed = false;
   for (let row = startRow; row <= endRow; row++) {
@@ -123,6 +141,11 @@ export function cleanTranscriptRows(
     const prefix = railRows.get(row);
     if (prefix !== undefined && text.startsWith(prefix)) {
       rows.push({ text: text.slice(prefix.length), leftTrim: visibleWidth(prefix) });
+      changed = true;
+      continue;
+    }
+    if (flatRows.has(row) && text.startsWith(" ")) {
+      rows.push({ text: text.slice(1), leftTrim: 1 });
       changed = true;
       continue;
     }

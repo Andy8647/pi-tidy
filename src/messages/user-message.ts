@@ -1,7 +1,8 @@
 /**
  * User messages as a rail: a full-width rule above and below and an accent `│`
- * in front of every content row. With `icons`, the user icon and the message's
- * time sit in the top rule, as they sit in the frame style's top border.
+ * in front of every content row; the "rules" style is the same without the `│`.
+ * With `icons`, the user icon and the message's time sit in the top rule, as they
+ * sit in the frame style's top border.
  *
  * pi's UserMessageComponent is one Markdown child that already carries the
  * markdown theme, pi's markdown options and the registered markdown
@@ -11,7 +12,7 @@
  * pi's own.
  *
  * `userMessageStyle: "frame"` is drawn by message-frame.ts instead; this patch
- * passes through for every style but "rail", so the two stack in either order.
+ * passes through for "frame" and "off", so the two stack in either order.
  */
 
 import { InteractiveMode, UserMessageComponent } from "@earendil-works/pi-coding-agent";
@@ -30,7 +31,7 @@ import { liveSlot, tidyEnabled } from "../live.ts";
 import { paint } from "../draw/paint.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 
-export type UserMessageStyle = "rail" | "frame" | "off";
+export type UserMessageStyle = "rail" | "rules" | "frame" | "off";
 
 export interface UserMessageOptions {
   style: UserMessageStyle;
@@ -71,6 +72,7 @@ interface UserMessageInternals {
   render(width: number): string[];
   __tidyRailCache?: {
     width: number;
+    style: UserMessageStyle;
     sample: string;
     paddingY: number;
     icons: boolean;
@@ -122,10 +124,12 @@ function renderRail(
   // Row layout: rail, a space, text. The child pads its text by `outputPad` on both
   // sides; one cell of that on the left is taken off again, so it renders that much
   // wider than the text it holds.
+  // Without the rail the child keeps its full width and its padding is the text's inset.
+  const flat = options.style === "rules";
   const childPad = (component.outputPad ?? 1) > 0;
-  const textWidth = width - 2;
+  const childWidth = flat ? width : width - 2 + (childPad ? 1 : 0);
   const raw: string[] = [];
-  for (const child of component.children) raw.push(...child.render(textWidth + (childPad ? 1 : 0)));
+  for (const child of component.children) raw.push(...child.render(childWidth));
 
   const rail = paint(theme, options.railColor, USER_RAIL_GLYPH);
   const rule = paint(theme, options.ruleColor, "─".repeat(width));
@@ -140,6 +144,7 @@ function renderRail(
   if (
     cache &&
     cache.width === width &&
+    cache.style === options.style &&
     cache.sample === sample &&
     cache.paddingY === options.paddingY &&
     cache.icons === options.icons &&
@@ -165,13 +170,14 @@ function renderRail(
         width,
       )
     : { label: "", lead: 1 };
-  const padRows = Array.from({ length: options.paddingY }, () => rail);
-  const rows = content.map((line) => `${rail} ${childPad ? line.replace(LEADING_PAD_RE, "$1") : line}`);
+  const padRows = Array.from({ length: options.paddingY }, () => (flat ? "" : rail));
+  const rows = flat ? content : content.map((line) => `${rail} ${childPad ? line.replace(LEADING_PAD_RE, "$1") : line}`);
   const out = [labeledRule(width, theme, options.ruleColor, header.label, options.align, header.lead), ...padRows, ...rows, ...padRows, rule];
   out[0] = OSC133_ZONE_START + out[0];
   out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
   component.__tidyRailCache = {
     width,
+    style: options.style,
     sample,
     paddingY: options.paddingY,
     icons: options.icons,
@@ -188,12 +194,12 @@ function renderRail(
 
 /**
  * Install the rail patch once; later calls (a `/reload`) only update the
- * options it reads. Any style but "rail", `tidy.enabled: false`, a missing
+ * options it reads. "frame" or "off", `tidy.enabled: false`, a missing
  * theme or a render error falls through to the render underneath.
  */
 export function patchUserMessages(options: UserMessageOptions): void {
   userMessageOptions.set(options);
-  if (options.style === "rail") installUserMessageTimes();
+  if (options.style === "rail" || options.style === "rules") installUserMessageTimes();
   const proto = UserMessageComponent.prototype as unknown as UserMessageInternals & { __tidyUserRail?: boolean };
   if (proto.__tidyUserRail) return;
   proto.__tidyUserRail = true;
@@ -202,7 +208,7 @@ export function patchUserMessages(options: UserMessageOptions): void {
   proto.render = function (this: UserMessageInternals, width: number): string[] {
     const live = userMessageOptions.get();
     const theme = getTheme();
-    if (!theme || live?.style !== "rail" || !tidyEnabled.get() || width < 6) {
+    if (!theme || (live?.style !== "rail" && live?.style !== "rules") || !tidyEnabled.get() || width < 6) {
       return originalRender.call(this, width);
     }
     try {

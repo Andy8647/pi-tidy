@@ -14,6 +14,13 @@ or a pattern such as `"M月D日 HH:mm:ss"`.
 **`tidy.messageHeaderStyle: "split"` sets a rule between who a message is from and its time** (#59):
 `╭── model ── 13:09 ───╮`, in user messages and the final reply's border. The default stays `inline`.
 
+**The final reply and user messages can have rules without side borders** (#56). `tidy.finalReplyStyle` and
+`tidy.userMessageStyle` both take `"rules"`: a rule above and below and nothing beside the text, so a terminal's own
+selection copies it clean too.
+
+**`tidy.finalReplyStyle` replaces `frameFinalReply`**, which keeps working, and also takes `"rail"`: the rules plus a `│` in
+front of the text, like a rail user message.
+
 **`tidy.messageBorderColors.assistant` colors the final reply** (#59): its frame and an opened run's rail and marker, as a
 theme color name or `#rrggbb`. The default stays `accent`.
 

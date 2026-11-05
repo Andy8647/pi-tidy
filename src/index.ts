@@ -179,7 +179,8 @@ export default function (pi: ExtensionAPI): void {
   // so turning the extension off takes effect without a restart.
   turnOptions.set({
     collapseTurns: config.collapseTurns,
-    frameFinalReply: config.frameFinalReply,
+    frameFinalReply: config.finalReplyStyle !== "off",
+    replyStyle: config.finalReplyStyle === "off" ? "frame" : config.finalReplyStyle,
     icons: config.icons,
     assistantColor: config.messageBorderColors.assistant,
     timeFormat: config.messageTimeFormat,
@@ -188,7 +189,7 @@ export default function (pi: ExtensionAPI): void {
   tidyEnabled.set(config.enabled);
   agentRunning.set(false);
   if (!config.enabled) return;
-  if (config.collapseTurns !== "off" || config.frameFinalReply) connectTurns(pi);
+  if (config.collapseTurns !== "off" || config.finalReplyStyle !== "off") connectTurns(pi);
 
   // The thinking row's "is this still arriving" cannot trust pi's private
   // `isStreaming` flag (it is not always settled), and a text-growth window

@@ -163,6 +163,22 @@ test("a split header copies clean, framed or on a rail, and so does a rule writt
   }
 });
 
+test("a message with only rules copies as its text; a model's own rules stay", () => {
+  const rule = "\u2500".repeat(30);
+  const lines = [`\u2500 model 13:09 ${"\u2500".repeat(16)}`, " first", " \u2500\u2500\u2500\u2500", "", " second", rule];
+  const { rows } = cleanTranscriptRows(lines, 0, lines.length - 1);
+  assert.deepEqual(texts(rows), [null, "first", "\u2500\u2500\u2500\u2500", "", "second", null]);
+  assert.equal(rows[1]!.leftTrim, 1);
+
+  // No label: nothing tells these from rules a model wrote, so they stay.
+  const unlabeled = [rule, " text", rule];
+  assert.deepEqual(texts(cleanTranscriptRows(unlabeled, 0, 2).rows), [rule, " text", rule]);
+
+  // A label with no closing rule of its width, before the next message, closes nothing.
+  const open = [`\u2500 a ${"\u2500".repeat(26)}`, " text", `\u2500 b ${"\u2500".repeat(26)}`, " more", rule];
+  assert.deepEqual(texts(cleanTranscriptRows(open, 0, 4).rows), [open[0], " text", null, "more", null]);
+});
+
 test("two rail messages in a row do not pair across their gap", () => {
   const lines = [...railMessage(["first"], 20), ...railMessage(["second"], 20)];
   assert.deepEqual(texts(cleanTranscriptRows(lines, 0, 5).rows), [null, "first", null, null, "second", null]);
