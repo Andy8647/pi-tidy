@@ -20,6 +20,7 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth } from "@earendil-works/pi-tui";
+import { chipLabels } from "../src/turns/code-blocks.ts";
 import { patchToolBoxFrames } from "../src/frame.ts";
 import { resetGroups, summaryFor, THOUGHT_LIVE_MS } from "../src/tools/tool-groups.ts";
 import { tidyEnabled, agentRunning } from "../src/live.ts";
@@ -375,7 +376,8 @@ test("an edit's path moves into the top border, leaving the diff as the body", (
   chat.addChild(step(e.id, "edit"));
   chat.addChild(e.component);
   const lines = visible(frame(chat));
-  assert.ok(lines.some((line) => /^╭─ .*x\.ts ─+╮$/.test(line)), lines.join("\n"));
+  // `icons: false` in this fixture, so the chip is the word rather than a glyph.
+  assert.ok(lines.some((line) => new RegExp(`^╭─ .*x\\.ts ${chipLabels(false).copy} ─+╮$`).test(line)), lines.join("\n"));
   assert.ok(!lines.some((line) => /│ .*edit \/tmp\/x\.ts/.test(line)), "the title is not a body row");
   assert.ok(lines.some((line) => line.includes("↳ diff")), "the diff is still the first body row");
 });

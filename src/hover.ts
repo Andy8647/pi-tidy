@@ -13,7 +13,7 @@ import type { ThemeLike } from "./theme-access.ts";
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HoverRow = "header" | "turn-header" | "row" | `job:${string}` | `codemode:${CodemodeSection}`;
+export type HoverRow = "header" | "turn-header" | "row" | "title" | `job:${string}` | `codemode:${CodemodeSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so

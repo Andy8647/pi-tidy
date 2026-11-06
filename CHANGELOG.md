@@ -4,6 +4,31 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**A file box's path is one click away.** A `write` or `edit` box's top border carries a copy chip after the path
+(`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for `~/…/app.ts` on the clipboard, and the chip shows a tick for a moment. Under the
+pointer it lights up and the pointer becomes a hand, like the code block chip. `icons: false` draws the word `copy`
+instead, and a box too narrow for the chip keeps its plain border.
+
+### Fixed
+
+**Selecting a path on a box's border copied nothing.** A frame's top border was taken for chrome and dropped whole,
+so a drag along the `write` or `edit` border produced an empty selection: no hint, and `ctrl+x` silently did nothing
+because pi treats an empty selection as no selection. A top border's label now stays when it names a file, with the
+corner, the padding rules, the title's icons and the chip taken off; a reply's `model 14:06` label is still chrome.
+
+**The code block chip's hit range was one cell left of it on a framed reply** — the frame's padding was not counted,
+which the four-cell word `copy` hid. It is measured on the drawn row now.
+
+### Changed
+
+**The copy chips are glyphs**: `󰆒` (md-content_copy) at rest and `󰌌` (fa-check) after a copy, instead of `copy` and
+`copied`. They take one cell instead of four, so the rule around them is three cells longer. `icons: false` keeps the
+words.
+
 ## [0.9.1] - 2026-11-06
 
 ### Added

@@ -52,7 +52,9 @@ import {
   type CodemodeRowSpan,
   type GroupedTool,
 } from "./tool-group-view.ts";
-import { codemodeHover, hoverBand, installHoverTracking } from "../hover.ts";
+import { codemodeHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender } from "../hover.ts";
+import { canCopyText, copyText } from "../clipboard.ts";
+import { COPIED_MS, chipLabels, chipWord, repaintChip } from "../turns/code-blocks.ts";
 
 interface MouseTarget {
   render(width: number): string[];
@@ -106,6 +108,17 @@ interface ToolBoxInternals extends GroupedTool {
   };
   __frameGeometry?: FrameGeometry;
   __railCells?: number;
+  /** The chip label a file box draws, and the path it copies: set by the frame, measured below. */
+  __pathChip?: string;
+  __pathText?: string;
+  /**
+   * A file box's path chip, on the rows this component displays: where it is and what a
+   * click copies. Measured there rather than on the frame's own rows, because a group
+   * and a turn's rail put their cells in front of them.
+   */
+  __pathCopy?: { row: number; x: number; end: number; text: string };
+  /** While the chip reads `copied`, after a click. */
+  __pathCopyFlashUntil?: number;
   /** The split diff last built for this box, and what it was built from. */
   __splitCache?: {
     diff: string;
@@ -221,6 +234,52 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
 
+/** `$HOME` as `~`, the form a title shows its path in. */
+function shortenPath(path: string): string {
+  const home = homedir();
+  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * A file box's path chip, in its lit states: lit under the pointer, a tick for a moment
+ * after a click. The rows are only copied when a state shows, so the frame cache still
+ * holds what the box looks like at rest and an idle box costs one comparison.
+ */
+function withCopyChip(box: ToolBoxInternals, rows: string[], theme: ThemeLike): string[] {
+  const copy = box.__pathCopy;
+  const until = box.__pathCopyFlashUntil;
+  const copied = until !== undefined && Date.now() < until;
+  const hot = copy !== undefined && isRowHovered(box, "title");
+  if (!copy || rows.length === 0 || (!copied && !hot)) return rows;
+  const labels = chipLabels(toolOptions.get().icons);
+  return repaintChip(rows, { row: copy.row, index: 0, x: copy.x, end: copy.end }, theme, copied ? labels.copied : labels.copy, hot);
+}
+
+/**
+ * Where the chip landed on the rows the component displays. They carry the rail or the
+ * group's gutter in front, and a pointer reports columns on the same rows, so this is
+ * the only place the two agree.
+ */
+function measurePathChip(box: ToolBoxInternals, rows: readonly string[]): void {
+  const chip = box.__pathChip;
+  box.__pathCopy = undefined;
+  if (!chip) return;
+  for (let row = 0; row < rows.length; row++) {
+    const plain = visibleText(rows[row]!);
+    const at = plain.indexOf(chip);
+    if (at < 0) continue;
+    const x = visibleWidth(plain.slice(0, at));
+    box.__pathCopy = { row, x, end: x + visibleWidth(chip), text: box.__pathText ?? "" };
+    return;
+  }
+}
+
+/** One frame of a box: its chip measured, and painted for the pointer or a copy. */
+function finishBox(box: ToolBoxInternals, rows: string[], theme: ThemeLike): string[] {
+  measurePathChip(box, rows);
+  return withCopyChip(box, rows, theme);
+}
+
 /** A codemode box drawn in a frame of its own: grouping off, or codemode in `alwaysShowTools`. */
 const framedCodemode = (tool: ToolBoxInternals) =>
   tidyEnabled.get() && (!toolOptions.get().groupTools || toolOptions.get().alwaysShow.has(tool.toolName));
@@ -296,6 +355,37 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   };
 
   /**
+   * A click on a file box's path chip copies the path, and the pointer over it gets the
+   * hand instead of the box's expand switch. The chip's row and columns were measured on
+   * these rows, so the event needs no translation — which is what makes it work under a
+   * group's header row and on a turn's rail, where a click belongs to someone else.
+   */
+  function pathChipMouse(this: ToolBoxInternals, event: any): unknown {
+    const copy = this.__pathCopy;
+    if (!copy || typeof event?.x !== "number" || typeof event?.y !== "number") return undefined;
+    const over = event.y === copy.row && event.x >= copy.x && event.x < copy.end;
+    if (event.type === "move") {
+      // Only a row of ours is given back: a move over the box's body may belong to a job
+      // row inside it, and this runs before the group has had its say.
+      if (!over && !isRowHovered(this, "title")) return undefined;
+      if (claimHover(this, over ? "title" : null)) requestHoverRender();
+      return over ? { handled: true } : undefined;
+    }
+    if (!over || event.type !== "click" || (event.button !== "left" && event.button !== 0)) return undefined;
+    const until = Date.now() + COPIED_MS;
+    this.__pathCopyFlashUntil = until;
+    void copyText(copy.text).catch(() => {
+      if (this.__pathCopyFlashUntil === until) this.__pathCopyFlashUntil = undefined;
+    });
+    setTimeout(() => {
+      if (this.__pathCopyFlashUntil !== until) return;
+      this.__pathCopyFlashUntil = undefined;
+      requestHoverRender();
+    }, COPIED_MS).unref?.();
+    return { handled: true, render: true };
+  }
+
+  /**
    * A click on the framed box, translated into the source component's own
    * coordinates. pi's handler would measure the *unframed* layout (and, for
    * `renderShell: "self"` tools, read a height only its own render records),
@@ -343,6 +433,10 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
+    // Before the rail is discounted and before a group gets its say: the chip is the one
+    // cell range of the box that copies instead of opening, wherever the row came from.
+    const chip = pathChipMouse.call(this, event);
+    if (chip !== undefined) return chip;
     // Everything below measures from where the call starts, which is past the rail.
     if (railTurnTool(this.toolCallId) && typeof event?.x === "number") {
       const cells = this.__railCells ?? TURN_RAIL_CELLS;
@@ -602,15 +696,13 @@ function composeFramedCodemode(
     let kindPrefix = "";
     let fileGlyph = "";
     let filePath = "";
+    const pathArg = PATH_ARG_TOOLS.has(this.toolName) ? (this.args as { path?: unknown } | undefined)?.path : undefined;
+    // Read whether the icons are on or not: the path is also what the border's chip
+    // copies, and that is not an icon.
+    if (typeof pathArg === "string" && pathArg) filePath = pathArg;
     if (icons) {
       kindPrefix = ` ${toolKindIcon(this.toolName)} `;
-      if (PATH_ARG_TOOLS.has(this.toolName)) {
-        const p = (this.args as { path?: unknown } | undefined)?.path;
-        if (typeof p === "string" && p) {
-          fileGlyph = fileIcon(p);
-          filePath = p;
-        }
-      }
+      if (filePath) fileGlyph = fileIcon(filePath);
     }
     const iconCells = (kindPrefix ? visibleWidth(kindPrefix) : 0) + (fileGlyph ? visibleWidth(fileGlyph) + 1 : 0);
     const sourceWidth = w - 2 - iconCells;
@@ -751,6 +843,7 @@ function composeFramedCodemode(
       banded = new Set([bandRow]);
     }
     const drawn: string[] = [];
+    this.__pathChip = undefined;
     if (content.length > 0) {
       // Split-diff rows carry their own tint, as does a hovered fold row;
       // everything else stays transparent.
@@ -761,7 +854,18 @@ function composeFramedCodemode(
         ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
         : splitBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
-      if (title) framed[0] = labeledTopBorder(w, theme, color, clipToWidth(title, Math.max(1, w - 6), "…"));
+      // A border that names a file carries a chip: the path is the one thing a reader
+      // wants out of a write or edit box, and dragging its border for it is not obvious.
+      const chipText = pathTitle && filePath && canCopyText() ? chipLabels(icons).copy : "";
+      const paintedChip = chipText ? chipWord(theme, chipText, false) : "";
+      const label = chipText
+        ? `${clipToWidth(title, Math.max(1, w - 6 - visibleWidth(chipText) - 1), "…")} ${paintedChip}`
+        : clipToWidth(title, Math.max(1, w - 6), "…");
+      if (title) framed[0] = labeledTopBorder(w, theme, color, label);
+      // The chip is measured on the rows this component displays, not on this frame:
+      // a group's header row and a turn's rail sit in front of it.
+      this.__pathChip = chipText && visibleText(framed[0]!).includes(chipText) ? chipText : undefined;
+      this.__pathText = chipText ? shortenPath(filePath) : undefined;
       // Unframed: the row above already carries the frame of reference (the
       // group rail), so only the body is drawn — borders dropped, cells kept.
       if (unframed) {
@@ -800,15 +904,21 @@ function composeFramedCodemode(
     const theme = getTheme();
     if (!theme || !tidyEnabled.get()) {
       this.__frameGeometry = undefined;
+      this.__pathChip = undefined;
+      measurePathChip(this, []);
       return originalRender.call(this, width);
     }
     try {
       this.__tidyTurnRendered = true;
-      if (this.hideComponent) return [];
+      if (this.hideComponent) {
+        measurePathChip(this, []);
+        return [];
+      }
       if (hideTurnTool(this.toolCallId)) {
         // Carriers still register while the turn is folded. Its tools must
         // register too, especially the pinned boundaries that split groups.
         if (grouping()) planFor(this, toolOptions.get().alwaysShow.has(this.toolName));
+        measurePathChip(this, []);
         return [];
       }
       const railed = railTurnTool(this.toolCallId);
@@ -824,18 +934,19 @@ function composeFramedCodemode(
         );
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
-          return railed ? railRows(grouped, theme) : grouped;
+          return finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
         }
       }
-      if (!railed) return frameBox.call(this, w, theme);
+      if (!railed) return finishBox(this, frameBox.call(this, w, theme), theme);
       this.__railCells = TURN_RAIL_BOX_CELLS;
       const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
       // On the rail a box's corner sits in its neighbouring groups' rail column. With
       // grouping off nothing has registered, so there is nothing to meet.
       const { above, below } = pinnedJoints(this);
-      return railRows(joinBoxCorners(box, above, below), theme, " ");
+      return finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
     } catch {
       this.__frameGeometry = undefined;
+      measurePathChip(this, []);
       return originalRender.call(this, width);
     }
   };

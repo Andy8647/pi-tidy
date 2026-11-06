@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWriteToolDefinition, initTheme, ToolExecutionComponent, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { COPY_CHIP } from "../src/turns/code-blocks.ts";
 import tidy from "../src/index.ts";
 import { collectWarnings, harness, loadTidy as load } from "./renderer-harness.ts";
 
@@ -68,7 +69,7 @@ test("a write box's path moves into the top border without a blank row", () => {
   component.markExecutionStarted();
   component.updateResult({ content: [], isError: false, durationMs: 1 }, false);
   const lines = (component.render(80) as string[]).map(plain);
-  assert.match(lines[0], /^╭─ .*demo\.txt +─{5,}╮$/);
+  assert.match(lines[0], new RegExp(`^╭─ .*demo\\.txt ${COPY_CHIP} +─{5,}╮$`), "the path, its copy chip, then the rule");
   assert.match(lines[1], /^│ first +│$/, "the preview starts right under the border");
 });
 
