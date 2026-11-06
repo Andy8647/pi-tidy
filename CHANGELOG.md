@@ -4,12 +4,12 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.1] - 2026-11-06
 
 ### Added
 
 **A reply's fenced code blocks are drawn as a section** (`tidy.codeBlocks`). The two fence rows become rules that
-join the reply's frame or rail (`├─ fish ──── copy ─┤`), with the language on the opening one and a chip beside it:
+join the reply's frame or rail (`├─ fish copy ────┤`), with the language on the opening one and a chip beside it:
 clicking it puts the block's own text on the clipboard, and the chip reads `copied` for a moment. Under the pointer the chip
 lights up and the pointer becomes a hand, the same hover the folded rows use. The code rows stay
 as pi drew them. A `diff` block goes side by side instead, under the same `splitDiff` switch and `splitDiffMinWidth`
