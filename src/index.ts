@@ -18,6 +18,7 @@ import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
+import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
 import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
@@ -175,6 +176,13 @@ export default function (pi: ExtensionAPI): void {
       ctx.ui.notify(`pi-tidy needs pi ≥ ${MIN_PI} (this is ${VERSION}): clicks and durations won't work.`, "warning");
     });
   }
+  // The code-block rail hangs on a private method of pi's Markdown component.
+  // A pi that renames it keeps its own code blocks, and the setting is inert.
+  if (config.codeBlocks && !codeBlocksAvailable()) {
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify("pi-tidy: this pi's Markdown draws code blocks itself, so `tidy.codeBlocks` does nothing on it.", "warning");
+    });
+  }
   // Patches installed by an earlier load (before a /reload) read this live,
   // so turning the extension off takes effect without a restart.
   turnOptions.set({
@@ -185,6 +193,9 @@ export default function (pi: ExtensionAPI): void {
     assistantColor: config.messageBorderColors.assistant,
     timeFormat: config.messageTimeFormat,
     headerStyle: config.messageHeaderStyle,
+    codeBlocks: config.codeBlocks,
+    splitDiff: config.splitDiff,
+    splitDiffMinWidth: config.splitDiffMinWidth,
   });
   tidyEnabled.set(config.enabled);
   agentRunning.set(false);

@@ -91,8 +91,9 @@ export interface TidyConfig {
   cleanCopy: boolean;
   /**
    * Render an edit's diff as two panes (old | new) with line numbers, a
-   * coloured bar and a tinted row per changed line. Falls back to pi's
-   * unified diff when the box is too narrow (see `splitDiffMinWidth`).
+   * coloured bar and a tinted row per changed line. Also decides whether a
+   * reply's `diff` code block gets panes. Falls back to pi's unified diff when
+   * the box is too narrow (see `splitDiffMinWidth`).
    */
   splitDiff: boolean;
   /** Box width below which the split becomes unreadable; pi's diff is used. */
@@ -103,6 +104,12 @@ export interface TidyConfig {
    * edit has no such budget of its own — pi draws the whole diff.
    */
   diffLines: number;
+  /**
+   * Put a `copy` chip on a reply's fenced code blocks, and give a language pi's
+   * highlighter has no grammar for (fish) the closest one it does. A `diff` block
+   * goes side by side instead, per `splitDiff`.
+   */
+  codeBlocks: boolean;
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -161,6 +168,7 @@ const DEFAULTS: TidyConfig = {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
+  codeBlocks: true,
   thinkingColor: "warning",
   messageBorderColors: {
     assistant: "accent",
@@ -246,6 +254,7 @@ export function loadConfig(): TidyConfig {
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
+      codeBlocks: typeof toolbox?.codeBlocks === "boolean" ? toolbox.codeBlocks : DEFAULTS.codeBlocks,
       thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,

@@ -25,6 +25,7 @@
 import { sliceByColumn, stripTerminalSequences, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { USER_RAIL_GLYPH } from "./messages/user-message.ts";
+import { isOpenRule, isRuleOnly, ruleCells } from "./turns/code-blocks.ts";
 
 /** `null` drops the row. `leftTrim` is the columns taken off its left edge. */
 export type CleanedRow = { text: string; leftTrim: number } | null;
@@ -80,6 +81,20 @@ export function cleanTranscriptRows(
     }
   }
 
+  // A code block's rules are chrome, above and below. Only the opening one can say
+  // what it is (the chip carries it), so its closing rule is the next row that is
+  // nothing but rule glyphs. A model's own `---` rule stays where it is. This runs
+  // before the passes below so their pairing never mistakes a rule for a message edge.
+  for (let row = 0; row < plain.length; row++) {
+    if (!isOpenRule(plain[row]!)) continue;
+    dropped.add(row);
+    for (let below = row + 1; below < plain.length; below++) {
+      if (!isRuleOnly(plain[below]!)) continue;
+      dropped.add(below);
+      break;
+    }
+  }
+
   // Rail user messages. A row without the rail breaks the pair, which is what keeps
   // an assistant's own `---` rules, and the text between them, from being eaten.
   let lastRule: { row: number; width: number } | undefined;
@@ -100,7 +115,9 @@ export function cleanTranscriptRows(
     } else if (LABELED_RULE_RE.test(text)) {
       // A label only ever opens a message, and it closes nothing above it.
       lastRule = { row, width: visibleWidth(text) };
-    } else if (!isRailRow(text)) {
+    } else if (!isRailRow(text) && !ruleCells(text).startsWith("─")) {
+      // A code block's rule neither opens nor closes a message: it sits between
+      // two of them without breaking the pair.
       lastRule = undefined;
     }
   }
@@ -114,7 +131,8 @@ export function cleanTranscriptRows(
     for (let end = row + 1; end < plain.length && !dropped.has(end) && !LABELED_RULE_RE.test(plain[end]!); end++) {
       if (!RULE_ROW_RE.test(plain[end]!) || visibleWidth(plain[end]!) !== width) continue;
       const body = Array.from({ length: end - row - 1 }, (_, index) => row + 1 + index);
-      if (body.length === 0 || !body.every((inner) => plain[inner]!.trim() === "" || plain[inner]!.startsWith(" "))) break;
+      // A code block's rules are chrome too, and they are not what ends this body.
+      if (body.length === 0 || !body.every((inner) => plain[inner]!.trim() === "" || plain[inner]!.startsWith(" ") || ruleCells(plain[inner]!).startsWith("─"))) break;
       dropped.add(row);
       dropped.add(end);
       for (const inner of body) flatRows.add(inner);
@@ -151,6 +169,7 @@ export function cleanTranscriptRows(
     }
     rows.push({ text, leftTrim: 0 });
   }
+
   return { rows, changed };
 }
 

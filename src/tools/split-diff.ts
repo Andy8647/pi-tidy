@@ -37,6 +37,12 @@ export interface SplitDiffInput {
    * the top of a diff on a large file would hide the change itself.
    */
   maxLines?: number;
+  /**
+   * Whether the diff carries line numbers the way pi serialises an edit
+   * (`+12 text`). A `diff` block a model wrote has none (`+const a = 2;`): the
+   * whole rest of the row is the line, indentation included.
+   */
+  numbered?: boolean;
 }
 
 export interface SplitDiffOutput {
@@ -87,8 +93,17 @@ interface Palette {
 
 /** `+12 text` / `- 7 text` / `  3 text`, plus pi's `      ...` skip marker. */
 const LINE_RE = /^([+\- ])(\s*)(\d*)(?:\s(.*))?$/;
+/** A fenced diff's own headers: reading them as `+`/`-` lines invents changes. */
+const UNNUMBERED_HEADER_RE = /^(?:diff --git |index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename (?:from|to) |@@|\\)/;
+const UNNUMBERED_FILE_RE = /^(?:---|\+\+\+) /;
 
-function parseLine(raw: string): ParsedLine | null {
+function parseLine(raw: string, numbered = true): ParsedLine | null {
+  if (!numbered) {
+    // No numbers to strip: whatever follows the marker is the line, spaces and all.
+    const prefix = raw[0];
+    if (prefix !== "+" && prefix !== "-" && prefix !== " ") return null;
+    return { prefix, num: null, text: raw.slice(1), skip: false };
+  }
   const match = LINE_RE.exec(raw);
   if (!match) return null;
   const prefix = match[1] as ParsedLine["prefix"];
@@ -464,11 +479,24 @@ function renderSummary(add: number, remove: number, width: number, palette: Pale
  */
 export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
   const { diff, width, theme, filePath } = input;
+  const numbered = input.numbered ?? true;
   const parsed: ParsedLine[] = [];
+  let content = 0;
   for (const raw of diff.split("\n")) {
-    const line = parseLine(raw);
-    if (line) parsed.push(line);
-    else if (raw.trim()) parsed.push({ prefix: " ", num: null, text: raw, skip: false });
+    if (!numbered) {
+      if (UNNUMBERED_HEADER_RE.test(raw)) continue;
+      // `--- a/x` / `+++ b/x` only ever open a diff, so they can only be headers
+      // before the first line of content. Later on they are a removal and an add.
+      if (content === 0 && UNNUMBERED_FILE_RE.test(raw)) continue;
+    }
+    const line = parseLine(raw, numbered);
+    if (line) {
+      parsed.push(line);
+      if (!line.skip) content++;
+    } else if (raw.trim()) {
+      parsed.push({ prefix: " ", num: null, text: raw, skip: false });
+      content++;
+    }
   }
   if (parsed.length === 0) return null;
   const rows = buildRows(parsed);

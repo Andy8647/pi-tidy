@@ -1982,6 +1982,7 @@ export const TOOL_ICONS: Record<string, string> = {
 	read: "\u{f06e}", // fa-eye
 	edit: "\u{f044}", // fa-edit
 	write: "\u{f0c7}", // fa-floppy-o
+	codemode: "\u{f121}", // fa-code
 	grep: "\u{f002}", // fa-search
 	find: "\u{f07c}", // fa-folder-open
 	ls: "\u{f07b}", // fa-folder

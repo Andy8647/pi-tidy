@@ -1,5 +1,8 @@
-import { Box, Container, MouseRegion, Text, sliceByColumn, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Box, Container, Markdown, MouseRegion, Text, sliceByColumn, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { clipToWidth, formatMessageTime, italicDim, labeledRule, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
+import { toolKindIcon } from "../draw/icons.ts";
+import { canCopyText, copyText } from "../clipboard.ts";
+import { COPIED_CHIP, COPIED_MS, COPY_CHIP, RULE_GLYPH, repaintChip, ruleCodeToken, ruleRows, type ChipSpan, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
@@ -20,10 +23,15 @@ const PROVIDER_ICONS: Record<string, string> = {
   deepseek: "\u{1f433}",
   google: "\u{f02ad}", "google-gemini-cli": "\u{f02ad}", "google-vertex": "\u{f02ad}",
 };
+const ROBOT_ICON = "\u{f06a9}"; // md-robot
+/** The provider that answered, as one glyph: the reply header and the summary share it. */
+function providerIcon(provider: string | undefined): string {
+  return PROVIDER_ICONS[provider ?? ""] ?? ROBOT_ICON;
+}
 export function replyLabel(provider: string | undefined, model: string | undefined, icons: boolean): string {
   // The glyph still says which provider answered; the word next to it is what
   // the reader is comparing across replies — the model, not the vendor.
-  return `${icons ? `${PROVIDER_ICONS[provider ?? ""] ?? "\u{f06a9}"} ` : ""}${model || provider || "agent"}`;
+  return `${icons ? `${providerIcon(provider)} ` : ""}${model || provider || "agent"}`;
 }
 function duration(ms: number | undefined): string {
   if (ms === undefined) return "—";
@@ -71,27 +79,40 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   const total = turn.startedAt === undefined ? undefined : (turn.endedAt ?? now) - turn.startedAt;
   const state = turn.outcome;
   const marker = folded(turn) ? hovered ? "▶" : "▸" : "▾";
-  const parts = [paint(theme, turnOptions.get().assistantColor, `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`)];
-  if (!["completed", "running", "unknown"].includes(state)) parts.push(theme.fg("error", state));
+  // Every part exists twice: plain, and wearing the glyph that names it. A row too
+  // narrow for the glyphs falls back to the plain list, so the truncation below
+  // never gets to eat a count.
+  const parts: string[] = [];
+  const glyphed: string[] = [];
+  const add = (plain: string, icon = plain) => { parts.push(plain); glyphed.push(icon); };
+  add(paint(theme, turnOptions.get().assistantColor, `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`));
+  if (!["completed", "running", "unknown"].includes(state)) add(theme.fg("error", state));
   const llmFailures = [...turn.messages.values()].filter((message) => message.role === "assistant" && message.stopReason === "error").length;
-  if (llmFailures) parts.push(theme.fg("error", `${llmFailures} LLM failed`));
+  if (llmFailures) add(theme.fg("error", `${llmFailures} LLM failed`));
   const failed = [...turn.tools.values()].filter((tool) => tool.failed).length;
-  if (failed) parts.push(theme.fg("error", `${failed} failed`));
+  if (failed) add(theme.fg("error", `${failed} failed`));
   const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
-  if (nestedFailed) parts.push(theme.fg("error", `${nestedFailed} nested failed`));
-  parts.push(theme.fg("muted", `LLM ${duration(store.llmTime(turn, now))}`));
-  parts.push(theme.fg("muted", `tools ${duration(store.toolTime(turn, now))}`));
+  if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
+  // The glyph is the one the reply's border uses, so both lines name the same vendor.
+  const answer = turn.messages.get(turn.final ?? turn.lastAssistant ?? "");
+  const llm = `LLM ${duration(store.llmTime(turn, now))}`;
+  add(theme.fg("muted", llm), theme.fg("muted", `${providerIcon(answer?.provider)} ${llm}`));
+  add(theme.fg("muted", `tools ${duration(store.toolTime(turn, now))}`));
   // Open, the group headers below already count the calls.
   if (folded(turn)) {
-    parts.push(theme.fg("toolTitle", `${turn.tools.size} calls`));
+    add(theme.fg("toolTitle", `${turn.tools.size} calls`));
     const counts = new Map<string, number>();
     for (const { name } of turn.tools.values()) {
       const kind = name.startsWith("mcp__") ? "mcp" : name;
       counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
-    for (const [name, count] of counts) parts.push(theme.fg("muted", `${name}×${count}`));
+    for (const [name, count] of counts) add(theme.fg("muted", `${name}×${count}`), theme.fg("muted", `${toolKindIcon(name)} ${name}×${count}`));
   }
-  return clipToWidth(parts.join(theme.fg("muted", " · ")), width, "…");
+  const separator = theme.fg("muted", " · ");
+  const plain = parts.join(separator);
+  if (!turnOptions.get().icons) return clipToWidth(plain, width, "…");
+  const withGlyphs = glyphed.join(separator);
+  return visibleWidth(withGlyphs) <= width ? withGlyphs : clipToWidth(plain, width, "…");
 }
 
 /**
@@ -148,11 +169,21 @@ class ReplyBody extends Box {
   private theme: ThemeLike;
   private color: string;
   private closed: boolean;
+  /** Rows of the child that are a code block's rule, by index. */
+  private rules: ReadonlySet<number>;
   /** `closed` draws the right border too; a rail has only the left one. */
-  constructor(theme: ThemeLike, color: string, closed: boolean) { super(1, 0); this.theme = theme; this.color = color; this.closed = closed; }
+  constructor(theme: ThemeLike, color: string, closed: boolean, rules: ReadonlySet<number> = new Set()) {
+    super(1, 0);
+    this.theme = theme;
+    this.color = color;
+    this.closed = closed;
+    this.rules = rules;
+  }
   override render(width: number): string[] {
     const border = paint(this.theme, this.color, "│");
-    return super.render(width).map((line) => {
+    const joint = paint(this.theme, this.color, this.closed ? "┤" : "");
+    const rule = this.theme.fg("muted", RULE_GLYPH);
+    return super.render(width).map((line, row) => {
       // pi's OSC 133 zones belong at the row's edges. The frame used to leave
       // them inside: zone A landed after the left border, and B/C before the
       // right one. Terminals that cache semantic prompts then misrender the
@@ -161,10 +192,16 @@ class ReplyBody extends Box {
       const clean = markers.length ? line.replace(ZONE_MARKERS, "") : line;
       const start = markers.filter((marker) => marker === ZONE_A).join("");
       const end = markers.filter((marker) => marker !== ZONE_A).join("");
+      // A rule joins the frame: the border cell becomes a corner and the padding
+      // cell beside it turns into rule, so the line is unbroken edge to edge.
+      if (this.rules.has(row)) {
+        return start + paint(this.theme, this.color, "├") + rule + sliceByColumn(clean, 2, Math.max(0, width - 4)) + rule + joint + end;
+      }
       return start + border + sliceByColumn(clean, 1, width - 2) + (this.closed ? border : "") + end;
     });
   }
 }
+
 function installMouse(component: any): void {
   if (component.handleMouse?.[MOUSE]) return;
   const previous = component.handleMouse;
@@ -172,15 +209,21 @@ function installMouse(component: any): void {
   const wrapped = function (this: any, event: TuiMouseEvent) {
     const layout = this[LAYOUT];
     if (!layout || !tidyEnabled.get()) return previous?.call(this, event);
-    const hot = event.type === "move" && layout.header && event.y === 0;
-    const changed = event.type === "move" && !!this[HOVER] !== !!hot;
+    // The chip is the one place a click means something narrower than a row, so the
+    // pointer gets the hand and the light for it while it is over those four cells.
+    const code: CodeBlocks | undefined = this[CODE];
+    // `spans` are body rows; the component's own rows start with the frame's top edge.
+    const chip = event.type === "move" ? (layout.spans as ChipSpan[] | undefined)?.find((span: ChipSpan) => span.row + layout.bodyTop === event.y && event.x >= span.x && event.x < span.end) : undefined;
+    const hot = event.type === "move" && !chip && layout.header && event.y === 0;
+    const moved = event.type === "move" && ((code?.hover ?? -1) !== (chip?.index ?? -1) || !!this[HOVER] !== !!hot);
     if (event.type === "move") {
       this[HOVER] = !!hot;
-      const stateChanged = hot ? claimHover(this, "turn-header") : claimHover(null, null);
-      if (changed || stateChanged) requestHoverRender();
+      if (code) code.hover = chip?.index;
+      const stateChanged = chip ? claimHover(this, "row") : hot ? claimHover(this, "turn-header") : claimHover(null, null);
+      if (moved || stateChanged) requestHoverRender();
     }
     const result = layout.view.handleMouse(event);
-    return changed ? { ...result, handled: true, render: true } : result;
+    return moved ? { ...result, handled: true, render: true } : result;
   };
   (wrapped as any)[MOUSE] = true;
   component.handleMouse = wrapped;
@@ -206,6 +249,80 @@ export function messageOnRail(component: any): boolean {
   return turn.outcome === "running" || messageKey(component.lastMessage) !== turn.final;
 }
 
+/**
+ * Whether this message's Markdown has the private method the rail hooks into.
+ * False means replies keep pi's own code blocks, and nothing else changes.
+ */
+export function codeBlocksAvailable(): boolean {
+  return typeof (Markdown.prototype as unknown as { renderToken?: unknown }).renderToken === "function";
+}
+
+const CODE = Symbol.for("pi-tidy:code-blocks");
+
+interface CodeHook extends CodeBlocks {
+  markdown: any;
+  options: CodeBlockOptions;
+}
+
+/**
+ * Wrap this message's Markdown so its `code` tokens come back railed. Once per
+ * component and per Markdown child, and only while tidy is drawing the reply.
+ * Undefined means this pi has no `renderToken` to wrap.
+ */
+function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | undefined {
+  const markdown: any = ((component.contentContainer?.children ?? []) as any[]).find((child) => child instanceof Markdown);
+  if (!markdown || typeof markdown.renderToken !== "function") return undefined;
+  const installed: CodeHook | undefined = component[CODE];
+  if (installed && installed.markdown === markdown) {
+    installed.options = options;
+    return installed;
+  }
+  const hook: CodeHook = { blocks: [], markdown, options };
+  const renderToken = markdown.renderToken;
+  const render = markdown.render;
+  markdown.renderToken = function (this: unknown, token: any, width: number, next: unknown, context: unknown) {
+    const lines = renderToken.call(this, token, width, next, context);
+    if (token?.type !== "code" || !Array.isArray(lines)) return lines;
+    const railed = ruleCodeToken(lines, token, width, hook.options);
+    if (!railed) return lines;
+    hook.blocks.push(railed.block);
+    return railed.lines;
+  };
+  markdown.render = function (this: unknown, width: number) {
+    const before = hook.blocks;
+    hook.blocks = [];
+    const rows = render.call(this, width);
+    // pi answers from its own cache once text and width settle, and then
+    // `renderToken` never ran: the blocks from the pass that filled it still
+    // describe the rows it just handed back.
+    if (!hook.blocks.length) hook.blocks = before;
+    return rows;
+  };
+  component[CODE] = hook;
+  return hook;
+}
+
+/**
+ * A rule in a railed reply joins the rail on its left and runs on to the row's end:
+ * `├─ fish ─── copy ──────`. The rows come back in place, so indexes still match.
+ */
+function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: ThemeLike, color: string): string[] {
+  const out = [...body];
+  const glyph = theme.fg("muted", RULE_GLYPH);
+  for (const row of rules) {
+    const line = out[row];
+    if (line === undefined) continue;
+    const lead = line.startsWith(ZONE_A) ? ZONE_A : "";
+    const clean = lead ? line.slice(ZONE_A.length) : line;
+    const width = visibleWidth(clean);
+    // rail (2) + the Markdown's own padding (1) in front of the rule's content.
+    const content = sliceByColumn(clean, 3, Math.max(0, width - 3));
+    const rest = Math.max(0, width - 2 - visibleWidth(content));
+    out[row] = `${lead}${paint(theme, color, "├")}${glyph}${content}${glyph.repeat(rest)}`;
+  }
+  return out;
+}
+
 /** Decorate the existing message view, never a second markdown renderer. */
 export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => string[]): string[] {
   component[LAYOUT] = undefined;
@@ -222,11 +339,32 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const framed = options.frameFinalReply && turn.outcome !== "running" && key === turn.final && width >= 4;
   const railOpen = options.collapseTurns !== "off" && !closed && hasProcess(turn);
   const railed = messageOnRail(component);
-  const body = closed && key !== visible
+  // Code blocks first: the hook has to be in place before the rows are drawn.
+  const code = codeBlocksFor(component, {
+    theme,
+    enabled: options.codeBlocks,
+    splitDiff: options.splitDiff,
+    splitDiffMinWidth: options.splitDiffMinWidth,
+    canCopy: canCopyText(),
+  });
+  let body = closed && key !== visible
     ? []
     : railed
       ? railRows(draw(Math.max(1, width - TURN_RAIL_CELLS)), theme)
       : draw(framed && options.replyStyle !== "rules" ? width - 2 : width, framed);
+  const ruled = code ? ruleRows(body, code.blocks) : { rules: [], spans: [], opens: new Map<number, number>() };
+  const rules = new Set(ruled.rules);
+  const spans = ruled.spans;
+  // A railed reply has no box to turn into corners, so the joints are drawn here.
+  if (railed && rules.size) body = railRules(body, rules, theme, options.assistantColor);
+  const flash = code?.flash;
+  // A chip is repainted where it is, so the rule around it keeps its cells.
+  const hotIndex = code && isRowHovered(component, "row") ? code.hover : undefined;
+  for (const span of spans) {
+    const copied = Boolean(flash && Date.now() < flash.until && flash.index === span.index);
+    if (!copied && hotIndex !== span.index) continue;
+    body = repaintChip(body, span, theme, copied ? COPIED_CHIP : COPY_CHIP, hotIndex === span.index);
+  }
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
@@ -251,6 +389,26 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     installMouse(component);
     return cache.out;
   }
+  // A click on the chip copies the block it labels; every other click keeps going
+  // to pi's own selection, because the chip is chrome the block's text never had.
+  const copyClick = (event: TuiMouseEvent): boolean => {
+    if (!code || event.type !== "click" || event.button !== "left") return false;
+    const span = spans.find((entry) => entry.row === event.y && event.x >= entry.x && event.x < entry.end);
+    if (!span) return false;
+    const text = code.blocks[span.index]!.text;
+    // Mark it now, not when the write settles: the click's own repaint is the one
+    // that has to show `copied`, and a hover renderer may not exist in this mode.
+    code.flash = { index: span.index, until: Date.now() + COPIED_MS };
+    void copyText(text).catch(() => {
+      if (code.flash?.index === span.index) code.flash = undefined;
+    });
+    setTimeout(() => {
+      if (code.flash?.index !== span.index) return;
+      code.flash = undefined;
+      requestHoverRender();
+    }, COPIED_MS).unref?.();
+    return true;
+  };
   const view = new Container();
   if (header) view.addChild(new MouseRegion(new Text(line, 0, 0), (event) => {
     if (event.type !== "click" || event.button !== "left") return undefined;
@@ -258,6 +416,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     return { handled: true, render: true };
   }));
   const source = { render: () => body, invalidate() {}, handleMouse: (event: TuiMouseEvent) => {
+    if (copyClick(event)) return { handled: true, render: true };
     if (component[NATIVE_VIEW]) return component[NATIVE_VIEW].handleMouse(event);
     const layout = component[LAYOUT];
     component[LAYOUT] = undefined;
@@ -273,14 +432,14 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     view.addChild(new Text(top, 0, 0));
     if (options.replyStyle === "rules") view.addChild(source);
     else {
-      const box = new ReplyBody(theme, color, !flat);
+      const box = new ReplyBody(theme, color, !flat, rules);
       box.addChild(source);
       view.addChild(box);
     }
     view.addChild(new Text(paint(theme, color, flat ? "─".repeat(width) : `╰${"─".repeat(width - 2)}╯`), 0, 0));
   } else view.addChild(source);
   const out = view.render(width);
-  const layout = { view, header };
+  const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0) };
   component[LAYOUT] = layout;
   component[CACHE] = { turn, width, line, label, lead, color, replyStyle: options.replyStyle, framed, railOpen, body, out, layout };
   installMouse(component);

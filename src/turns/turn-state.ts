@@ -219,6 +219,11 @@ export const turnStore = liveSlot("turn-store", new TurnStore());
 export const turnOptions = liveSlot("turn-presentation-options", {
   collapseTurns: "off" as CollapseTurns,
   frameFinalReply: false,
+  /** Down the left edge of a reply's code blocks: the language, then a `copy` chip. */
+  codeBlocks: true,
+  /** Side-by-side panes for a `diff` code block, as for an edit. */
+  splitDiff: true,
+  splitDiffMinWidth: 72,
   /** How a drawn final reply looks; `frameFinalReply` says whether it is drawn. */
   replyStyle: "frame" as Exclude<FinalReplyStyle, "off">,
   icons: true,
