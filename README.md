@@ -201,9 +201,10 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | `highlightBash` | `true` | Syntax-highlights bash commands | Needs pi 1.3 |
 | `bashResultLines` | `1` | Visual lines of output in a collapsed bash box. pi's own number is 5, with no setting. `0` hides the output until you expand | Needs pi 1.3. A failed command keeps pi's preview. `ctrl+o` shows everything |
 | `writeLines` | `10` | Visual lines of a written file in a collapsed box. `0` keeps just the header | Needs pi 1.3. `ctrl+o` shows everything |
-| `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide; narrower ones get pi's unified diff |
+| `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form |
 | `splitDiffMinWidth` | `72` | Box width below which the panes give way to pi's unified diff | Needs `splitDiff` |
 | `diffLines` | `20` | Diff rows in a collapsed edit box, starting a third of the budget above the first change, with `… (N more lines, M total, ctrl+o to expand)` under them. `0` keeps just the summary row | Only when the panes are drawn. pi's unified diff has no limit, so with `splitDiff: false` or in a narrower box a long diff is shown whole |
+| `codeBlocks` | `true` | A reply's fenced code blocks keep pi's own rows and fences; the opening fence gains a `copy` chip right after its info string (`fish  copy`, and `copied` for a moment after a click) that puts the block's text on the clipboard and reads `copied` for a moment. A `diff` block goes side by side instead, under the same switch and width as an edit's diff, and `fish` gets bash's grammar, `.env` and TOML INI's, because highlight.js has none. `false` leaves pi's rows untouched | Assistant replies that tidy draws (needs `collapseTurns` or `finalReplyStyle`). A pi whose Markdown has no `renderToken` keeps its own code blocks, and tidy says so once at session start |
 
 ### Colors
 

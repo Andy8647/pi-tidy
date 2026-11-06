@@ -25,11 +25,14 @@
 import { sliceByColumn, stripTerminalSequences, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { USER_RAIL_GLYPH } from "./messages/user-message.ts";
+import { COPIED_CHIP, COPY_CHIP } from "./turns/code-blocks.ts";
 
 /** `null` drops the row. `leftTrim` is the columns taken off its left edge. */
 export type CleanedRow = { text: string; leftTrim: number } | null;
 
 const USER_RAIL_PREFIX = `${USER_RAIL_GLYPH} `;
+/** A block's opening fence with tidy's chip on it: the chip is chrome, the fence is not. */
+const FENCE_CHIP_RE = new RegExp(`^(\`\`\`[^\`]*) {2}(?:${COPY_CHIP}|${COPIED_CHIP})$`);
 
 const RULE_ROW_RE = /^─+$/;
 /** A rail message's top rule, with who and when set into it; `├` where a run's rail meets it. */
@@ -150,6 +153,17 @@ export function cleanTranscriptRows(
       continue;
     }
     rows.push({ text, leftTrim: 0 });
+  }
+
+  // The chip on a block's opening fence is chrome: a fence that ends in it copies as
+  // the fence alone.
+  for (let index = 0; index < rows.length; index++) {
+    const entry = rows[index];
+    if (!entry) continue;
+    const fence = FENCE_CHIP_RE.exec(entry.text.trimEnd());
+    if (!fence) continue;
+    rows[index] = { text: fence[1]!, leftTrim: entry.leftTrim };
+    changed = true;
   }
   return { rows, changed };
 }

@@ -6,7 +6,9 @@ import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
 import { cleanTranscriptRows } from "../src/clean-copy.ts";
-import { formatMessageTime, visibleText } from "../src/draw/frame-draw.ts";
+import { clipToWidth, formatMessageTime, visibleText } from "../src/draw/frame-draw.ts";
+import { DEFAULT_TOOL_ICON, toolKindIcon } from "../src/draw/icons.ts";
+import { paint } from "../src/draw/paint.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 import { joinBoxCorners, replyLabel, summaryLine, railRows } from "../src/turns/turn-view.ts";
 import { getTheme } from "../src/theme-access.ts";
@@ -75,6 +77,58 @@ test("the summary line is cached per frame but rebuilt when a second passes or t
   const after = summaryLine(turn, theme, W, false, 4000);
   assert.ok(after.includes("1 failed"), after);
   assert.notEqual(after, before, "a failure the turn gained lands on the next frame");
+});
+
+/**
+ * The folded turn's summary at `width`. A fresh turn per call: `summaryCache`
+ * keys on the turn and the width, and these reads are the same turn twice.
+ */
+function summaryAt(width: number, icons: boolean): string {
+  const { store } = fixture();
+  turnOptions.set({ ...turnOptions.get(), icons });
+  return summaryLine(store.byTool.get("a")!, getTheme()!, width, false, 4000);
+}
+
+test("the summary's counts and its LLM time wear the kind and provider glyphs", () => {
+  const line = summaryAt(W, true);
+  assert.ok(visibleWidth(line) <= W, line);
+  const text = visibleText(line);
+  assert.ok(text.includes("\u{f06e} read×1"), text);
+  assert.ok(text.includes("\u{f044} edit×1"), text);
+  assert.ok(text.includes("\uec82 LLM "), "anthropic's glyph, the one the reply's border draws");
+  assert.ok(text.includes("2 calls"), "the call total has no kind to name");
+});
+
+test("a row too narrow for the glyphs comes back as the plain line, count for count", () => {
+  const icon = summaryAt(W, true);
+  const plain = summaryAt(W, false);
+  const room = visibleWidth(icon);
+  assert.ok(room > visibleWidth(plain), "the glyphs cost cells");
+  assert.equal(summaryAt(room, true), icon, "its own width still fits the glyphs");
+  const tight = summaryAt(room - 1, true);
+  assert.equal(tight, summaryAt(room - 1, false), "the fallback is the current line, byte for byte");
+  const text = visibleText(tight);
+  assert.ok(!text.includes("\u{f06e}") && !text.includes("\uec82"), text);
+  assert.ok(text.includes("read×1") && text.includes("edit×1"), `the tail truncation must not eat a count:\n${text}`);
+});
+
+test("with icons off the summary is exactly the line it was before", () => {
+  const theme = getTheme()!;
+  const muted = (text: string) => theme.fg("muted", text);
+  const expected = [
+    paint(theme, turnOptions.get().assistantColor, "▸ took 1s"),
+    muted("LLM 0s"), muted("tools 0s"), theme.fg("toolTitle", "2 calls"), muted("read×1"), muted("edit×1"),
+  ].join(muted(" · "));
+  assert.equal(summaryAt(W, false), expected);
+  assert.equal(summaryAt(20, false), clipToWidth(expected, 20, "…"), "a clipped line clips the same way");
+});
+
+test("codemode has a glyph of its own, one cell wide like its neighbours", () => {
+  const glyph = toolKindIcon("codemode");
+  assert.notEqual(glyph, DEFAULT_TOOL_ICON);
+  assert.equal(visibleWidth(glyph), 1);
+  assert.equal(toolKindIcon("no-such-tool"), DEFAULT_TOOL_ICON, "an unmapped name keeps the wrench");
+  assert.equal(toolKindIcon("mcp"), "\u{f12e}", "mcp is still its own kind");
 });
 
 test("outer fold hides all process including thinking and always-shown edits; summary stays before final reply", () => {
@@ -326,7 +380,9 @@ test("OSC 133 zones stay at the frame's row edges, never inside it", () => {
   assert.ok(start, "the first body row carries zone A");
   assert.ok(start.startsWith("\x1b]133;A\x07"), "zone A must open the row, before the border");
   assert.ok(start.indexOf("│") > 0, "the border follows the marker");
-  const end = raw.find((line) => line.includes("\x1b]133;B\x07") && line.includes("```"));
+  // The reply's own last row: a folded turn's hidden rows carry their markers too.
+  let end: string | undefined;
+  for (let row = raw.length - 1; row >= 0; row--) if (raw[row]!.includes("\x1b]133;B\x07")) { end = raw[row]; break; }
   assert.ok(end, "the last body row carries zone B/C");
   assert.ok(end.endsWith("\x1b]133;B\x07\x1b]133;C\x07"), "zone B/C must close the row, after the border");
 });
@@ -396,7 +452,8 @@ test("a railed final reply has rules and a left rail, and copies as its text", (
     const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
     assert.equal(cleaned[0], null);
     assert.equal(cleaned.at(-1), null);
-    assert.ok(cleaned.slice(1, -1).every((row) => row && !row.text.startsWith("│")));
+    assert.ok(cleaned.slice(1, -1).every((row) => !row || !row.text.startsWith("│")), cleaned.slice(1, -1).map((row) => (row ? row.text : "NULL")).join("\n"));
+    assert.ok(cleaned.some((row) => row?.text.trim() === "const value = 2;"), "the code is still what copies");
   } finally {
     turnOptions.set(options);
   }
