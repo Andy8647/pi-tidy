@@ -12,7 +12,10 @@
  * - A rounded frame: a pair of equal-width edges in one column, every row between
  *   them wrapped in verticals. A corner may be a `├` where it meets a rail, and the
  *   frame may hang on rails (`│ ╭──╮`). All of that comes off, with the one-cell
- *   inset when every row has it.
+ *   inset when every row has it. The label on the top edge is the exception when it
+ *   names a file: the path a tool box puts there is what the selection was for, so it
+ *   stays while the corner, the padding rules, the title's icons and its copy chip
+ *   come off.
  * - A `rail` user message: two equal `─` rules, the top one possibly labelled, whose
  *   every row between them carries the rail.
  *
@@ -25,7 +28,7 @@
 import { sliceByColumn, stripTerminalSequences, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { USER_RAIL_GLYPH } from "./messages/user-message.ts";
-import { isOpenRule, isRuleOnly, ruleCells } from "./turns/code-blocks.ts";
+import { CHIP_LABELS, isOpenRule, isRuleOnly, ruleCells } from "./turns/code-blocks.ts";
 
 /** `null` drops the row. `leftTrim` is the columns taken off its left edge. */
 export type CleanedRow = { text: string; leftTrim: number } | null;
@@ -40,6 +43,44 @@ const HANG_RE = /^[│ ]*/;
 /** `├` is a corner where a rail meets it; a table's `├─┼─┤` never ends in a round one. */
 const FRAME_OPEN_RE = /^[╭├]─*(?: [^─]+ ─+)*╮$/;
 const FRAME_CLOSE_RE = /^[╰├]─*╯$/;
+/** The corner and the rules that pad the label out to the box's width. */
+const EDGE_LEAD_RE = /^[╭├][─ ]*/;
+/** The closing fill and corner of a labelled edge. */
+const EDGE_TAIL_RE = /[─ ]*╮$/;
+/** The glyphs a box puts in front of its title: kind icon, file icon. */
+const EDGE_ICONS_RE = /^(?:[\uE000-\uF8FF\u{F0000}-\u{FFFFF}]+\s*)+/u;
+
+/**
+ * A frame's top edge is not always chrome: the label it carries may be what the reader
+ * selected. A tool box puts the file's path there, and dragging along that border used
+ * to copy nothing at all. A reply's label says who answered and when, which is drawing,
+ * so it keeps coming off. Shape is all this has to go on: a label that ends in a word
+ * naming something on disk (a `/` inside it, or a leading `~`) is content.
+ */
+const EDGE_PATH_RE = /(^|\s)(~[^\s]*|[^\s]*\/[^\s]*)$/;
+
+function namesPath(label: string): boolean {
+  return EDGE_PATH_RE.test(label.trim());
+}
+
+/**
+ * The label a frame's top edge carries, and where it starts. The corner, the rules
+ * padding the row, the icons in front of a title and the copy chip after its path are
+ * drawing; the label itself stays byte-identical.
+ */
+function edgeLabel(edge: string): { text: string; offset: number } | undefined {
+  const lead = EDGE_LEAD_RE.exec(edge)![0];
+  const rest = edge.slice(lead.length);
+  const icons = EDGE_ICONS_RE.exec(rest)?.[0] ?? "";
+  let text = rest.slice(icons.length).replace(EDGE_TAIL_RE, "");
+  for (const chip of CHIP_LABELS) {
+    if (!text.endsWith(` ${chip}`)) continue;
+    text = text.slice(0, -chip.length - 1);
+    break;
+  }
+  if (!namesPath(text)) return undefined;
+  return { text, offset: visibleWidth(lead) + visibleWidth(icons) };
+}
 
 function isRailRow(text: string): boolean {
   return text.startsWith(USER_RAIL_PREFIX) || text.trimEnd() === USER_RAIL_GLYPH;
@@ -58,6 +99,8 @@ export function cleanTranscriptRows(
   const plain = lines.map((line) => stripTerminalSequences(line));
   const dropped = new Set<number>();
   const frameRows = new Map<number, { left: number; inset: number }>();
+  /** A top edge that carries a label: the label is content, the rest of the row is not. */
+  const labelRows = new Map<number, CleanedRow>();
   const railRows = new Map<number, string>();
   const flatRows = new Set<number>();
 
@@ -73,8 +116,10 @@ export function cleanTranscriptRows(
       const top = open[open.length - 1];
       if (!top || top.width !== visibleWidth(edge) || top.left !== left) continue;
       open.pop();
-      dropped.add(top.row);
       dropped.add(row);
+      const label = edgeLabel(plain[top.row]!.slice(top.left).trimEnd());
+      if (label) labelRows.set(top.row, { text: label.text, leftTrim: top.left + label.offset });
+      else dropped.add(top.row);
       const body = plain.slice(top.row + 1, row).map((text) => text.slice(left));
       const inset = body.every((text) => text.startsWith(`${USER_RAIL_GLYPH} `)) ? 1 : 0;
       for (let inner = top.row + 1; inner < row; inner++) frameRows.set(inner, { left, inset });
@@ -145,6 +190,12 @@ export function cleanTranscriptRows(
   for (let row = startRow; row <= endRow; row++) {
     if (dropped.has(row)) {
       rows.push(null);
+      changed = true;
+      continue;
+    }
+    const label = labelRows.get(row);
+    if (label) {
+      rows.push(label);
       changed = true;
       continue;
     }

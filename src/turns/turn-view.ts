@@ -2,7 +2,7 @@ import { Box, Container, Markdown, MouseRegion, Text, sliceByColumn, visibleWidt
 import { clipToWidth, formatMessageTime, italicDim, labeledRule, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
-import { COPIED_CHIP, COPIED_MS, COPY_CHIP, RULE_GLYPH, repaintChip, ruleCodeToken, ruleRows, type ChipSpan, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
+import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
@@ -213,7 +213,8 @@ function installMouse(component: any): void {
     // pointer gets the hand and the light for it while it is over those four cells.
     const code: CodeBlocks | undefined = this[CODE];
     // `spans` are body rows; the component's own rows start with the frame's top edge.
-    const chip = event.type === "move" ? (layout.spans as ChipSpan[] | undefined)?.find((span: ChipSpan) => span.row + layout.bodyTop === event.y && event.x >= span.x && event.x < span.end) : undefined;
+    const shift = layout.chipShift ?? 0;
+    const chip = event.type === "move" ? (layout.spans as ChipSpan[] | undefined)?.find((span: ChipSpan) => span.row + layout.bodyTop === event.y && event.x - shift >= span.x && event.x - shift < span.end) : undefined;
     const hot = event.type === "move" && !chip && layout.header && event.y === 0;
     const moved = event.type === "move" && ((code?.hover ?? -1) !== (chip?.index ?? -1) || !!this[HOVER] !== !!hot);
     if (event.type === "move") {
@@ -342,6 +343,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   // Code blocks first: the hook has to be in place before the rows are drawn.
   const code = codeBlocksFor(component, {
     theme,
+    icons: options.icons,
     enabled: options.codeBlocks,
     splitDiff: options.splitDiff,
     splitDiffMinWidth: options.splitDiffMinWidth,
@@ -352,18 +354,21 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     : railed
       ? railRows(draw(Math.max(1, width - TURN_RAIL_CELLS)), theme)
       : draw(framed && options.replyStyle !== "rules" ? width - 2 : width, framed);
+  // The frame pads every body row by one cell, so a chip's columns on the drawn row are
+  // one further right than the body they were measured on.
   const ruled = code ? ruleRows(body, code.blocks) : { rules: [], spans: [], opens: new Map<number, number>() };
   const rules = new Set(ruled.rules);
   const spans = ruled.spans;
   // A railed reply has no box to turn into corners, so the joints are drawn here.
   if (railed && rules.size) body = railRules(body, rules, theme, options.assistantColor);
   const flash = code?.flash;
+  const labels = chipLabels(options.icons);
   // A chip is repainted where it is, so the rule around it keeps its cells.
   const hotIndex = code && isRowHovered(component, "row") ? code.hover : undefined;
   for (const span of spans) {
     const copied = Boolean(flash && Date.now() < flash.until && flash.index === span.index);
     if (!copied && hotIndex !== span.index) continue;
-    body = repaintChip(body, span, theme, copied ? COPIED_CHIP : COPY_CHIP, hotIndex === span.index);
+    body = repaintChip(body, span, theme, copied ? labels.copied : labels.copy, hotIndex === span.index);
   }
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "turn-header");
@@ -439,7 +444,10 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     view.addChild(new Text(paint(theme, color, flat ? "─".repeat(width) : `╰${"─".repeat(width - 2)}╯`), 0, 0));
   } else view.addChild(source);
   const out = view.render(width);
-  const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0) };
+  // A body inside `ReplyBody` sits one cell right of the row: the pointer's column has
+  // to come back through that padding before it is compared with a chip's.
+  const chipShift = framed && options.replyStyle !== "rules" ? 1 : 0;
+  const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0), chipShift };
   component[LAYOUT] = layout;
   component[CACHE] = { turn, width, line, label, lead, color, replyStyle: options.replyStyle, framed, railOpen, body, out, layout };
   installMouse(component);

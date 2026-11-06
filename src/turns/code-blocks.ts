@@ -15,11 +15,26 @@ import { visibleText } from "../draw/frame-draw.ts";
 import { renderSplitDiff } from "../tools/split-diff.ts";
 import type { ThemeLike } from "../theme-access.ts";
 
-/** The chip's word, and what it says once the text is on the clipboard. */
-export const COPY_CHIP = "copy";
-export const COPIED_CHIP = "copied";
+/**
+ * The chip's label, and what it says once the text is on the clipboard. One cell of
+ * Nerd Font reads faster than the word and costs a rule three cells less, so the
+ * glyphs are the default; `icons: false` keeps the words, because a reader who turned
+ * the glyphs off should not meet one here.
+ */
+export const COPY_CHIP = "\u{f0192}"; // md-content_copy
+export const COPIED_CHIP = "\u{f00c}"; // fa-check
+const COPY_WORD = "copy";
+const COPIED_WORD = "copied";
 /** How long the chip keeps saying `copied`. */
 export const COPIED_MS = 1200;
+
+/** The chip's two labels for this config. */
+export function chipLabels(icons: boolean): { copy: string; copied: string } {
+  return icons ? { copy: COPY_CHIP, copied: COPIED_CHIP } : { copy: COPY_WORD, copied: COPIED_WORD };
+}
+
+/** Every shape a chip is painted in, so a row read back from the screen can be recognised. */
+export const CHIP_LABELS = [COPY_CHIP, COPIED_CHIP, COPY_WORD, COPIED_WORD] as const;
 /** The glyph a fence row is drawn with once it becomes a rule. */
 export const RULE_GLYPH = "─";
 
@@ -48,10 +63,14 @@ export interface CodeBlock {
   close: string;
   /** False when this pi cannot copy, and the rule carries no chip. */
   copyable: boolean;
+  /** The label the chip is drawn with, "" when there is none. */
+  chip: string;
 }
 
 export interface CodeBlockOptions {
   theme: ThemeLike;
+  /** `tidy.icons`: the chip is a glyph when on, a word when off. */
+  icons: boolean;
   /** `tidy.codeBlocks`: off leaves every block exactly as pi drew it. */
   enabled: boolean;
   splitDiff: boolean;
@@ -115,7 +134,7 @@ export function repaintChip(body: readonly string[], span: ChipSpan, theme: Them
   const out = [...body];
   const row = out[span.row];
   if (row === undefined) return out;
-  for (const was of [COPY_CHIP, COPIED_CHIP]) {
+  for (const was of CHIP_LABELS) {
     const painted = chipWord(theme, was, false);
     if (!row.includes(painted)) continue;
     out[span.row] = row.replace(painted, chipWord(theme, text, hot));
@@ -135,7 +154,8 @@ export function ruleCells(line: string): string {
 
 /** A block's opening rule: a language, the chip beside it, then rule to the end. */
 export function isOpenRule(line: string): boolean {
-  return /^─+ [^\s─]+ (?:copy|copied) ─*$/.test(ruleCells(line));
+  const chip = CHIP_LABELS.join("|");
+  return new RegExp(`^─+ [^\\s─]+ (?:${chip}) ─*$`).test(ruleCells(line));
 }
 
 /** A row that is nothing but rule glyphs, which is how a block closes. */
@@ -165,11 +185,12 @@ export function ruleCodeToken(
   // block is rebuilt around it rather than patched in place.
   const replaced = bodyRows(token.text, lang, width, visibleWidth(indent), options);
   const rows = replaced ? replaced.map((row) => `${indent}${row.trimEnd()}`) : lines.slice(1, 1 + count);
-  const open = ruleRow(width, options.theme, lang, options.canCopy ? COPY_CHIP : "");
+  const chip = options.canCopy ? chipLabels(options.icons).copy : "";
+  const open = ruleRow(width, options.theme, lang, chip);
   const close = ruleRow(width, options.theme);
   return {
     lines: [open, ...rows, close, ...lines.slice(2 + count)],
-    block: { lang, text: token.text, open: visibleText(open), close: visibleText(close), copyable: options.canCopy },
+    block: { lang, text: token.text, open: visibleText(open), close: visibleText(close), copyable: options.canCopy, chip },
   };
 }
 
@@ -216,10 +237,10 @@ export function ruleRows(body: readonly string[], blocks: readonly CodeBlock[]):
     if (text !== block.open.trim()) continue;
     rules.push(row);
     opens.set(row, next);
-    if (block.copyable) {
+    if (block.chip) {
       const drawn = visibleText(body[row]!);
-      const x = visibleWidth(drawn.slice(0, drawn.lastIndexOf(COPY_CHIP)));
-      spans.push({ row, index: next, x, end: x + COPY_CHIP.length });
+      const x = visibleWidth(drawn.slice(0, drawn.lastIndexOf(block.chip)));
+      spans.push({ row, index: next, x, end: x + visibleWidth(block.chip) });
     }
     pending = false;
   }

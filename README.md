@@ -27,7 +27,8 @@ every box gets a rounded transparent frame.
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators
-- **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box
+- **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
+- **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
 - **Scroll-safe caching** — an unchanged box costs one string comparison per frame
 
@@ -155,7 +156,7 @@ and `messageBorderColors.assistant` also take `#rrggbb`.
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `enabled` | `true` | Turns the whole extension on or off | Always |
-| `icons` | `true` | Nerd Font icons on boxes, rows and message labels. Set `false` if your terminal font has no Nerd Font glyphs | Always. Off, a user message loses its label, so its time goes too |
+| `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`) | Always. Off, a user message loses its label, so its time goes too |
 
 ### User messages
 
@@ -204,7 +205,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form |
 | `splitDiffMinWidth` | `72` | Box width below which the panes give way to pi's unified diff | Needs `splitDiff` |
 | `diffLines` | `20` | Diff rows in a collapsed edit box, starting a third of the budget above the first change, with `… (N more lines, M total, ctrl+o to expand)` under them. `0` keeps just the summary row | Only when the panes are drawn. pi's unified diff has no limit, so with `splitDiff: false` or in a narrower box a long diff is shown whole |
-| `codeBlocks` | `true` | Draws a reply's fenced blocks as a section: the two fence rows become rules, the opening one labelled with its language and a `copy` chip (`├─ fish copy ────┤`), and they join the reply's frame or rail at the edges. The code rows are pi's own, apart from the chip: it lights up and the pointer turns into a hand while it is under it (needs a terminal without tmux, where pi tracks the pointer), and reads `copied` for a moment after a click puts the block's text on the clipboard. A `diff` block goes side by side instead, under the same switch and width as an edit's diff, and languages highlight.js has no grammar for (`fish`, `.env`, TOML) get the closest one it does. `false` leaves pi's own fences | Assistant replies that tidy draws (needs `collapseTurns` or `finalReplyStyle`). A pi whose Markdown has no `renderToken` keeps its own code blocks, and tidy says so once at session start |
+| `codeBlocks` | `true` | Draws a reply's fenced blocks as a section: the two fence rows become rules, the opening one labelled with its language and a copy chip (`├─ fish 󰆒 ────┤`), and they join the reply's frame or rail at the edges. The code rows are pi's own, apart from the chip: it lights up and the pointer turns into a hand while it is under it (needs a terminal without tmux, where pi tracks the pointer), and shows a tick for a moment after a click puts the block's text on the clipboard. A `diff` block goes side by side instead, under the same switch and width as an edit's diff, and languages highlight.js has no grammar for (`fish`, `.env`, TOML) get the closest one it does. `false` leaves pi's own fences | Assistant replies that tidy draws (needs `collapseTurns` or `finalReplyStyle`). A pi whose Markdown has no `renderToken` keeps its own code blocks, and tidy says so once at session start. With `icons: false` the chip is the word `copy` instead |
 
 ### Colors
 
@@ -228,7 +229,7 @@ mauve for compactions, peach for branch summaries, sky for skills and yellow for
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `dedupeErrors` | `true` | pi prints its own error rows (a failed request, an extension that threw) once per retry attempt. Folds the repeats into the first as `×N` and frames that row (`╭─ error ×3 ─╮`). pi's "Retry failed after N attempts" replaces it when pi gives up | Error rows only. Warnings, notes and an abort stay as pi drew them |
-| `cleanCopy` | `true` | Takes tidy's frames, corners, rail glyphs and rules out of what you copy, on select or with the copy key | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy. A `rules` user message with `icons: false` has no label to tell its rules from a model's, so they stay |
+| `cleanCopy` | `true` | Takes tidy's frames, corners, rail glyphs and rules out of what you copy, on select or with the copy key. A top border's label stays when it names a file — a `write` or `edit` box's path is what the drag was for | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy. A `rules` user message with `icons: false` has no label to tell its rules from a model's, so they stay |
 
 ## How it works
 
@@ -305,7 +306,12 @@ A selection in the transcript copies without tidy's chrome (`cleanCopy`). A fram
 recognised by its shape: rounded corners of equal width in one column, with a vertical
 on both sides of every row. A table's square corners and a blockquote's `│` stay. So
 does the rail beside an open run's rows, which a selection cannot tell from a quote,
-and a rounded box a model drew in an unframed message is taken for a frame.
+and a rounded box a model drew in an unframed message is taken for a frame. A top
+border's label survives when it names a file: dragging the path out of a tool box's
+border copies the path, and `ctrl+x` on that selection has something to hand over.
+
+A `write` or `edit` box's path also has a chip in the border, one click away from the
+clipboard, and the same on a reply's code block (see `codeBlocks`).
 
 A row you can click lights up under the pointer, and the pointer turns into a hand
 while it is on one (OSC 22: Ghostty, kitty, foot and WezTerm draw it; other
