@@ -8,13 +8,15 @@ What changed in each released version of pi-tidy (published as
 
 ### Added
 
-**A reply's fenced code blocks gain a `copy` chip on their opening fence** (`tidy.codeBlocks`). pi's own rows stay as
-they are: the fence, the indent, the colours. The chip sits after the info string (` ```fish  copy`) and clicking it
-puts the block's own text on the clipboard, with the chip reading `copied` for a moment. A `diff` block goes side by
-side instead, under the same `splitDiff` switch and `splitDiffMinWidth` as an edit's diff, and keeps the unified form
-on a row too narrow for two panes. A language highlight.js has no grammar for gets the closest one that exists:
-`fish` is read as a shell, and `.env` and TOML as INI, where pi alone paints them one flat colour. `tidy.codeBlocks: false` leaves every row untouched. A pi whose
-Markdown draws its code blocks itself (no `renderToken` to hook) is unaffected, and tidy says so once at session start.
+**A reply's fenced code blocks are drawn as a section** (`tidy.codeBlocks`). The two fence rows become rules that
+join the reply's frame or rail (`├─ fish ──── copy ─┤`), with the language on the opening one and a chip beside it:
+clicking it puts the block's own text on the clipboard, and the chip reads `copied` for a moment. Under the pointer the chip
+lights up and the pointer becomes a hand, the same hover the folded rows use. The code rows stay
+as pi drew them. A `diff` block goes side by side instead, under the same `splitDiff` switch and `splitDiffMinWidth`
+as an edit's diff, and keeps the unified form on a row too narrow for two panes. A language highlight.js has no
+grammar for gets the closest one that exists: `fish` is read as a shell, and `.env` and TOML as INI, where pi alone
+paints them one flat colour. `tidy.codeBlocks: false` leaves pi's own fences. A pi whose Markdown draws its code
+blocks itself (no `renderToken` to hook) is unaffected, and tidy says so once at session start.
 
 **The run summary's counts wear kind glyphs, and its LLM time wears the provider's.** Folded, every `kind×N` and
 the `LLM` timing get a Nerd Font glyph in front: the tool kind's own, and for the timing the same provider glyph

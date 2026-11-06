@@ -448,7 +448,8 @@ test("a railed final reply has rules and a left rail, and copies as its text", (
     const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
     assert.ok(bottom > top + 1);
     assert.equal(visibleWidth(rows[bottom]!), W);
-    for (const line of plain.slice(top + 1, bottom)) assert.match(line, /^│/);
+    // A code block's rules meet the rail with a corner, and the rest keep it.
+    for (const line of plain.slice(top + 1, bottom)) assert.match(line, /^[│├]/, line);
     const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
     assert.equal(cleaned[0], null);
     assert.equal(cleaned.at(-1), null);

@@ -2,7 +2,7 @@ import { Box, Container, Markdown, MouseRegion, Text, sliceByColumn, visibleWidt
 import { clipToWidth, formatMessageTime, italicDim, labeledRule, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
-import { COPIED_MS, chipAsCopied, chipSpans, decorateCodeToken, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
+import { COPIED_CHIP, COPIED_MS, COPY_CHIP, RULE_GLYPH, repaintChip, ruleCodeToken, ruleRows, type ChipSpan, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
@@ -169,11 +169,21 @@ class ReplyBody extends Box {
   private theme: ThemeLike;
   private color: string;
   private closed: boolean;
+  /** Rows of the child that are a code block's rule, by index. */
+  private rules: ReadonlySet<number>;
   /** `closed` draws the right border too; a rail has only the left one. */
-  constructor(theme: ThemeLike, color: string, closed: boolean) { super(1, 0); this.theme = theme; this.color = color; this.closed = closed; }
+  constructor(theme: ThemeLike, color: string, closed: boolean, rules: ReadonlySet<number> = new Set()) {
+    super(1, 0);
+    this.theme = theme;
+    this.color = color;
+    this.closed = closed;
+    this.rules = rules;
+  }
   override render(width: number): string[] {
     const border = paint(this.theme, this.color, "│");
-    return super.render(width).map((line) => {
+    const joint = paint(this.theme, this.color, this.closed ? "┤" : "");
+    const rule = this.theme.fg("muted", RULE_GLYPH);
+    return super.render(width).map((line, row) => {
       // pi's OSC 133 zones belong at the row's edges. The frame used to leave
       // them inside: zone A landed after the left border, and B/C before the
       // right one. Terminals that cache semantic prompts then misrender the
@@ -182,10 +192,16 @@ class ReplyBody extends Box {
       const clean = markers.length ? line.replace(ZONE_MARKERS, "") : line;
       const start = markers.filter((marker) => marker === ZONE_A).join("");
       const end = markers.filter((marker) => marker !== ZONE_A).join("");
+      // A rule joins the frame: the border cell becomes a corner and the padding
+      // cell beside it turns into rule, so the line is unbroken edge to edge.
+      if (this.rules.has(row)) {
+        return start + paint(this.theme, this.color, "├") + rule + sliceByColumn(clean, 2, Math.max(0, width - 4)) + rule + joint + end;
+      }
       return start + border + sliceByColumn(clean, 1, width - 2) + (this.closed ? border : "") + end;
     });
   }
 }
+
 function installMouse(component: any): void {
   if (component.handleMouse?.[MOUSE]) return;
   const previous = component.handleMouse;
@@ -193,15 +209,21 @@ function installMouse(component: any): void {
   const wrapped = function (this: any, event: TuiMouseEvent) {
     const layout = this[LAYOUT];
     if (!layout || !tidyEnabled.get()) return previous?.call(this, event);
-    const hot = event.type === "move" && layout.header && event.y === 0;
-    const changed = event.type === "move" && !!this[HOVER] !== !!hot;
+    // The chip is the one place a click means something narrower than a row, so the
+    // pointer gets the hand and the light for it while it is over those four cells.
+    const code: CodeBlocks | undefined = this[CODE];
+    // `spans` are body rows; the component's own rows start with the frame's top edge.
+    const chip = event.type === "move" ? (layout.spans as ChipSpan[] | undefined)?.find((span: ChipSpan) => span.row + layout.bodyTop === event.y && event.x >= span.x && event.x < span.end) : undefined;
+    const hot = event.type === "move" && !chip && layout.header && event.y === 0;
+    const moved = event.type === "move" && ((code?.hover ?? -1) !== (chip?.index ?? -1) || !!this[HOVER] !== !!hot);
     if (event.type === "move") {
       this[HOVER] = !!hot;
-      const stateChanged = hot ? claimHover(this, "turn-header") : claimHover(null, null);
-      if (changed || stateChanged) requestHoverRender();
+      if (code) code.hover = chip?.index;
+      const stateChanged = chip ? claimHover(this, "row") : hot ? claimHover(this, "turn-header") : claimHover(null, null);
+      if (moved || stateChanged) requestHoverRender();
     }
     const result = layout.view.handleMouse(event);
-    return changed ? { ...result, handled: true, render: true } : result;
+    return moved ? { ...result, handled: true, render: true } : result;
   };
   (wrapped as any)[MOUSE] = true;
   component.handleMouse = wrapped;
@@ -261,7 +283,7 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
   markdown.renderToken = function (this: unknown, token: any, width: number, next: unknown, context: unknown) {
     const lines = renderToken.call(this, token, width, next, context);
     if (token?.type !== "code" || !Array.isArray(lines)) return lines;
-    const railed = decorateCodeToken(lines, token, width, hook.options);
+    const railed = ruleCodeToken(lines, token, width, hook.options);
     if (!railed) return lines;
     hook.blocks.push(railed.block);
     return railed.lines;
@@ -278,6 +300,27 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
   };
   component[CODE] = hook;
   return hook;
+}
+
+/**
+ * A rule in a railed reply joins the rail on its left and runs on to the row's end:
+ * `├─ fish ─── copy ──────`. The rows come back in place, so indexes still match.
+ */
+function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: ThemeLike, color: string): string[] {
+  const out = [...body];
+  const glyph = theme.fg("muted", RULE_GLYPH);
+  for (const row of rules) {
+    const line = out[row];
+    if (line === undefined) continue;
+    const lead = line.startsWith(ZONE_A) ? ZONE_A : "";
+    const clean = lead ? line.slice(ZONE_A.length) : line;
+    const width = visibleWidth(clean);
+    // rail (2) + the Markdown's own padding (1) in front of the rule's content.
+    const content = sliceByColumn(clean, 3, Math.max(0, width - 3));
+    const rest = Math.max(0, width - 2 - visibleWidth(content));
+    out[row] = `${lead}${paint(theme, color, "├")}${glyph}${content}${glyph.repeat(rest)}`;
+  }
+  return out;
 }
 
 /** Decorate the existing message view, never a second markdown renderer. */
@@ -309,11 +352,18 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     : railed
       ? railRows(draw(Math.max(1, width - TURN_RAIL_CELLS)), theme)
       : draw(framed && options.replyStyle !== "rules" ? width - 2 : width, framed);
-  const spans = code ? chipSpans(body, code.blocks) : [];
+  const ruled = code ? ruleRows(body, code.blocks) : { rules: [], spans: [], opens: new Map<number, number>() };
+  const rules = new Set(ruled.rules);
+  const spans = ruled.spans;
+  // A railed reply has no box to turn into corners, so the joints are drawn here.
+  if (railed && rules.size) body = railRules(body, rules, theme, options.assistantColor);
   const flash = code?.flash;
-  if (flash && Date.now() < flash.until) {
-    const span = spans.find((entry) => entry.index === flash.index);
-    if (span) body = chipAsCopied(body, span, theme);
+  // A chip is repainted where it is, so the rule around it keeps its cells.
+  const hotIndex = code && isRowHovered(component, "row") ? code.hover : undefined;
+  for (const span of spans) {
+    const copied = Boolean(flash && Date.now() < flash.until && flash.index === span.index);
+    if (!copied && hotIndex !== span.index) continue;
+    body = repaintChip(body, span, theme, copied ? COPIED_CHIP : COPY_CHIP, hotIndex === span.index);
   }
   if (!header && !framed) return body;
   const hovered = header && isRowHovered(component, "turn-header");
@@ -382,14 +432,14 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     view.addChild(new Text(top, 0, 0));
     if (options.replyStyle === "rules") view.addChild(source);
     else {
-      const box = new ReplyBody(theme, color, !flat);
+      const box = new ReplyBody(theme, color, !flat, rules);
       box.addChild(source);
       view.addChild(box);
     }
     view.addChild(new Text(paint(theme, color, flat ? "─".repeat(width) : `╰${"─".repeat(width - 2)}╯`), 0, 0));
   } else view.addChild(source);
   const out = view.render(width);
-  const layout = { view, header };
+  const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0) };
   component[LAYOUT] = layout;
   component[CACHE] = { turn, width, line, label, lead, color, replyStyle: options.replyStyle, framed, railOpen, body, out, layout };
   installMouse(component);
