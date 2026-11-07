@@ -12,6 +12,7 @@ import { paint } from "../src/draw/paint.ts";
 import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 import { joinBoxCorners, replyLabel, summaryLine, railRows } from "../src/turns/turn-view.ts";
 import { getTheme } from "../src/theme-access.ts";
+import { jobForTool, noteJobMessage, resetJobs } from "../src/tools/background-jobs.ts";
 
 initTheme("dark");
 const cwd = process.cwd();
@@ -63,6 +64,26 @@ function click(chat: Container, predicate: (line: string) => boolean, last = fal
   assert.notEqual(y, undefined, lines.join("\n"));
   return chat.handleMouse({ type: "click", button: "left", x: 4, y: y!, screenX: 4, screenY: y!, width: W, height: lines.length, shift: false, alt: false, ctrl: false });
 }
+
+test("a folded turn's summary counts what its jobs reported", () => {
+  const { store } = fixture("afterRun", true);
+  const turn = store.byTool.get("a")!;
+  const theme = getTheme()!;
+  assert.ok(!summaryLine(turn, theme, W, false, 2000).includes("matched"), "nothing reported yet");
+  resetJobs();
+  jobForTool({
+    toolName: "process", toolCallId: "a", args: { action: "start" }, isPartial: false,
+    result: { details: { process: { id: "p1", name: "ticker", status: "running", startTime: 1000 } } },
+  });
+  noteJobMessage({ customType: "ad-process:notification", details: {
+    kind: "log_match", processId: "p1", timestamp: 1900, logMatch: { pattern: "tick", stream: "stdout", line: "tick 5" },
+  } });
+  const line = summaryLine(turn, theme, W, false, 2000);
+  assert.ok(line.includes("1 matched"), line);
+  turn.open = true;
+  assert.ok(!summaryLine(turn, theme, W, false, 2000).includes("matched"), "opened, the row itself carries it");
+  resetJobs(); // the store is global: later fixtures must not inherit this job
+});
 
 test("the summary line is cached per frame but rebuilt when a second passes or the turn moves", () => {
   const { store } = fixture("afterRun", false);
