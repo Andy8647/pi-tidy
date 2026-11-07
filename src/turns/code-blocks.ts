@@ -65,6 +65,8 @@ export interface CodeBlock {
   copyable: boolean;
   /** The label the chip is drawn with, "" when there is none. */
   chip: string;
+  /** Inside a quote or a list item: its rules are indented, so they cannot join the frame. */
+  nested?: boolean;
 }
 
 export interface CodeBlockOptions {
@@ -209,9 +211,28 @@ function bodyRows(text: string, lang: string, width: number, indent: number, opt
 }
 
 /**
- * The rows of a body that are a block's rules, with the chip's columns on the
- * opening one. Rows arrive with the message's padding in front, so the label is
- * matched with both ends off; the chip is measured on the row as drawn.
+ * A row's visible text with a quote's border or a list item's marker taken off, and
+ * whether it had one. What is left is the rule's own glyphs and its label.
+ */
+function ruleText(row: string): { bare: string; prefixed: boolean } {
+  const text = visibleText(row).trim();
+  const prefix = /^(?:[│>]\s*|\d+[.)]\s+)/.exec(text);
+  return prefix ? { bare: text.slice(prefix[0].length).trim(), prefixed: true } : { bare: text, prefixed: false };
+}
+
+/** Whether a row is this block's opening rule: the label, then rule to the end. */
+function isOpening(bare: string, block: CodeBlock): boolean {
+  // A row too narrow for the label drew a plain rule, and so did this pi when it cannot copy.
+  if (!block.chip || !block.open.includes(block.chip)) return /^─+$/.test(bare);
+  const label = `${block.lang} ${block.chip}`;
+  return bare.startsWith(label) && /^─*$/.test(bare.slice(label.length).trim());
+}
+
+/**
+ * The rows of a body that are a block's rules, with the chip's columns on the opening
+ * one. A rule is recognised by its shape, not by the cells it was drawn with: a block
+ * inside a quote or a list is drawn narrower, and a wrapped body is more rows than its
+ * token, so the number of `─` in a rule says nothing about which rule it is.
  */
 export function ruleRows(body: readonly string[], blocks: readonly CodeBlock[]): { rules: number[]; spans: ChipSpan[]; opens: Map<number, number> } {
   const rules: number[] = [];
@@ -222,22 +243,24 @@ export function ruleRows(body: readonly string[], blocks: readonly CodeBlock[]):
   let pending = true;
   for (let row = 0; row < body.length && next < blocks.length; row++) {
     const block = blocks[next]!;
-    // The row carries the message's padding and the width's, and a labelled rule
-    // starts with a space of its own: compare with the edges off on both sides.
-    const text = visibleText(body[row]!).trim();
+    const { bare, prefixed } = ruleText(body[row]!);
     // A closing rule is a bare run of them, so it matches every block's: only look
     // for one once its own block's opening row has been seen.
     if (!pending) {
-      if (text !== block.close.trim()) continue;
-      rules.push(row);
+      if (!/^─+$/.test(bare)) continue;
+      // Only a rule with nothing in front can take the frame's corner. A quote or a
+      // list marker pushes it right, and so does a nested block's tab, so both stay
+      // a plain row: a joint in the middle of a frame is not a joint.
+      if (!prefixed && !block.nested) rules.push(row);
       next++;
       pending = true;
       continue;
     }
-    if (text !== block.open.trim()) continue;
-    rules.push(row);
+    if (!isOpening(bare, block)) continue;
+    if (!prefixed && !block.nested) rules.push(row);
     opens.set(row, next);
-    if (block.chip) {
+    // A row too narrow for its label drew a plain rule: there is no chip to hit.
+    if (block.chip && block.open.includes(block.chip)) {
       const drawn = visibleText(body[row]!);
       const x = visibleWidth(drawn.slice(0, drawn.lastIndexOf(block.chip)));
       spans.push({ row, index: next, x, end: x + visibleWidth(block.chip) });

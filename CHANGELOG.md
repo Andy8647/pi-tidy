@@ -23,6 +23,24 @@ corner, the padding rules, the title's icons and the chip taken off; a reply's `
 **The code block chip's hit range was one cell left of it on a framed reply** — the frame's padding was not counted,
 which the four-cell word `copy` hid. It is measured on the drawn row now.
 
+**A reply with no frame had a chip nothing answered.** `presentTurn` returns early when a message has no turn header
+and no reply frame, and that return came before the layout and the mouse handler were installed: with
+`finalReplyStyle: "off"`, and on every reply while it streams, the chip was painted and a click did nothing, hover included.
+The early return now only takes the messages that have no hit target, so a reply without chrome keeps its fast path and a
+reply with a chip gets the handler it needs.
+
+**A block on an open turn's rail had no joint and no chip.** The rules were matched after the rail went on, and a railed
+row's `│` never equals a rule's own text, so the block kept a plain border and its chip was dead. The rules are measured
+before the rail now: a block on the rail joins it (`├─ fish 󰆒 ────`) and its chip copies like any other.
+
+**One block could stop every later chip in the reply, and a repeated block could copy the wrong one.** A rule was
+recognised by the cells it was drawn with, so a block inside a quote or a list item (drawn narrower, with a `│` or a
+`1.` in front) never matched, and no later block was matched either. On pi 1.5 a block pi has already drawn is reused
+without `renderToken` running, so the blocks tidy knew about and the blocks on the rows drifted apart: with two identical
+blocks and a third, the second chip copied the third block's text. The rules are matched by their shape and the blocks
+are read from Markdown's tokens now. A rule too narrow for its label draws no chip and no longer gets an invisible hit
+target on its last cell.
+
 ### Changed
 
 **The copy chips are glyphs**: `󰆒` (md-content_copy) at rest and `󰌌` (fa-check) after a copy, instead of `copy` and
