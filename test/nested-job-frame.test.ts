@@ -22,8 +22,9 @@ function setup(config: Record<string, unknown> = {}) {
   const h = harness();
   loadTidy(tidy, h.pi, { icons: false, frameMessages: false, collapseTurns: "off", frameFinalReply: false, ...config });
   function emit(name: string, event: any = {}) {
+    const context = { sessionManager: { getBranch: () => [] }, ui: { notify() {} } };
     for (const handler of h.handlers.get(name) ?? []) {
-      const patch = handler(event, {});
+      const patch = handler(event, context);
       if (patch) Object.assign(event, patch);
     }
     return event;
@@ -244,6 +245,40 @@ test("a log match lives on the job row, and narrow terminals remain width-correc
   assert.ok(h.frame().some((line) => line.includes("READY matched")));
   assert.ok(!h.frame().some((line) => line.includes("[process]")));
   for (const width of [20, 40, 90]) h.frame(width);
+});
+
+test("the matched line itself waits on a row under its job, inside the group", () => {
+  const h = setup();
+  h.start("ticker");
+  h.finish();
+  h.notice("ticker", "log_match", { logMatch: { pattern: "tick", stream: "stdout", line: "tick 5" } });
+  let lines = h.frame();
+  assert.ok(!lines.some((line) => line.includes("[process]")), "no block of its own");
+  assert.ok(!lines.some((line) => line.includes("tick 5")), "a folded group keeps one row for a running job");
+  h.click("1 call");
+  lines = h.frame();
+  assert.ok(lines.some((line) => line.includes("matched stdout: tick 5")), lines.join("\n"));
+  for (const width of [20, 40, 90]) h.frame(width);
+});
+
+test("turn folding does not bring a notice back, and an unowned one still shows", () => {
+  const h = setup({ collapseTurns: "afterRun" });
+  h.start("ticker");
+  h.finish();
+  h.notice("ticker", "log_match", { logMatch: { pattern: "tick", line: "tick 5" } });
+  assert.ok(!h.frame().some((line) => line.includes("[process]")), "its row carries the pattern");
+  h.notice("stranger", "success");
+  assert.ok(h.frame().some((line) => line.includes('"stranger"')), "nothing owns it, so it keeps its block");
+});
+
+test("hideJobNotifications: false keeps the block instead of also growing rows", () => {
+  const h = setup({ hideJobNotifications: false });
+  h.start("ticker");
+  h.finish();
+  h.notice("ticker", "log_match", { logMatch: { pattern: "tick", line: "tick 5" } });
+  assert.ok(h.frame().some((line) => line.includes('[process] "ticker"')));
+  h.click("1 call");
+  assert.ok(!h.frame().some((line) => line.includes("matched stdout: tick 5")), "the block is the record");
 });
 
 test("multiline task names and log patterns cannot inject physical terminal rows", () => {

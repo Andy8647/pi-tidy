@@ -13,6 +13,7 @@ import {
   ANIMATE_MS,
   connectJobs,
   jobForTool,
+  jobNoteCount,
   noteJobMessage,
   piProcessesProvider,
   resetJobs,
@@ -151,6 +152,45 @@ test("notification messages: hidden only when their job has a row", () => {
   setJobOptions({ enabled: false, hideNotifications: true });
   assert.equal(noteJobMessage(notification("p1", "killed")), false, "backgroundJobs: false");
   assert.equal(jobForTool(startCall("p1")), undefined);
+});
+
+test("a matched log line is kept for the rows under its job", () => {
+  resetJobs();
+  connectJobs(processesBus({ p1: info("p1") }));
+  const job = jobForTool({ ...startCall("p1"), toolCallId: "call-1" })!;
+  const match = (line: string) => notification("p1", "log_match", { logMatch: { pattern: "tick", stream: "stdout", line } });
+  noteJobMessage(match("tick 5"));
+  assert.equal(job.note, "tick matched", "the row keeps the pattern");
+  assert.deepEqual(job.notifications, [{ text: "matched stdout: tick 5", at: 21_000 }]);
+  // The same report also arrives as a live event, and every render asks again:
+  // one row per report, not one per frame.
+  noteJobMessage(match("tick 5"));
+  connectJobs(processesBus({ p1: info("p1") }));
+  noteJobMessage(match("tick 5"));
+  assert.equal(job.notifications?.length, 1);
+  // A pattern with no line is already on the row: nothing to add below it.
+  noteJobMessage(notification("p1", "log_match", { logMatch: { pattern: "READY" } }));
+  assert.equal(job.notifications?.length, 1);
+  assert.equal(jobNoteCount("call-1"), 1);
+});
+
+test("a matched line cannot carry terminal controls into a row", () => {
+  resetJobs();
+  connectJobs(processesBus({ p1: info("p1") }));
+  const job = jobForTool(startCall("p1"))!;
+  noteJobMessage(notification("p1", "log_match", { logMatch: { pattern: "x", stream: "stderr", line: "\u001b[2J\u001b]0;title\u0007  tick\n5  " } }));
+  assert.equal(job.notifications?.[0]?.text, "matched stderr: tick 5");
+});
+
+test("a job's notifications stop at ten, the oldest going first", () => {
+  resetJobs();
+  connectJobs(processesBus({ p1: info("p1") }));
+  const job = jobForTool(startCall("p1"))!;
+  for (let tick = 0; tick < 12; tick++) {
+    noteJobMessage(notification("p1", "log_match", { logMatch: { pattern: "tick", line: `tick ${tick}` } }));
+  }
+  assert.equal(job.notifications?.length, 10);
+  assert.equal(job.notifications?.[0]?.text, "matched stdout: tick 2");
 });
 
 test("describe: what a row says for each ending", () => {

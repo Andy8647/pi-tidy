@@ -31,6 +31,16 @@ export interface JobState {
   signal?: string;
   /** The latest thing worth surfacing, e.g. `READY matched`. */
   note?: string;
+  /** What the job reported, oldest first: the rows under its own row. */
+  notifications?: JobNotification[];
+}
+
+/** One thing a job told the session about itself — a matched log line, today. */
+export interface JobNotification {
+  /** One line, already stripped of what a terminal would obey. */
+  text: string;
+  /** Epoch ms, so the same report arriving twice (live event and its message) lands once. */
+  at?: number;
 }
 
 export interface JobDetails {
@@ -91,6 +101,19 @@ interface ProcessInfoLike {
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
 const str = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
+/**
+ * A raw log line on its way into a row. Matched text is whatever the process
+ * printed, so it can carry colours and control sequences a terminal obeys.
+ */
+function plainLine(value: string): string {
+  return value
+    .replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)/g, "")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
 /** pi-processes' `ProcessInfo` → our state. */
 function fromProcessInfo(info: ProcessInfoLike): Partial<JobState> {
   const live = info.status === "running" || info.status === "terminating" || info.status === "terminate_timeout";
@@ -121,7 +144,7 @@ function fromProcessNotification(details: unknown): { id: string; patch: Partial
     timestamp?: unknown;
     exitCode?: unknown;
     signal?: { name?: unknown } | null;
-    logMatch?: { pattern?: unknown };
+    logMatch?: { pattern?: unknown; line?: unknown; stream?: unknown };
   };
   const id = str(d?.processId);
   if (!id) return undefined;
@@ -136,7 +159,14 @@ function fromProcessNotification(details: unknown): { id: string; patch: Partial
       return { id, patch: { status: "killed", endTime, signal: str(d.signal?.name) } };
     case "log_match": {
       const pattern = str(d.logMatch?.pattern);
-      return pattern ? { id, patch: { note: `${pattern} matched` } } : undefined;
+      if (!pattern) return undefined;
+      // The pattern is what the row carries; the matched line is the part the
+      // row cannot hold, and the reason the notifications get rows of their own.
+      const line = plainLine(str(d.logMatch?.line) ?? "");
+      const stream = str(d.logMatch?.stream) === "stderr" ? "stderr" : "stdout";
+      return line
+        ? { id, patch: { note: `${pattern} matched`, notifications: [{ text: `matched ${stream}: ${line}`, at: endTime }] } }
+        : { id, patch: { note: `${pattern} matched` } };
     }
     default:
       return undefined;
@@ -196,6 +226,8 @@ interface Store {
   jobs: Map<string, JobState>;
   /** Jobs whose start row has rendered — their notifications are redundant. */
   rows: Set<string>;
+  /** Call id → the jobs that call started, so a turn's summary can count what they said. */
+  callJobs: Map<string, string[]>;
   /** Nested call → transcript-visible root, and the jobs owned by each root. */
   parents: Map<string, string>;
   nested: Map<string, JobState[]>;
@@ -219,6 +251,7 @@ function jobsStore(): Store {
       providers: [piProcessesProvider],
       jobs: new Map(),
       rows: new Set(),
+      callJobs: new Map(),
       parents: new Map(),
       nested: new Map(),
       pending: new Map(),
@@ -232,6 +265,7 @@ function jobsStore(): Store {
   s.nested ??= new Map();
   s.pending ??= new Map();
   s.details ??= new Map();
+  s.callJobs ??= new Map();
   return s;
 }
 
@@ -241,6 +275,22 @@ export function setJobOptions(options: { enabled: boolean; hideNotifications: bo
 
 export function jobsEnabled(): boolean {
   return jobsStore().options.enabled;
+}
+
+/** A watcher that ticks every second must not grow the session file. */
+const NOTE_LIMIT = 10;
+
+/** Notifications pile up; the same one arriving twice (event and message) lands once. */
+function appendNotes(job: JobState, incoming: readonly JobNotification[]): boolean {
+  const list = job.notifications ?? (job.notifications = []);
+  let added = false;
+  for (const note of incoming) {
+    if (list.some((seen) => seen.text === note.text && seen.at === note.at)) continue;
+    list.push(note);
+    added = true;
+  }
+  if (list.length > NOTE_LIMIT) list.splice(0, list.length - NOTE_LIMIT);
+  return added;
 }
 
 /** Ended states never go back to running; "gone" yields to a real answer. */
@@ -253,11 +303,26 @@ function apply(s: Store, id: string, patch: Partial<JobState>): boolean {
   }
   let changed = false;
   for (const [key, value] of Object.entries(patch) as Array<[keyof JobState, unknown]>) {
-    if (value === undefined || job[key] === value) continue;
+    if (value === undefined || key === "notifications" || job[key] === value) continue;
     (job as unknown as Record<string, unknown>)[key] = value;
     changed = true;
   }
+  if (patch.notifications?.length && appendNotes(job, patch.notifications)) changed = true;
   return changed;
+}
+
+/** Pending patches merge field by field; notifications append rather than replace. */
+function mergePending(s: Store, id: string, patch: Partial<JobState>): void {
+  const previous = s.pending.get(id);
+  const notifications = [...(previous?.notifications ?? []), ...(patch.notifications ?? [])];
+  s.pending.set(id, { ...previous, ...patch, ...(notifications.length ? { notifications } : {}) });
+}
+
+/** Which call started a job: a turn's summary counts what its calls' jobs said. */
+function linkCall(s: Store, toolCallId: string | undefined, jobId: string): void {
+  if (!toolCallId) return;
+  const ids = s.callJobs.get(toolCallId) ?? [];
+  if (!ids.includes(jobId)) s.callJobs.set(toolCallId, [...ids, jobId]);
 }
 
 function repaint(s: Store): void {
@@ -274,7 +339,7 @@ export function connectJobs(events: EventBusLike | undefined): void {
   const disposers = s.providers.map((provider) =>
     provider.subscribe(events, (id, patch) => {
       const inspecting = invalidateJobDetails(s, id);
-      if (!s.jobs.has(id)) s.pending.set(id, { ...s.pending.get(id), ...patch });
+      if (!s.jobs.has(id)) mergePending(s, id, patch);
       const changed = apply(s, id, patch);
       if (changed || inspecting) repaint(s);
     }),
@@ -363,6 +428,7 @@ export function jobForTool(tool: RenderedTool): JobState | undefined {
     if (!seed) continue;
     if (tool.ui) s.ui = tool.ui;
     s.rows.add(seed.id);
+    linkCall(s, tool.toolCallId, seed.id);
     const job = rememberJob(s, seed, provider);
     ensureTicker(s);
     return job;
@@ -393,6 +459,7 @@ export function jobsForTool(tool: RenderedTool): JobState[] {
     const job = rememberJob(s, seed, piProcessesProvider);
     jobs.set(job.id, job);
     s.rows.add(job.id);
+    linkCall(s, tool.toolCallId, job.id);
   }
   ensureTicker(s);
   return [...jobs.values()];
@@ -406,6 +473,7 @@ function clearJobSession(): void {
   s.ui = undefined;
   s.jobs.clear();
   s.rows.clear();
+  s.callJobs.clear();
   s.parents.clear();
   s.nested.clear();
   s.pending.clear();
@@ -456,6 +524,27 @@ export function registerNestedJobs(pi: ExtensionAPI): void {
 }
 
 /**
+ * The rows a job's notifications deserve. None while `hideJobNotifications` is
+ * off: the messages are still drawn as their own blocks, and the same report
+ * twice in one group is worse than the block it replaced.
+ */
+export function jobNotes(job: JobState): readonly JobNotification[] {
+  return jobsStore().options.hideNotifications ? job.notifications ?? [] : [];
+}
+
+/**
+ * How many notifications the jobs of one call have collected. A folded turn's
+ * summary says so, because the rows that carry them are not drawn there.
+ */
+export function jobNoteCount(toolCallId: string | undefined): number {
+  const s = jobsStore();
+  if (!toolCallId || !s.options.hideNotifications) return 0;
+  let total = 0;
+  for (const id of s.callJobs.get(toolCallId) ?? []) total += s.jobs.get(id)?.notifications?.length ?? 0;
+  return total;
+}
+
+/**
  * A message rendered: fold what it reports into its job. Returns true when it
  * should be hidden — its job has a row showing the same thing.
  */
@@ -467,7 +556,7 @@ export function noteJobMessage(message: MessageSnapshot | undefined): boolean {
     if (!hit) continue;
     // On a reload the row rendered first, with the start snapshot: one more
     // frame lets it show what this message says.
-    if (!s.jobs.has(hit.id)) s.pending.set(hit.id, { ...s.pending.get(hit.id), ...hit.patch });
+    if (!s.jobs.has(hit.id)) mergePending(s, hit.id, hit.patch);
     else if (apply(s, hit.id, hit.patch)) repaint(s);
     return s.options.hideNotifications && s.rows.has(hit.id);
   }
@@ -518,6 +607,7 @@ export function resetJobs(providers: JobProvider[] = [piProcessesProvider]): voi
     providers,
     jobs: new Map(),
     rows: new Set(),
+    callJobs: new Map(),
     parents: new Map(),
     nested: new Map(),
     pending: new Map(),

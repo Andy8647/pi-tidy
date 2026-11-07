@@ -21,7 +21,7 @@ every box gets a rounded transparent frame.
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
 - **Thinking, folded in** — a step that only thinks leaves a `thinking` row inside its group (a brain, the word, one line of what the model thought, sliding over the newest words while it streams); the summary counts the runs (`🧠 5 thoughts`), and a click opens that step's thinking full length, in a framed box with `󰧑 thinking` in its border. pi's `hideThinkingBlock` is ignored on purpose: the row is the same either way, and the click is the one way to read it
-- **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, and a click opens the command, working directory and last 20 output lines without expanding the call
+- **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, the matched log line they carried waits on a row of its own under it (open the group to read it), and a click opens the command, working directory and last 20 output lines without expanding the call
 - **codemode reads as a call list** — opened, the calls a script ran are tidy rows with a name and a duration column; the script and the output each fold to one row
 - **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
@@ -53,9 +53,10 @@ A run folds to one line, where it started:
 Click it to open the process, click again to fold. The fold hides thinking and `alwaysShowTools`
 boxes, never your own inputs, and reopens with manual expansion, `groupOpen` and output budgets
 intact. `/tidy turn` toggles the latest run, `/tidy turn N` the one at that position on the branch;
-`ctrl+o` still expands tool outputs and their turns. User inputs, background-job notifications and
-pi's error rows stay visible, because the rows that would own them may be hidden. A reply with no
-hidden process gets no summary.
+`ctrl+o` still expands tool outputs and their turns. User inputs, pi's error rows and a job
+notification with no row to absorb it stay visible. A reply with no
+hidden process gets no summary. A folded run whose jobs matched log lines says
+so (`· 2 matched`), because the rows carrying those lines are inside the group.
 
 `took` is wall time. `LLM` is the main agent's model requests, including response wait. `tools` is
 the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
@@ -222,7 +223,7 @@ mauve for compactions, peach for branch summaries, sky for skills and yellow for
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `backgroundJobs` | `true` | A call that started a job shows the job's live state on its row and in the summary. A running job keeps its row while folded; a finished one folds away. The spinner turns once a second for a job's first 5 minutes, then stands still | Needs pi-processes and `groupTools`: the state lives on a group's row, so a tool in `alwaysShowTools` has none to show it on |
-| `hideJobNotifications` | `true` | Stops drawing a job's notifications (`[process] "ticker" matched stdout: READY`) once its row shows them. The model still receives them | Needs `backgroundJobs`, `groupTools` and **`collapseTurns: "off"`**. With turn folding on, the default, notifications stay visible, because the row that would own them may be hidden |
+| `hideJobNotifications` | `true` | Stops drawing a job's notifications (`[process] "ticker" matched stdout: READY`) once its row shows them. What the row cannot hold — the matched log line — lands on a row under the job inside its group, and a folded turn counts them (`· 2 matched`). The model still receives every message | Needs `backgroundJobs` and `groupTools`. A notification whose job has no row yet (another session, before a `/reload` re-renders it, pi-processes not loaded) keeps its own block, so nothing is lost |
 
 ### Other
 
@@ -291,7 +292,9 @@ pi has no notion of a job that outlives its tool call, so `src/tools/background-
 has a small provider interface. pi-processes is the one provider: its
 `processes:*` events on pi's shared extension bus keep a row live, its persisted
 `ad-process:notification` messages rebuild a reloaded session, and a process it
-no longer knows reads `not running`. If that protocol changes, rows fall back to
+no longer knows reads `not running`. A log match's line (the part its row cannot
+hold) is kept per job and drawn as a row under it inside the group; the message
+that carried it is not drawn. If that protocol changes, rows fall back to
 plain tool rows.
 
 ### Mouse

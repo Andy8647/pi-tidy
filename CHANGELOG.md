@@ -4,6 +4,24 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-11-07
+
+### Fixed
+
+**A background job's notifications no longer break the transcript.** `hideJobNotifications` has been on by default since
+0.4.1, but it only applied with `collapseTurns: "off"`. 0.8.0 made turn folding the default, so from then on every
+`[process] "ticker" matched stdout: READY` came back as a block of its own, between runs, on a default install.
+
+The blocks are still not drawn. The part a job's row cannot hold is the matched log line; the row only carries the
+pattern. That line is kept per job and drawn as a row under it, inside the group the job belongs to: `· matched stdout:
+tick 5`, at most three, with `· +N earlier` above them, and only while the group is open. A folded turn says how many
+arrived (`▸ … · 2 matched`), because the rows carrying them are inside it. The model still receives every message, and a
+watcher that ticks every second costs a folded transcript nothing.
+
+`hideJobNotifications: false` keeps the blocks and draws no rows, rather than reporting the same match twice. A
+notification whose job has no row to absorb it keeps its own block, so nothing is lost: another session, a row not
+rendered again after a `/reload`, a pinned call, `groupTools: false`, pi-processes not loaded.
+
 ## [0.9.2] - 2026-11-07
 
 ### Added

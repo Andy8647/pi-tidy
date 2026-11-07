@@ -14,7 +14,7 @@ import { stripVTControlCharacters } from "node:util";
 import { MouseRegion, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import {
-  ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobsForTool, noteJobMessage,
+  ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobNotes, jobsForTool, noteJobMessage,
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
 import { agentRunning, tidyEnabled } from "../live.ts";
@@ -178,6 +178,15 @@ export function renderGroupedTool(
       toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as CodemodeSection })),
     );
   }
+  const spans: NestedRowSpan[] = [];
+  const open = groupIsOpen(tool);
+  // What the job reported since it started. A folded group knows one row for a
+  // running job, and its pattern is already on it: the matched lines wait until
+  // the group is opened, so a watcher that ticks every second costs nothing here.
+  // Below the body too, so the body's click geometry stays put.
+  if (job && open && !plan.full) {
+    for (const note of jobNoteRows(job, theme, `${gutter}${BODY_PAD}`)) lines.push(clipToWidth(note, width, "…"));
+  }
   // Nested starts belong to the wrapper, but do not replace its result/error.
   // Keep them below its body so the body's existing click geometry is unchanged.
   // An opened box hangs them inside the body instead: they are what the script
@@ -185,8 +194,6 @@ export function renderGroupedTool(
   const inBody = plan.full;
   const rowPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")} ` : `${gutter}  `;
   const detailPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")}     ` : `${gutter}      `;
-  const spans: NestedRowSpan[] = [];
-  const open = groupIsOpen(tool);
   for (const nested of jobs) {
     if (nested === job) continue;
     const details = jobDetails(nested.id);
@@ -203,6 +210,9 @@ export function renderGroupedTool(
       }
     }
     spans.push({ id: nested.id, from, to: lines.length - 1 });
+    // Open, the job's own log already carries what it reported; folded, its
+    // pattern is on the row and the matched lines stay out of the summary.
+    if (!details && open) for (const note of jobNoteRows(nested, theme, `${rowPad}  `)) lines.push(clipToWidth(note, width, "…"));
   }
   nestedRowSpans.set(tool, spans);
   if (!live) groupedRows.set(tool, {
@@ -273,6 +283,23 @@ export function routeCodemodeFold(tool: GroupedTool, event: any, section: Codemo
 /** Logs are plain text here: no cursor moves, OSC payloads, tabs or embedded rows. */
 function jobText(text: string): string {
   return stripVTControlCharacters(text).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+}
+
+/** At most a few rows: a watcher that ticks every second must not grow the group. */
+const NOTE_ROWS = 3;
+
+/**
+ * What a job reported since it started, one dim row each. The pattern is on the
+ * job's own row (`READY matched`); the matched line itself has nowhere else to go.
+ */
+function jobNoteRows(job: JobState, theme: ThemeLike, pad: string): string[] {
+  const notes = jobNotes(job);
+  if (notes.length === 0) return [];
+  const shown = notes.slice(-NOTE_ROWS);
+  const earlier = notes.length - shown.length;
+  const rows = shown.map((note) => `${pad}${theme.fg("muted", `· ${note.text}`)}`);
+  if (earlier > 0) rows.unshift(`${pad}${theme.fg("muted", `· +${earlier} earlier`)}`);
+  return rows;
 }
 
 function renderJobDetails(job: JobState, details: JobDetails, theme: ThemeLike): string[] {
@@ -1106,11 +1133,14 @@ export function installGroupBoundaries(): void {
     return "untrimmed";
   });
   // A background job's notifications (`[process] "ticker" matched stdout:
-  // READY`) say what its row already shows. The model still receives them —
-  // this only skips drawing them. Everything else keeps its own edges: a custom
-  // message is pi's `Box(1, 1, customMessageBg)` too, so the same trim that ate
-  // the user message's padding was eating its inset as well.
+  // READY`) say what a row already shows. The model still receives them —
+  // this only skips drawing them, and the row they belong to carries the
+  // matched line itself (see `jobNoteRows`). Turn folding does not change that:
+  // the job's group is one click away, and a folded turn's summary counts them.
+  // Everything else keeps its own edges: a custom message is pi's
+  // `Box(1, 1, customMessageBg)` too, so the same trim that ate the user
+  // message's padding was eating its inset as well.
   wrapBoundaryRender((CustomMessageComponent as any)?.prototype, (component) =>
-    noteJobMessage(component.message) && turnOptions.get().collapseTurns === "off" ? "hidden" : "untrimmed",
+    noteJobMessage(component.message) ? "hidden" : "untrimmed",
   );
 }
