@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, ToolExecutionComponent, UserMessageComponent, createReadToolDefinition, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import { cleanTranscriptRows } from "../src/clean-copy.ts";
 import { setClipboardWriter } from "../src/clipboard.ts";
@@ -9,7 +9,7 @@ import { visibleText } from "../src/draw/frame-draw.ts";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
 import { TurnStore, turnOptions, turnStore } from "../src/turns/turn-state.ts";
-import { codeBlocksAvailable } from "../src/turns/turn-view.ts";
+import { codeBlocksAvailable, TURN_LAYOUT } from "../src/turns/turn-view.ts";
 import { chipLabels } from "../src/turns/code-blocks.ts";
 
 initTheme("dark");
@@ -219,4 +219,179 @@ test("copying across a block takes the rules out and keeps the code", () => {
   const text = cleaned.rows.slice(1, -1).filter((row) => row).map((row) => row!.text.trimEnd()).join("\n");
   assert.ok(text.includes("set -l x 1"), text);
   assert.ok(!text.includes("─") && !text.includes(CHIP.copy), text);
+});
+
+/**
+ * A settled turn with one tool call in it, so the reply can have a header, a rail or a
+ * frame depending on what it is. `process` puts the fenced block in the message before
+ * the tool: that is the one an open turn hangs on its rail.
+ */
+function turnFixture(text: string, options: { frame?: boolean; process?: boolean; openTurn?: boolean; width?: number } = {}) {
+  const width = options.width ?? W;
+  const cwd = process.cwd();
+  resetGroups();
+  patchToolBoxFrames({ groupTools: true, groupOpen: false, icons: false, splitDiff: true });
+  turnOptions.set({
+    ...turnOptions.get(),
+    collapseTurns: "afterRun",
+    frameFinalReply: options.frame ?? true,
+    replyStyle: "frame",
+    icons: true,
+    codeBlocks: true,
+    splitDiff: true,
+    splitDiffMinWidth: 72,
+  });
+  const first: any = { role: "assistant", provider: "openai", model: "x", timestamp: 1100, durationMs: 50, stopReason: "toolUse", content: [
+    { type: "text", text: options.process ? text : "Checking." },
+    { type: "toolCall", id: "a", name: "read", arguments: { path: `${cwd}/src/a.ts` } },
+  ] };
+  const final: any = { role: "assistant", provider: "anthropic", model: "claude-sonnet-4-5", timestamp: 1500, durationMs: 40, stopReason: "stop", content: [{ type: "text", text: options.process ? "Done." : text }] };
+  const store = new TurnStore();
+  turnStore.set(store);
+  store.begin(1000);
+  store.note(user as any);
+  store.note(first);
+  store.toolStart("a", undefined);
+  store.toolEnd("a", undefined);
+  store.note(final);
+  store.settle(false, 1800);
+  const chat = new Container();
+  chat.addChild(new UserMessageComponent("show me"));
+  const head = new AssistantMessageComponent(first, true);
+  chat.addChild(head);
+  const tool = new ToolExecutionComponent("read", "a", first.content[1].arguments, {}, createReadToolDefinition(cwd) as any, { requestRender() {} } as any, cwd);
+  tool.setExpanded(false);
+  tool.setArgsComplete();
+  tool.markExecutionStarted();
+  tool.updateResult({ content: [{ type: "text", text: "x" }], isError: false, durationMs: 10 } as any);
+  chat.addChild(tool);
+  const answer = new AssistantMessageComponent(final, true);
+  chat.addChild(answer);
+  if (options.openTurn) for (const turn of new Set(store.byMessage.values())) turn.open = true;
+  let rows: string[] = [];
+  for (let pass = 0; pass < 3; pass++) rows = chat.render(width);
+  return { chat, head, answer, width, rows, plain: rows.map(visibleText) };
+}
+
+/** Click every chip on the screen, at the column the screen puts it in. */
+async function clickEachChip(fx: { chat: Container; width: number; plain: string[] }, written: string[]): Promise<void> {
+  written.length = 0;
+  for (const [y, line] of fx.plain.entries()) {
+    if (!line.includes(CHIP.copy)) continue;
+    const x = line.indexOf(CHIP.copy);
+    click(fx.chat, x, y, fx.width, fx.plain.length);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+test("a reply with no frame and no header still copies from its chip", async () => {
+  const written: string[] = [];
+  setClipboardWriter(async (text) => { written.push(text); });
+  try {
+    const fx = turnFixture(`Done.\n\n\`\`\`fish\n${FISH}\n\`\`\`\n`, { frame: false });
+    const y = fx.plain.findIndex((line) => line.includes(" fish ") && line.includes(CHIP.copy));
+    assert.ok(y >= 0, fx.plain.join("\n"));
+    assert.ok((fx.answer as any)[TURN_LAYOUT], "the chip is hit through the layout the frame used to bring");
+    assert.ok(!fx.plain.some((line) => line.includes("├") || line.includes("╭")), `a reply that asked for no chrome has none:\n${fx.plain.join("\n")}`);
+    click(fx.chat, fx.plain[y]!.indexOf(CHIP.copy), y, W, fx.plain.length);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(written, [FISH]);
+  } finally {
+    setClipboardWriter(undefined);
+  }
+});
+
+test("the chip on a reply with no frame lights up and takes the hand", () => {
+  enableHoverForTests();
+  resetHover();
+  const fx = turnFixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { frame: false });
+  const y = fx.plain.findIndex((line) => line.includes(` fish ${CHIP.copy} `));
+  assert.ok(y >= 0, fx.plain.join("\n"));
+  const x = fx.plain[y]!.indexOf(CHIP.copy);
+  const move = (cx: number, cy: number) => fx.chat.handleMouse({ type: "move", button: "none", x: cx, y: cy, screenX: cx, screenY: cy, width: W, height: fx.plain.length, shift: false, alt: false, ctrl: false });
+  move(x, y);
+  assert.ok(/\x1b\[48;/.test(fx.chat.render(W).find((row) => row.includes(CHIP.copy))!), "the chip wears the selected background");
+  move(x, y + 1);
+  assert.ok(!/\x1b\[48;/.test(fx.chat.render(W).find((row) => row.includes(CHIP.copy))!), "and gives it back when the pointer leaves");
+  resetHover();
+  disableHoverForTests();
+});
+
+test("a reply with no chip and no frame keeps the fast path", () => {
+  const fx = turnFixture("Done, nothing to copy.", { frame: false });
+  assert.equal((fx.answer as any)[TURN_LAYOUT], undefined, "no layout, no mouse wrapper, nothing to measure");
+  assert.ok(!fx.plain.some((line) => line.includes("─")), fx.plain.join("\n"));
+});
+
+test("an open turn's rail joins a code block's rules and keeps its chip live", async () => {
+  const written: string[] = [];
+  setClipboardWriter(async (text) => { written.push(text); });
+  try {
+    const fx = turnFixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { process: true, openTurn: true });
+    const open = fx.plain.findIndex((line) => line.includes(" fish ") && line.includes(CHIP.copy));
+    assert.ok(open >= 0, fx.plain.join("\n"));
+    assert.match(fx.plain[open]!, new RegExp(`^├─ fish ${CHIP.copy} ─+$`), "the rule joins the rail and keeps its own lead");
+    assert.equal(visibleWidth(fx.plain[open]!), W, "and runs the full width");
+    click(fx.chat, fx.plain[open]!.indexOf(CHIP.copy), open, W, fx.plain.length);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(written, [FISH], "the chip on a railed reply copies its block");
+    written.length = 0;
+    click(fx.chat, fx.plain[open]!.indexOf(CHIP.copy) - 1, open, W, fx.plain.length);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(written, [], "the cell in front of it is not the chip");
+  } finally {
+    setClipboardWriter(undefined);
+  }
+});
+
+test("a block in a quote or a list item keeps its chip and stays off the frame", async () => {
+  const written: string[] = [];
+  setClipboardWriter(async (text) => { written.push(text); });
+  try {
+    const quoted = FISH.split("\n")[0]!;
+    const text = [
+      "Quoted:", "", "> ```fish", `> ${quoted}`, "> ```", "",
+      "Listed:", "", "1. ```fish", `   ${quoted}`, "   ```", "",
+      "Plain:", "", "```fish", FISH, "```",
+    ].join("\n");
+    const fx = turnFixture(`${text}\n`, { frame: true });
+    const rows = fx.plain.map((line, y) => ({ line, y })).filter(({ line }) => line.includes(CHIP.copy));
+    assert.equal(rows.length, 3, fx.plain.join("\n"));
+    await clickEachChip(fx, written);
+    assert.deepEqual(written, [quoted, quoted, FISH], "each chip copies its own block, prefixes and all");
+    const joints = fx.plain.filter((line) => line.startsWith("├─") && line.includes(" fish "));
+    assert.equal(joints.length, 1, "only the top-level block joins the frame");
+    assert.ok(fx.plain.some((line) => line.includes(" 1.  fish ")), "the list's own rule keeps its marker");
+  } finally {
+    setClipboardWriter(undefined);
+  }
+});
+
+test("a rule too narrow for its label leaves nothing to click", async () => {
+  const written: string[] = [];
+  setClipboardWriter(async (text) => { written.push(text); });
+  try {
+    const fx = turnFixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { frame: true, width: 12 });
+    assert.ok(!fx.plain.some((line) => line.includes(CHIP.copy)), fx.plain.join("\n"));
+    for (const [y, line] of fx.plain.entries()) {
+      for (let x = 0; x < visibleWidth(line); x++) click(fx.chat, x, y, 12, fx.plain.length);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(written, [], "no chip was drawn, so no cell copies one");
+  } finally {
+    setClipboardWriter(undefined);
+  }
+});
+
+test("blocks whose text repeats still each copy their own", async () => {
+  const written: string[] = [];
+  setClipboardWriter(async (text) => { written.push(text); });
+  try {
+    const text = ["```fish", FISH, "```", "Same again:", "```fish", FISH, "```", "And another:", "```ts", "const a = 1;", "```"].join("\n");
+    const dup = turnFixture(`${text}\n`, { frame: true });
+    await clickEachChip(dup, written);
+    assert.deepEqual(written, [FISH, FISH, "const a = 1;"], "a repeated block is the same block, and the third is its own");
+  } finally {
+    setClipboardWriter(undefined);
+  }
 });

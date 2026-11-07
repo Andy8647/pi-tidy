@@ -2,7 +2,7 @@ import { Box, Container, Markdown, MouseRegion, Text, sliceByColumn, visibleWidt
 import { clipToWidth, formatMessageTime, italicDim, labeledRule, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
-import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
+import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlock, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
@@ -263,6 +263,24 @@ const CODE = Symbol.for("pi-tidy:code-blocks");
 interface CodeHook extends CodeBlocks {
   markdown: any;
   options: CodeBlockOptions;
+  /** How each fenced token was drawn, by language and text: pi reuses a block it has already drawn. */
+  built: Map<string, CodeBlock>;
+  /** The rows `blocks` describes, so a render pi answered from its own cache is recognised. */
+  rows?: readonly string[];
+  /** The blocks this pass drew, in row order: the fallback when the tokens cannot be read. */
+  drawn: CodeBlock[];
+}
+
+const tokenKey = (token: { lang?: string; text: string }): string => `${token.lang ?? ""}\0${token.text}`;
+
+/** Every fenced token in row order, with the ones inside a quote or a list item marked. */
+function codeTokens(tokens: readonly any[] | undefined, nested = false, out: Array<{ token: any; nested: boolean }> = []): Array<{ token: any; nested: boolean }> {
+  for (const token of tokens ?? []) {
+    if (token.type === "code") out.push({ token, nested });
+    else if (token.type === "blockquote") codeTokens(token.tokens, true, out);
+    else if (token.type === "list") for (const item of token.items ?? []) codeTokens(item.tokens, true, out);
+  }
+  return out;
 }
 
 /**
@@ -278,7 +296,7 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
     installed.options = options;
     return installed;
   }
-  const hook: CodeHook = { blocks: [], markdown, options };
+  const hook: CodeHook = { blocks: [], built: new Map(), drawn: [], markdown, options };
   const renderToken = markdown.renderToken;
   const render = markdown.render;
   markdown.renderToken = function (this: unknown, token: any, width: number, next: unknown, context: unknown) {
@@ -286,17 +304,31 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
     if (token?.type !== "code" || !Array.isArray(lines)) return lines;
     const railed = ruleCodeToken(lines, token, width, hook.options);
     if (!railed) return lines;
-    hook.blocks.push(railed.block);
+    hook.built.set(tokenKey(token), railed.block);
+    hook.drawn.push(railed.block);
     return railed.lines;
   };
-  markdown.render = function (this: unknown, width: number) {
+  markdown.render = function (this: any, width: number) {
     const before = hook.blocks;
-    hook.blocks = [];
+    hook.drawn = [];
     const rows = render.call(this, width);
-    // pi answers from its own cache once text and width settle, and then
-    // `renderToken` never ran: the blocks from the pass that filled it still
-    // describe the rows it just handed back.
-    if (!hook.blocks.length) hook.blocks = before;
+    // pi answers from its own cache once text and width settle: the same array comes
+    // back and the blocks from the pass that filled it still describe those rows.
+    if (rows === hook.rows) {
+      hook.blocks = before;
+      return rows;
+    }
+    hook.rows = rows;
+    // pi-tui 1.5 reuses a block it has already drawn, so `renderToken` may not run for
+    // a token that is on the rows. The tokens say what is there and in which order;
+    // `built` says how each one was drawn.
+    const tokens = codeTokens(markdown.cachedTokens?.deref()?.tokens);
+    const walked: CodeBlock[] = [];
+    for (const { token, nested } of tokens) {
+      const block = hook.built.get(tokenKey(token));
+      if (block) walked.push({ ...block, nested });
+    }
+    hook.blocks = walked.length === tokens.length && tokens.length ? walked : hook.drawn.length ? hook.drawn : before;
     return rows;
   };
   component[CODE] = hook;
@@ -316,8 +348,9 @@ function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: T
     const lead = line.startsWith(ZONE_A) ? ZONE_A : "";
     const clean = lead ? line.slice(ZONE_A.length) : line;
     const width = visibleWidth(clean);
-    // rail (2) + the Markdown's own padding (1) in front of the rule's content.
-    const content = sliceByColumn(clean, 3, Math.max(0, width - 3));
+    // The rail and the Markdown's padding become `├─`; the rule keeps its own leading
+    // space and the cells that are left.
+    const content = sliceByColumn(clean, 2, Math.max(0, width - 3));
     const rest = Math.max(0, width - 2 - visibleWidth(content));
     out[row] = `${lead}${paint(theme, color, "├")}${glyph}${content}${glyph.repeat(rest)}`;
   }
@@ -349,16 +382,16 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     splitDiffMinWidth: options.splitDiffMinWidth,
     canCopy: canCopyText(),
   });
-  let body = closed && key !== visible
+  const drawn = closed && key !== visible
     ? []
     : railed
-      ? railRows(draw(Math.max(1, width - TURN_RAIL_CELLS)), theme)
+      ? draw(Math.max(1, width - TURN_RAIL_CELLS))
       : draw(framed && options.replyStyle !== "rules" ? width - 2 : width, framed);
-  // The frame pads every body row by one cell, so a chip's columns on the drawn row are
-  // one further right than the body they were measured on.
-  const ruled = code ? ruleRows(body, code.blocks) : { rules: [], spans: [], opens: new Map<number, number>() };
+  // Measured before a rail goes on: once it is there, its `│` and a quote's border read alike.
+  const ruled = code ? ruleRows(drawn, code.blocks) : { rules: [], spans: [], opens: new Map<number, number>() };
   const rules = new Set(ruled.rules);
-  const spans = ruled.spans;
+  const spans = railed ? ruled.spans.map((span) => ({ ...span, x: span.x + TURN_RAIL_CELLS, end: span.end + TURN_RAIL_CELLS })) : ruled.spans;
+  let body = railed ? railRows(drawn, theme) : drawn;
   // A railed reply has no box to turn into corners, so the joints are drawn here.
   if (railed && rules.size) body = railRules(body, rules, theme, options.assistantColor);
   const flash = code?.flash;
@@ -370,7 +403,9 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     if (!copied && hotIndex !== span.index) continue;
     body = repaintChip(body, span, theme, copied ? labels.copied : labels.copy, hotIndex === span.index);
   }
-  if (!header && !framed) return body;
+  // A chip needs the layout and the handler below it; a message without one keeps the
+  // fast path, since most rows in a transcript carry neither.
+  if (!header && !framed && !spans.length) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const color = options.assistantColor;
