@@ -27,7 +27,8 @@ which the four-cell word `copy` hid. It is measured on the drawn row now.
 and no reply frame, and that return came before the layout and the mouse handler were installed: with
 `finalReplyStyle: "off"`, and on every reply while it streams, the chip was painted and a click did nothing, hover included.
 The early return now only takes the messages that have no hit target, so a reply without chrome keeps its fast path and a
-reply with a chip gets the handler it needs.
+reply with a chip gets the handler it needs. Thanks to @indesperate for the report and for the trace: the early return
+was exactly where they said it was, and the three bugs it hid were found in the code they pointed at.
 
 **A block on an open turn's rail had no joint and no chip.** The rules were matched after the rail went on, and a railed
 row's `│` never equals a rule's own text, so the block kept a plain border and its chip was dead. The rules are measured
