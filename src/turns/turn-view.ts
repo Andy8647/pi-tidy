@@ -7,6 +7,7 @@ import { paint } from "../draw/paint.ts";
 import { tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
+import { jobNoteCount } from "../tools/background-jobs.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
 
 const NATIVE_VIEW = Symbol.for("pi-toolbox:message-view");
@@ -65,16 +66,27 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
   const tick = turn.outcome === "running" ? Math.floor(now / 500) : 0;
   const isFolded = folded(turn);
   const color = turnOptions.get().assistantColor;
+  // A job's notifications hang on rows inside its group. Folded, those rows are
+  // not drawn at all, so the count is the only sign they arrived.
+  const notes = isFolded ? noteTotal(turn) : 0;
   const cached = summaryCache.get(turn);
-  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color) {
+  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color && cached.notes === notes) {
     return cached.line;
   }
-  const line = buildSummaryLine(turn, theme, width, hovered, now);
-  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, line });
+  const line = buildSummaryLine(turn, theme, width, hovered, now, notes);
+  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, notes, line });
   return line;
 }
-const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; line: string }>();
-function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: boolean, now = Date.now()): string {
+const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; notes: number; line: string }>();
+
+/** Everything the turn's own calls' jobs have reported, as one number. */
+function noteTotal(turn: Turn): number {
+  let total = 0;
+  for (const id of turn.tools.keys()) total += jobNoteCount(id);
+  return total;
+}
+
+function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: boolean, now = Date.now(), notes = 0): string {
   const store = turnStore.get();
   const total = turn.startedAt === undefined ? undefined : (turn.endedAt ?? now) - turn.startedAt;
   const state = turn.outcome;
@@ -107,6 +119,7 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
       counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
     for (const [name, count] of counts) add(theme.fg("muted", `${name}×${count}`), theme.fg("muted", `${toolKindIcon(name)} ${name}×${count}`));
+    if (notes) add(theme.fg("muted", `${notes} matched`));
   }
   const separator = theme.fg("muted", " · ");
   const plain = parts.join(separator);

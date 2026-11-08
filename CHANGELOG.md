@@ -4,6 +4,42 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-11-08
+
+### Added
+
+**A message an extension draws itself now wears the transcript's frame.** `frameMessages` framed compaction, branch, skill and
+pi's own custom boxes, but a custom message whose renderer returns a component was left exactly as the extension drew it —
+on a default pi-subagents install, a full-width slab in `customMessageBg` sitting between two framed runs. The rows are still
+the extension's, since nothing here can know where a label belongs inside them; the chrome is Tidy's. The frame, the kind's
+color, the fill stripped, the blank edges trimmed, and clicks mapped back through the border to the component that drew the
+row, so its own click still opens it.
+
+pi-subagents' notices are drawn from the message rather than from its renderer: the border says who it is about and how it
+went (`╭─  wiki-verifier failed ──╮`, `╭─  worker needs attention ──╮`) in that status's own color — green for a
+completion, red for a failure, yellow for a stall — the message's own text is the body with the title line it repeats taken
+out, one row of it shows until a click, and the plugin's `(ctrl+o to expand)` is gone because the row is already a header.
+The label is read from `details`: `runs[]` on a completion notice, `event` on a control notice, and the same fields on the
+other twelve types wherever they exist, so a notice that names nobody is still drawn, with the glyph alone.  
+Session entries (`reply sent to …`) keep their extension's styling: they render through `CustomEntryComponent`, which pi does
+not export, and the entry renderer registry answers whichever extension registered first.
+
+### Fixed
+
+**A background job's notifications no longer break the transcript.** `hideJobNotifications` has been on by default since
+0.4.1, but it only applied with `collapseTurns: "off"`. 0.8.0 made turn folding the default, so from then on every
+`[process] "ticker" matched stdout: READY` came back as a block of its own, between runs, on a default install.
+
+The blocks are still not drawn. The part a job's row cannot hold is the matched log line; the row only carries the
+pattern. That line is kept per job and drawn as a row under it, inside the group the job belongs to: `· matched stdout:
+tick 5`, at most three, with `· +N earlier` above them, and only while the group is open. A folded turn says how many
+arrived (`▸ … · 2 matched`), because the rows carrying them are inside it. The model still receives every message, and a
+watcher that ticks every second costs a folded transcript nothing.
+
+`hideJobNotifications: false` keeps the blocks and draws no rows, rather than reporting the same match twice. A
+notification whose job has no row to absorb it keeps its own block, so nothing is lost: another session, a row not
+rendered again after a `/reload`, a pinned call, `groupTools: false`, pi-processes not loaded.
+
 ## [0.9.2] - 2026-11-07
 
 ### Added

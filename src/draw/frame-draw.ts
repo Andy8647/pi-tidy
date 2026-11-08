@@ -242,10 +242,16 @@ export function labeledTopBorder(
   label: string,
   align: "left" | "right" = "left",
   lead = 1,
+  /**
+   * Cells the label really takes. A Nerd Font glyph draws one cell wider than
+   * `visibleWidth` measures it, and a border that trusts the table alone loses
+   * its right corner to the truncation.
+   */
+  labelCells = visibleWidth(label),
 ): string {
   const inner = Math.max(2, width - 2);
   const bc = (s: string) => paint(theme, color, s);
-  const rest = inner - 2 - lead - visibleWidth(label);
+  const rest = inner - 2 - lead - labelCells;
   if (rest < 1) return bc(`╭${"─".repeat(inner)}╮`);
   const start = "─".repeat(lead);
   return align === "right"

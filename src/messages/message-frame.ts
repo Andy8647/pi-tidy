@@ -12,10 +12,11 @@ import {
   BranchSummaryMessageComponent,
   CompactionSummaryMessageComponent,
   CustomMessageComponent,
+  getMarkdownTheme,
   SkillInvocationMessageComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import {
   clipToWidth,
   drawFrame,
@@ -30,9 +31,10 @@ import {
   trimTrailingSpaces,
   visibleText,
 } from "../draw/frame-draw.ts";
-import { MESSAGE_ICONS } from "../draw/icons.ts";
+import { MESSAGE_ICONS, TOOL_ICONS } from "../draw/icons.ts";
 import { liveSlot, tidyEnabled } from "../live.ts";
-import { getTheme } from "../theme-access.ts";
+import { noticeBodyText, noticeLabel, noticeText, type NoticeLabel } from "./extension-notice.ts";
+import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { installUserMessageTimes, USER_MESSAGE_TIME } from "./user-message.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -157,9 +159,18 @@ interface ContainerBoxInternals {
   /** CustomMessageComponent's default box; absent on UserMessageComponent. */
   box?: { render(width: number): string[] };
   /** Set when an extension renderer supplies its own styled component. */
-  customComponent?: unknown;
+  customComponent?: CustomRender;
   render(width: number): string[];
+  /** Where the extension component's rows ended up inside the frame we drew. */
+  __customFrame?: { target: CustomRender; top: number; trimTop: number; inset: number; width: number; height: number; rows: number };
+  /** A notice Tidy drew itself: the rows a click on it may land on. */
+  __noticeFrame?: { rows: number };
   __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; timeFormat: string; headerStyle: HeaderStyle; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
+}
+
+interface CustomRender {
+  render(width: number): string[];
+  handleMouse?(event: unknown): unknown;
 }
 
 /**
@@ -216,6 +227,109 @@ function hugContent(content: string[], width: number, labelWidth: number): { lin
   return { lines, width: Math.min(width, Math.max(widest + 3, floor)) };
 }
 
+/** Rows of a notice's own text shown before it is opened. */
+const NOTICE_LINES = 1;
+/** Open state per message object: pi keeps the message across rebuilds. */
+const noticeOpen = new WeakMap<object, boolean>();
+/** Markdown costs more than the frame around it, so its rows are kept per message. */
+const noticeBodies = new WeakMap<object, { key: string; lines: string[] }>();
+
+/** The notice's own text as rows: one row while closed, everything once open. */
+function noticeBody(message: object & { content?: unknown }, width: number, open: boolean, theme: ThemeLike, label: NoticeLabel): string[] {
+  const text = noticeBodyText(message, label).trim();
+  if (!text) return [];
+  const key = `${width}:${open}:${label.name ?? ""}:${label.status ?? ""}`;
+  const cached = noticeBodies.get(message);
+  if (cached?.key === key) return cached.lines;
+  const rows = new Markdown(text, 0, 0, getMarkdownTheme(), { color: (line: string) => theme.fg("customMessageText", line) }).render(width);
+  const lines = open ? rows : rows.slice(0, NOTICE_LINES);
+  noticeBodies.set(message, { key, lines });
+  return lines;
+}
+
+/**
+ * A notice Tidy draws itself: `╭─ <icon> worker needs attention ─╮`, the text
+ * the model read as the body, and a click that opens the rest of it. The
+ * extension's own component is not drawn — its first row is the label that just
+ * went into the border, and its `(ctrl+o to expand)` was chrome Tidy does not
+ * put on a row that is already a header.
+ */
+function frameNotice(
+  component: ContainerBoxInternals & { message?: { customType?: unknown; content?: unknown } },
+  notice: NoticeLabel,
+  width: number,
+  live: ResolvedContainerOptions,
+  theme: ThemeLike,
+): string[] {
+  const { icons } = live;
+  const tone = notice.tone ?? live.borderColors.custom;
+  const w = Math.max(4, width);
+  const contentWidth = Math.max(1, icons ? w - 4 : w - 2);
+  const message = component.message ?? {};
+  const open = noticeOpen.get(message) ?? (component as unknown as { _expanded?: boolean })._expanded === true;
+  const body = noticeBody(message, contentWidth, open, theme, notice);
+  const label = [
+    icons ? theme.fg(tone, TOOL_ICONS.subagent!) : "",
+    notice.name ?? "",
+    notice.status ? theme.fg(tone, notice.status) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const clipped = clipToWidth(label, Math.max(1, w - 6));
+  const out = drawFrame(body.map((line) => ` ${line}`), w, theme, tone);
+  // The glyph fills the cell the width table gives it, so the label is one cell
+  // wider than measured whenever it leads with one.
+  out[0] = labeledTopBorder(w, theme, tone, clipped, "left", 1, visibleWidth(clipped) + (icons ? 1 : 0));
+  component.__noticeFrame = { rows: out.length };
+  return out;
+}
+
+function customKindIcon(component: ContainerBoxInternals, icons: boolean): string {
+  if (!icons) return "";
+  const type = (component as unknown as { message?: { customType?: unknown } }).message?.customType;
+  // pi-subagents names its fourteen notice types `subagent-…`/`subagent_…`; the
+  // rest are extensions with no glyph of their own, and get the custom one.
+  return typeof type === "string" && type.startsWith("subagent") ? TOOL_ICONS.subagent! : MESSAGE_ICONS.custom;
+}
+
+/**
+ * Frame a message whose body an extension renderer drew.
+ *
+ * The rows are the extension's, so they keep their own ordering and are only
+ * trimmed of the blank edges its box wanted around itself — the frame is the
+ * separation now. The component renders one frame narrower than the row it
+ * lands on, and everything inside it moved down one row and right two cells,
+ * which is what `customMouse` maps back.
+ */
+function frameCustom(
+  component: ContainerBoxInternals,
+  custom: CustomRender,
+  width: number,
+  live: ResolvedContainerOptions,
+  theme: ThemeLike,
+): string[] {
+  const { icons } = live;
+  const borderColor = live.borderColors.custom;
+  const w = Math.max(4, width);
+  // Border, then the one-cell inset every body row gets (and two more when the
+  // icon is drawn into the border, which no row of the body has to make room for).
+  const contentWidth = Math.max(1, icons ? w - 4 : w - 2);
+  const raw = custom.render(contentWidth);
+  let start = 0;
+  let end = raw.length;
+  while (start < end && visibleText(raw[start]!).trim() === "") start++;
+  while (end > start && visibleText(raw[end - 1]!).trim() === "") end--;
+  const content = raw.slice(start, end);
+  component.__customFrame = content.length
+    ? { target: custom, top: 1, trimTop: start, inset: 2, width: contentWidth, height: raw.length, rows: content.length }
+    : undefined;
+  if (content.length === 0) return [];
+  const out = drawFrame(content.map((line) => ` ${line}`), w, theme, borderColor);
+  const glyph = customKindIcon(component, icons);
+  if (glyph) out[0] = labeledTopBorder(w, theme, borderColor, theme.fg(borderColor, glyph));
+  return out;
+}
+
 export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
@@ -241,8 +355,23 @@ export function patchContainerBoxes(
         return originalRender.call(this, width);
       }
       try {
-        // An extension's custom renderer owns its styling — never frame it.
-        if (this.customComponent) return originalRender.call(this, width);
+        // pi-subagents' notices are drawn from the message itself: the label in
+        // the border, the text the model read as the body. Its own component is
+        // not drawn — the first row of it is that label, and its
+        // `(ctrl+o to expand)` was chrome on a row that is already a header.
+        const message = (this as unknown as { message?: Parameters<typeof noticeLabel>[0] & { content?: unknown } }).message;
+        const notice = noticeLabel(message);
+        // A notice with nothing to say keeps its renderer: an empty frame would
+        // hide whatever its rows were.
+        if (notice && (notice.name || notice.status || noticeText(message).trim())) {
+          this.__customFrame = undefined;
+          return frameNotice(this, notice, width, live, theme);
+        }
+        // Everything else: the extension owns the rows, Tidy owns the frame around
+        // them. Its fills go and its blank edges are trimmed, and its kind goes in
+        // the top border instead of the `[type]` row pi's own box would draw.
+        const custom = this.customComponent;
+        if (custom && typeof custom.render === "function") return frameCustom(this, custom, width, live, theme);
         const box = this.box ?? this.children[0];
         if (!box) return originalRender.call(this, width);
 
@@ -326,8 +455,41 @@ export function patchContainerBoxes(
         this.__msgFrameCache = { width: w, sample, icons, align, timeFormat: live.timeFormat, headerStyle: live.headerStyle, labelMinute, labelTime: userTime, lines: content, out };
         return out;
       } catch {
+        this.__customFrame = undefined;
         return originalRender.call(this, width);
       }
+    };
+
+    // The rows inside the frame are the extension's, and the border moved them
+    // down one row and right two cells. pi's own handler would measure the
+    // child, not the frame, so without this a click lands a row above what it
+    // points at, and its column is off by the border.
+    const inheritedMouse = (proto as unknown as { handleMouse?: (event: any) => unknown }).handleMouse;
+    (proto as unknown as Record<string, unknown>).handleMouse = function (this: ContainerBoxInternals, event: any) {
+      const live = containerOptions.get();
+      if (!live?.enabled || !tidyEnabled.get()) return inheritedMouse?.call(this, event);
+      // A notice Tidy drew has no component under the pointer: the whole frame
+      // is the switch, and the rows are its own.
+      const notice = this.__noticeFrame;
+      if (notice) {
+        if (event?.y < 0 || event.y >= notice.rows) return undefined;
+        if (event.type !== "click" || (event.button !== "left" && event.button !== 0)) return undefined;
+        const message = (this as unknown as { message?: object }).message;
+        if (message) noticeOpen.set(message, !(noticeOpen.get(message) ?? (this as unknown as { _expanded?: boolean })._expanded === true));
+        return { handled: true, render: true };
+      }
+      const geometry = this.__customFrame;
+      const inside = geometry && event?.y >= geometry.top && event.y < geometry.top + geometry.rows;
+      if (!geometry || !inside || typeof geometry.target.handleMouse !== "function") {
+        return inheritedMouse?.call(this, event);
+      }
+      return geometry.target.handleMouse({
+        ...event,
+        x: event.x - geometry.inset,
+        y: event.y - geometry.top + geometry.trimTop,
+        width: geometry.width,
+        height: geometry.height,
+      });
     };
   };
 

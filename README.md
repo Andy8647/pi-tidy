@@ -16,12 +16,12 @@ every box gets a rounded transparent frame.
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
-- **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color, its `[kind]` label set into the top border
+- **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
 - **Thinking, folded in** — a step that only thinks leaves a `thinking` row inside its group (a brain, the word, one line of what the model thought, sliding over the newest words while it streams); the summary counts the runs (`🧠 5 thoughts`), and a click opens that step's thinking full length, in a framed box with `󰧑 thinking` in its border. pi's `hideThinkingBlock` is ignored on purpose: the row is the same either way, and the click is the one way to read it
-- **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, and a click opens the command, working directory and last 20 output lines without expanding the call
+- **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, the matched log line they carried waits on a row of its own under it (open the group to read it), and a click opens the command, working directory and last 20 output lines without expanding the call
 - **codemode reads as a call list** — opened, the calls a script ran are tidy rows with a name and a duration column; the script and the output each fold to one row
 - **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
@@ -53,9 +53,10 @@ A run folds to one line, where it started:
 Click it to open the process, click again to fold. The fold hides thinking and `alwaysShowTools`
 boxes, never your own inputs, and reopens with manual expansion, `groupOpen` and output budgets
 intact. `/tidy turn` toggles the latest run, `/tidy turn N` the one at that position on the branch;
-`ctrl+o` still expands tool outputs and their turns. User inputs, background-job notifications and
-pi's error rows stay visible, because the rows that would own them may be hidden. A reply with no
-hidden process gets no summary.
+`ctrl+o` still expands tool outputs and their turns. User inputs, pi's error rows and a job
+notification with no row to absorb it stay visible. A reply with no
+hidden process gets no summary. A folded run whose jobs matched log lines says
+so (`· 2 matched`), because the rows carrying those lines are inside the group.
 
 `took` is wall time. `LLM` is the main agent's model requests, including response wait. `tools` is
 the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
@@ -183,7 +184,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by an extension's own renderer keeps its look. Does not affect the rail, the final reply or tool boxes |
+| `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by another extension's own renderer keeps its rows inside the frame and loses its fill (see below). Does not affect the rail, the final reply or tool boxes |
 | `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `finalReplyStyle` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
 
 ### Tool folding
@@ -222,7 +223,7 @@ mauve for compactions, peach for branch summaries, sky for skills and yellow for
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `backgroundJobs` | `true` | A call that started a job shows the job's live state on its row and in the summary. A running job keeps its row while folded; a finished one folds away. The spinner turns once a second for a job's first 5 minutes, then stands still | Needs pi-processes and `groupTools`: the state lives on a group's row, so a tool in `alwaysShowTools` has none to show it on |
-| `hideJobNotifications` | `true` | Stops drawing a job's notifications (`[process] "ticker" matched stdout: READY`) once its row shows them. The model still receives them | Needs `backgroundJobs`, `groupTools` and **`collapseTurns: "off"`**. With turn folding on, the default, notifications stay visible, because the row that would own them may be hidden |
+| `hideJobNotifications` | `true` | Stops drawing a job's notifications (`[process] "ticker" matched stdout: READY`) once its row shows them. What the row cannot hold — the matched log line — lands on a row under the job inside its group, and a folded turn counts them (`· 2 matched`). The model still receives every message | Needs `backgroundJobs` and `groupTools`. A notification whose job has no row yet (another session, before a `/reload` re-renders it, pi-processes not loaded) keeps its own block, so nothing is lost |
 
 ### Other
 
@@ -237,12 +238,30 @@ pi builds one `ToolExecutionComponent` per tool call, no matter which extension
 registered the tool. pi-tidy patches that component's `render` to frame the whole
 box — which is why MCP and subagent boxes are framed too. Message boxes (compaction, branch
 summary, skill invocation, extension custom message) never go through that
-component; their own prototypes get the same treatment, with one exception
-that keeps its native styling: custom messages rendered by an
-extension-provided renderer. Their `[compaction]` / `[branch]` / `[skill]` /
-`[type]` row is a title, so it sits in the top border next to the kind icon and
-the spacer under it is gone; a collapsed skill box keeps its label inline, where
-it shares the row with the skill's name. `!` bash-mode runs are framed as the user's
+component; their own prototypes get the same treatment. Their `[compaction]` /
+`[branch]` / `[skill]` / `[type]` row is a title, so it sits in the top border
+next to the kind icon and the spacer under it is gone; a collapsed skill box
+keeps its label inline, where it shares the row with the skill's name.
+
+A custom message an extension renders itself is framed around its rows: the
+rows are the extension's, so nothing here knows where a label belongs in them,
+but the frame is the transcript's — its background fill is stripped, its blank
+edges are trimmed, its kind goes in the top border, and a click maps back
+through the border to the component that drew it. pi-subagents' notices go one
+step further and are drawn from the message instead of the component at all:
+the border carries the subagent's name and what happened to it
+(`╭─  wiki-verifier failed ─╮`, red for a failure, yellow for a stall), the
+message's own text is the body with the title line it repeats taken out, one row
+of it shows until a click, and the type's own `(ctrl+o to expand)` is gone. The
+label comes from `details` — `runs[].agent` and `runs[].status` for a completion
+notice, `event.agent` and `event.type` for a control notice, and the same fields
+on the eleven other types wherever they exist, so a notice that names nobody is
+still drawn, with the glyph alone. Session *entries* (pi-subagents' `reply sent
+to …`) are not covered: they render through `CustomEntryComponent`, which pi does
+not export, and the entry renderer registry answers whichever extension
+registered first.
+
+`!` bash-mode runs are framed as the user's
 rather than as a tool's: the agent's bash box changes color with its state,
 while the user's keeps the user messages' color (`messageBorderColors.user`, or
 `userMessageColors.rail` under the rail) and lets pi's own rows (`Running...`,
@@ -291,7 +310,9 @@ pi has no notion of a job that outlives its tool call, so `src/tools/background-
 has a small provider interface. pi-processes is the one provider: its
 `processes:*` events on pi's shared extension bus keep a row live, its persisted
 `ad-process:notification` messages rebuild a reloaded session, and a process it
-no longer knows reads `not running`. If that protocol changes, rows fall back to
+no longer knows reads `not running`. A log match's line (the part its row cannot
+hold) is kept per job and drawn as a row under it inside the group; the message
+that carried it is not drawn. If that protocol changes, rows fall back to
 plain tool rows.
 
 ### Mouse
