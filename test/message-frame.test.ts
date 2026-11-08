@@ -26,7 +26,7 @@ const {
   SkillInvocationMessageComponent,
   UserMessageComponent,
 } = await import("@earendil-works/pi-coding-agent");
-const { Text, visibleWidth } = await import("@earendil-works/pi-tui");
+const { Box, Text, visibleWidth } = await import("@earendil-works/pi-tui");
 
 /**
  * The tag-based theme above keeps assertions readable, but its `<fg:…>` tags
@@ -235,16 +235,152 @@ test("custom message with default rendering gets a frame in the custom color", (
   assert.ok(body.includes("\u{f12e}"), "puzzle icon present");
 });
 
-test("custom message with an extension renderer is left alone", () => {
+test("a custom message from another extension keeps its renderer and gets the frame", () => {
   patchContainerBoxes(COLORS, { icons: true, includeUser: true });
-  const renderer = () => new Text("extension-owned styling", 0, 0);
+  // pi-processes' notification is a Box with a customMessageBg fill and a
+  // clickable row: the rows are the plugin's, the chrome is the transcript's.
+  const seen: any[] = [];
+  const body = {
+    render: () => [`\x1b[48;5;60m[process] "dev-server" matched stdout: READY\x1b[49m`],
+    handleMouse: (event: any) => { seen.push(event); return { handled: true }; },
+    invalidate() {},
+  };
   const component = new CustomMessageComponent(
-    { customType: "fancy", content: "ignored" } as any,
-    renderer as any,
+    { customType: "ad-process:notification", content: "ignored" } as any,
+    (() => body) as any,
   );
   const lines: string[] = component.render(60);
-  assert.ok(!lines.some((l) => l.includes("╭")), "no frame around renderer output");
-  assert.ok(lines.join("\n").includes("extension-owned styling"), "renderer output kept");
+  assert.equal(lines.length, 3, "one body row between two borders");
+  assert.ok(lines[0]!.includes(`<fg:${COLORS.custom}>╭`), "top border in the custom color");
+  assert.ok(lines[1]!.includes("matched stdout: READY"), "body row kept");
+  assert.ok(!lines.some((l) => BG_FILL_RE.test(l)), "the renderer's fill is stripped");
+
+  (component as any).handleMouse({ type: "click", button: 0, x: 4, y: 1, width: 60, height: 3 });
+  assert.equal(seen.length, 1, "the click reached the extension's component");
+  assert.equal(seen[0].x, 2, "the column maps back through the border");
+  assert.equal(seen[0].y, 0, "the row maps back through the top border");
+});
+
+test("an extension message that is not a subagent notice takes the custom glyph", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const body = { render: () => ["\u2588 anything"], invalidate() {} };
+  const component = new CustomMessageComponent({ customType: "my-extension", content: "ignored" } as any, (() => body) as any);
+  const top = component.render(50)[0]!;
+  assert.ok(top.includes("\u{f12e}"), "the custom message glyph");
+  assert.ok(!top.includes("\u{f0c0}"), "not the subagent glyph");
+});
+
+// ── Notices Tidy can name from the message itself ──────────────────────────
+
+/**
+ * A theme that paints real escapes (so widths are right) and records which
+ * color each string asked for, which is how a border tone is asserted.
+ */
+function withColors<T>(run: () => T): { out: T; calls: Array<[string, string]> } {
+  const previous = (globalThis as any)[THEME_KEY];
+  const calls: Array<[string, string]> = [];
+  (globalThis as any)[THEME_KEY] = {
+    fg: (color: string, text: string) => {
+      calls.push([color, text]);
+      return `\x1b[38;5;110m${text}\x1b[39m`;
+    },
+    bg: (_color: string, text: string) => `\x1b[48;5;60m${text}\x1b[49m`,
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+    italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
+  };
+  try {
+    return { out: run(), calls };
+  } finally {
+    (globalThis as any)[THEME_KEY] = previous;
+  }
+}
+
+const notDrawn = () => ({ render: () => ["the extension's own row"], invalidate() {} });
+const controlNotice = (agent: string) => ({
+  customType: "subagent_control_notice",
+  content: "Subagent needs attention: " + agent + "\nRun: run-1",
+  details: { event: { type: "needs_attention", agent, runId: "run-1" } },
+});
+const completionNotice = (agent: string, status: string) => ({
+  customType: "subagent-notify",
+  content: `Background tasks completed (1): ${agent}\n\n1. ${agent}\nstopped after 40 turns`,
+  details: { runs: [{ agent, status, runId: "run-2" }] },
+});
+
+test("a subagent notice puts its agent and what happened in the top border", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const component = new CustomMessageComponent(controlNotice("worker") as any, notDrawn as any);
+  const { out: lines, calls } = withColors(() => component.render(60) as string[]);
+  assert.ok(plainRow(lines[0]!).includes("worker needs attention"), "the agent and the status name the row");
+  assert.ok(calls.some(([color, text]) => color === "warning" && text === "needs attention"), "needs attention is a warning");
+  assert.ok(lines[0]!.includes("\u{f0c0}"), "the subagent glyph");
+  assert.ok(!lines.join("\n").includes("[subagent]"), "the extension's own label row is gone");
+  assert.ok(!lines.join("\n").includes("ctrl+o to expand"), "and so is its expand hint");
+});
+
+test("a failed run is red, one line of its text shows, and a click opens the rest", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const component = new CustomMessageComponent(completionNotice("wiki-verifier", "failed") as any, notDrawn as any);
+  const { out: closed, calls } = withColors(() => component.render(60) as string[]);
+  assert.ok(plainRow(closed[0]!).includes("wiki-verifier failed"), "the label names it");
+  assert.ok(calls.some(([color, text]) => color === "error" && text === "failed"), "a failed run is an error, not a warning");
+  assert.equal(closed.length, 3, "border, one line of text, border");
+  assert.ok(plainRow(closed[1]!).includes("1. wiki-verifier"), "the body starts after the title the label already says");
+  assert.ok(!plainRow(closed[1]!).includes("Background tasks completed"), "that title is not repeated");
+
+  (component as any).handleMouse({ type: "click", button: 0, x: 4, y: 1, width: 60, height: 3 });
+  const { out: open } = withColors(() => component.render(60) as string[]);
+  assert.ok(open.length > closed.length, "the click opens it");
+  assert.ok(plainRow(open.join("\n")).includes("stopped after 40 turns"), "the rest of the text is there");
+});
+
+test("a notice about several runs says how many, in the worst tone", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const message = {
+    customType: "subagent-notify",
+    content: "Background tasks completed (2): a, b",
+    details: { runs: [{ agent: "a", status: "completed" }, { agent: "b", status: "paused" }] },
+  };
+  const component = new CustomMessageComponent(message as any, notDrawn as any);
+  const { out: lines, calls } = withColors(() => component.render(60) as string[]);
+  assert.ok(plainRow(lines[0]!).includes("2 background runs"), "one row, not two names");
+  assert.ok(calls.some(([color, text]) => color === "warning" && text === "2 background runs"), "paused outranks completed");
+});
+
+test("a notice whose type names nobody still says what kind it is", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const message = {
+    customType: "subagent-wait-subscription",
+    content: "bg_wait fired: run run-77 timed out after 600s",
+    details: { runId: "run-77", outcome: "timed out" },
+  };
+  const component = new CustomMessageComponent(message as any, notDrawn as any);
+  const { out: lines, calls } = withColors(() => component.render(60) as string[]);
+  const top = plainRow(lines[0]!);
+  assert.ok(top.includes("run-77 timed out"), "the run and its outcome");
+  assert.ok(calls.some(([color, text]) => color === "warning" && text === "timed out"), "a timeout is a warning");
+  assert.ok(plainRow(lines[1]!).includes("bg_wait fired"), "a one-line notice keeps its line: it has no title");
+});
+
+test("a completion notice drops the child's own name from the body too", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const message = {
+    customType: "subagent-notify",
+    content: "Background task failed: **worker**\n\nworker:\nTool 'bash' exceeded its timeout of 5000ms.\n",
+    details: { runs: [{ agent: "worker", status: "failed" }] },
+  };
+  const component = new CustomMessageComponent(message as any, notDrawn as any);
+  const { out: lines } = withColors(() => component.render(60) as string[]);
+  assert.ok(plainRow(lines[1]!).includes("Tool 'bash' exceeded its timeout"), "the body starts at the failure, not at `worker:`");
+});
+
+test("a notice with only a type keeps the kind word in the border", () => {
+  patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+  const message = { customType: "subagent_watchdog_warning", content: "Watchdog held the run: edits outside scope", details: { severity: "blocker" } };
+  const component = new CustomMessageComponent(message as any, notDrawn as any);
+  const { out: lines } = withColors(() => component.render(60) as string[]);
+  const top = plainRow(lines[0]!);
+  assert.ok(top.includes("watchdog blocker"), "the kind word, then the severity");
 });
 
 test("unknown border color falls back to the original render", () => {

@@ -16,7 +16,7 @@ every box gets a rounded transparent frame.
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
-- **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color, its `[kind]` label set into the top border
+- **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
@@ -184,7 +184,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by an extension's own renderer keeps its look. Does not affect the rail, the final reply or tool boxes |
+| `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by another extension's own renderer keeps its rows inside the frame and loses its fill (see below). Does not affect the rail, the final reply or tool boxes |
 | `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `finalReplyStyle` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
 
 ### Tool folding
@@ -238,12 +238,30 @@ pi builds one `ToolExecutionComponent` per tool call, no matter which extension
 registered the tool. pi-tidy patches that component's `render` to frame the whole
 box — which is why MCP and subagent boxes are framed too. Message boxes (compaction, branch
 summary, skill invocation, extension custom message) never go through that
-component; their own prototypes get the same treatment, with one exception
-that keeps its native styling: custom messages rendered by an
-extension-provided renderer. Their `[compaction]` / `[branch]` / `[skill]` /
-`[type]` row is a title, so it sits in the top border next to the kind icon and
-the spacer under it is gone; a collapsed skill box keeps its label inline, where
-it shares the row with the skill's name. `!` bash-mode runs are framed as the user's
+component; their own prototypes get the same treatment. Their `[compaction]` /
+`[branch]` / `[skill]` / `[type]` row is a title, so it sits in the top border
+next to the kind icon and the spacer under it is gone; a collapsed skill box
+keeps its label inline, where it shares the row with the skill's name.
+
+A custom message an extension renders itself is framed around its rows: the
+rows are the extension's, so nothing here knows where a label belongs in them,
+but the frame is the transcript's — its background fill is stripped, its blank
+edges are trimmed, its kind goes in the top border, and a click maps back
+through the border to the component that drew it. pi-subagents' notices go one
+step further and are drawn from the message instead of the component at all:
+the border carries the subagent's name and what happened to it
+(`╭─  wiki-verifier failed ─╮`, red for a failure, yellow for a stall), the
+message's own text is the body with the title line it repeats taken out, one row
+of it shows until a click, and the type's own `(ctrl+o to expand)` is gone. The
+label comes from `details` — `runs[].agent` and `runs[].status` for a completion
+notice, `event.agent` and `event.type` for a control notice, and the same fields
+on the eleven other types wherever they exist, so a notice that names nobody is
+still drawn, with the glyph alone. Session *entries* (pi-subagents' `reply sent
+to …`) are not covered: they render through `CustomEntryComponent`, which pi does
+not export, and the entry renderer registry answers whichever extension
+registered first.
+
+`!` bash-mode runs are framed as the user's
 rather than as a tool's: the agent's bash box changes color with its state,
 while the user's keeps the user messages' color (`messageBorderColors.user`, or
 `userMessageColors.rail` under the rail) and lets pi's own rows (`Running...`,
