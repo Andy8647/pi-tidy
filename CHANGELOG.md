@@ -4,6 +4,15 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**A hex color in a message gets a swatch.** A reply or your own message that names a color now shows a `●` painted
+in it: `#7f849c`, `#f00` and `#7f849c80` all work, and alpha is ignored because there is nothing to blend against.
+Fenced code blocks, inline code and thinking keep their text, so a shell comment that happens to look like a color
+stays a comment. `tidy.hexSwatches: false` leaves the markdown to pi.
+
 ## [0.9.4] - 2026-11-09
 
 ### Added
