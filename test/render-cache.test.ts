@@ -10,8 +10,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createEditToolDefinition, initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { Container } from "@earendil-works/pi-tui";
+import { createEditToolDefinition, initTheme, Theme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
+import { colorToHex, Container } from "@earendil-works/pi-tui";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { resetGroups, thinkingRuns } from "../src/tools/tool-groups.ts";
 
@@ -91,6 +91,76 @@ test("edit boxes keep their split diff between frames, however many share the tr
   host.render(W - 10);
   assert.equal(builds, boxes.length, "a resize rebuilds every box");
 });
+
+const themeKey = Symbol.for("@earendil-works/pi-coding-agent:theme");
+const themes = globalThis as unknown as Record<symbol, Theme>;
+const colors = Object.fromEntries(
+  Object.entries(theme.colors as Theme["colors"]).map(([name, color]) => [name, colorToHex(color)]),
+) as ConstructorParameters<typeof Theme>[0] & ConstructorParameters<typeof Theme>[1];
+
+function diffTheme(appearance: "light" | "dark", overrides: Record<string, string> = {}): Theme {
+  const values = {
+    ...colors,
+    toolSuccessBg: appearance === "light" ? "#f0f0f0" : "#202228",
+    toolDiffAdded: "#288c3c",
+    toolDiffRemoved: "#c83246",
+    ...overrides,
+  };
+  return new Theme(values, values, "truecolor", { appearance });
+}
+
+for (const appearance of ["light", "dark", undefined] as const) {
+  test(`split diff row and word fills follow ${appearance ?? "legacy"} appearance`, () => {
+    const current = diffTheme(appearance ?? "dark");
+    if (!appearance) Object.defineProperty(current, "appearance", { value: undefined });
+    themes[themeKey] = current;
+    try {
+      const row = edit().render(W).find((line) => line.includes("▌") && line.includes("old"));
+      assert.ok(row, "the real edit box renders the changed row");
+      const fills = new Set([...row.matchAll(/\x1b\[48;2;([0-9;]+)m/g)].map((match) => match[1]));
+      // Pin the 16% row / 32% word strengths; intentional changes update these values.
+      const { addedRow, removedRow, addedWord, removedWord } = appearance === "light"
+        ? { addedRow: "208;224;211", removedRow: "234;210;213", addedWord: "176;208;182", removedWord: "227;179;186" }
+        : { addedRow: "18;34;24", removedRow: "43;20;25", addedWord: "24;57;33", removedWord: "75;28;36" };
+      assert.deepEqual(fills, new Set([addedRow, removedRow, addedWord, removedWord]));
+    } finally {
+      themes[themeKey] = theme;
+    }
+  });
+}
+
+for (const [name, next] of [
+  ["appearance", diffTheme("dark", { toolSuccessBg: "#f0f0f0" })],
+  ["background", diffTheme("light", { toolSuccessBg: "#ffffff" })],
+] as const) {
+  test(`split diff cache follows a theme's ${name} change even when added text is unchanged`, () => {
+    const first = diffTheme("light");
+    themes[themeKey] = first;
+    try {
+      const box = edit();
+      const before = box.render(W);
+      const cached = () => (box as any).__splitCache.value;
+      const initial = cached();
+      assert.ok(initial);
+      assert.deepEqual(box.render(W), before);
+      assert.equal(cached(), initial, "unchanged frames reuse the panes");
+
+      assert.equal(first.fg("toolDiffAdded", "x"), next.fg("toolDiffAdded", "x"));
+      themes[themeKey] = next;
+      const after = box.render(W);
+      const updated = cached();
+      assert.notEqual(updated, initial, "the replacement theme rebuilds the panes");
+      assert.notDeepEqual(after, before, "the background changes too");
+      assert.deepEqual(box.render(W), after);
+      assert.equal(cached(), updated, "subsequent frames reuse the new panes");
+
+      themes[themeKey] = first;
+      assert.deepEqual(box.render(W), before, "switching back restores the original colours");
+    } finally {
+      themes[themeKey] = theme;
+    }
+  });
+}
 
 test("thinking runs come back as the same array until the text grows", () => {
   const message = {
