@@ -84,7 +84,7 @@ test("changed rows are the ones carrying a background", () => {
   assert.ok(out);
   assert.ok(out.bgRows.length >= 2, "at least the replacement pair is tinted");
   for (const row of out.bgRows) {
-    const line: string = out.lines[row] ?? "";
+    const line = out.lines[row] ?? "";
     assert.match(line, /\x1b\[48;2;/, "tinted rows carry a truecolor fill");
     assert.ok(plain(line).includes("before") || plain(line).includes("après") || plain(line).trim() !== "");
   }

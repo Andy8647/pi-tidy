@@ -518,6 +518,8 @@ function splitEditBody(
   // long session crawl; the panes only change with these inputs. getTheme()
   // returns the actual instance, which pi replaces on theme switches/reloads.
   // Compare it directly: different themes may share the same added-text colour.
+  // Unlike the codemode path below, which renders components and compares coloured
+  // body rows, this cache starts from an uncoloured diff, so it must track the theme.
   const cache = tool.__splitCache;
   if (
     cache &&

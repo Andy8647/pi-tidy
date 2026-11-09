@@ -118,10 +118,11 @@ for (const appearance of ["light", "dark", undefined] as const) {
       const row = edit().render(W).find((line) => line.includes("▌") && line.includes("old"));
       assert.ok(row, "the real edit box renders the changed row");
       const fills = new Set([...row.matchAll(/\x1b\[48;2;([0-9;]+)m/g)].map((match) => match[1]));
-      const expected = appearance === "light"
-        ? ["208;224;211", "176;208;182", "234;210;213", "227;179;186"]
-        : ["18;34;24", "24;57;33", "43;20;25", "75;28;36"];
-      assert.deepEqual(fills, new Set(expected));
+      // Pin the 16% row / 32% word strengths; intentional changes update these values.
+      const { addedRow, removedRow, addedWord, removedWord } = appearance === "light"
+        ? { addedRow: "208;224;211", removedRow: "234;210;213", addedWord: "176;208;182", removedWord: "227;179;186" }
+        : { addedRow: "18;34;24", removedRow: "43;20;25", addedWord: "24;57;33", removedWord: "75;28;36" };
+      assert.deepEqual(fills, new Set([addedRow, removedRow, addedWord, removedWord]));
     } finally {
       themes[themeKey] = theme;
     }
