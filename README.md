@@ -26,7 +26,8 @@ every box gets a rounded transparent frame.
 - **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
-- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators
+- **Hex colors you can see** — a message that names a color (`#7f849c`, `#f00`, `rgb(127, 132, 156)`, `hsl(240, 10%, 15%)`) gets a `●` painted in that color in front of it, so a palette in prose reads at a glance. Fenced blocks, inline code and thinking keep their text
+- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. The script a shell's `-c` takes is highlighted as the code it is, so `bash -c 'set -e` plus five more lines no longer arrives as one flat string colour. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
 - **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
@@ -201,7 +202,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `highlightBash` | `true` | Syntax-highlights bash commands | Needs pi 1.3 |
+| `highlightBash` | `true` | Syntax-highlights bash commands, including the script a shell's `-c` takes | Needs pi 1.3 |
 | `bashResultLines` | `1` | Visual lines of output in a collapsed bash box. pi's own number is 5, with no setting. `0` hides the output until you expand | Needs pi 1.3. A failed command keeps pi's preview. `ctrl+o` shows everything |
 | `writeLines` | `10` | Visual lines of a written file in a collapsed box. `0` keeps just the header | Needs pi 1.3. `ctrl+o` shows everything |
 | `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form |
@@ -215,6 +216,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 |-----|---------|--------------|-----------------|
 | `toolColors` | `{ "bash": "bashMode", "read": "toolTitle", "edit": "syntaxVariable", "write": "syntaxVariable", "grep": "syntaxOperator", "find": "syntaxOperator", "ls": "syntaxOperator", "mcp": "customMessageLabel" }` | Border color per tool, on success. Pending stays grey, errors red, unlisted tools take `accent`. The map **replaces** the defaults, so `{}` turns per-tool colors off | Tool boxes only, not the rows in a group |
 | `thinkingColor` | `"warning"` | Color of the brain, the `N thoughts` count and an expanded thinking box | Always, with grouping on or off |
+| `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word. Fenced blocks, inline code and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
 
 Tool boxes keep green, red and grey for a call's state, so the default message colors avoid them:
 mauve for compactions, peach for branch summaries, sky for skills and yellow for extension notices.

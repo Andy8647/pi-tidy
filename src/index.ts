@@ -25,10 +25,11 @@ import { agentRunning, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
 import { patchErrorLines } from "./messages/error-lines.ts";
 import { patchUserMessages } from "./messages/user-message.ts";
+import { restoreColor, withHexSwatchesCached } from "./messages/hex-swatches.ts";
 import { formatWriteCallText } from "./tools/write-preview.ts";
 import { connectJobs, registerNestedJobs, type EventBusLike } from "./tools/background-jobs.ts";
 import { installGroupBoundaries } from "./tools/tool-group-view.ts";
-import type { ThemeLike } from "./theme-access.ts";
+import { getTheme, type ThemeLike } from "./theme-access.ts";
 
 export { highlightBashCommand, formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 export { stripBackgroundFills, patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
@@ -313,5 +314,22 @@ export default function (pi: ExtensionAPI): void {
     registerWritePreview(pi, config.writeLines);
   } catch (error) {
     console.debug("[pi-tidy] write preview renderer failed:", error);
+  }
+
+  // A hex color in a message gets a swatch painted with the color it names.
+  // Display only: the transformer runs before pi's own Markdown renderer and
+  // never reaches the session or the model context. Thinking is skipped — the
+  // box is dim and a swatch in it reads as a misplaced highlight.
+  if (config.hexSwatches) {
+    try {
+      pi.registerMarkdownTransformer((markdown, { messageType }) => {
+        if (messageType === "assistant-thinking" || !tidyEnabled.get()) return markdown;
+        const theme = getTheme();
+        if (!theme) return markdown;
+        return withHexSwatchesCached(markdown, restoreColor(theme, messageType), theme);
+      });
+    } catch (error) {
+      console.debug("[pi-tidy] hex swatch transformer failed:", error);
+    }
   }
 }
