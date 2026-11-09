@@ -4,6 +4,14 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**Split diffs now follow the theme's appearance.** Light themes get pale row backgrounds and stronger word highlights;
+dark themes and older hosts keep their existing colours. No new setting is needed. Existing edit diffs also refresh
+on theme switches and reloads, even when the added-text colour stays the same.
+
 ## [0.9.3] - 2026-11-08
 
 ### Added

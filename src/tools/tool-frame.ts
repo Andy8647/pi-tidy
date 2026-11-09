@@ -125,7 +125,7 @@ interface ToolBoxInternals extends GroupedTool {
     width: number;
     maxLines: number | undefined;
     filePath: string | undefined;
-    sample: string;
+    theme: ThemeLike;
     call: string[];
     value: { raw: string[]; bgRows: ReadonlySet<number> } | undefined;
   };
@@ -515,9 +515,9 @@ function splitEditBody(
   // pi renders the whole transcript every frame — every wheel tick, every
   // streamed token — so each edit box in the history comes through here each
   // time. Rebuilding (and re-highlighting) its panes is what made scrolling a
-  // long session crawl; the panes only change with these inputs. A theme
-  // switch changes the sample.
-  const sample = theme.fg("toolDiffAdded", "x");
+  // long session crawl; the panes only change with these inputs. getTheme()
+  // returns the actual instance, which pi replaces on theme switches/reloads.
+  // Compare it directly: different themes may share the same added-text colour.
   const cache = tool.__splitCache;
   if (
     cache &&
@@ -525,7 +525,7 @@ function splitEditBody(
     cache.width === innerWidth &&
     cache.maxLines === maxLines &&
     cache.filePath === filePath &&
-    cache.sample === sample &&
+    cache.theme === theme &&
     sameLines(cache.call, call)
   ) {
     return cache.value;
@@ -535,7 +535,7 @@ function splitEditBody(
   const value = body
     ? { raw: [...call, ...body.lines], bgRows: new Set(body.bgRows.map((row) => row + offset)) }
     : undefined;
-  tool.__splitCache = { diff, width: innerWidth, maxLines, filePath, sample, call, value };
+  tool.__splitCache = { diff, width: innerWidth, maxLines, filePath, theme, call, value };
   return value;
 }
 

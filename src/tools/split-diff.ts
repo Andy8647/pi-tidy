@@ -235,17 +235,17 @@ function sgrRgb(sequence: string | undefined): Rgb | null {
 }
 
 /**
- * An absolute background for a diff row: a fixed slice of the diff hue over a
- * dimmed box background. Mixing the hue into the box background directly (the
- * way a translucent overlay would) washes out at the strengths that stay
- * readable — a 14% pink over #28293a is a plum band, not a removed line. Hue
- * carries the meaning, luminance has to stay low.
+ * Light themes need a translucent-style tint that preserves the box's light
+ * background. Dark themes keep the original dimmed base so the diff hue stays
+ * distinct without washing out the syntax colours. Older hosts without an
+ * appearance property keep that same dark-theme behaviour.
  */
-function tintBackground(base: Rgb, color: Rgb, hue: number): Rgb {
+function tintBackground(base: Rgb, color: Rgb, hue: number, appearance: ThemeLike["appearance"]): Rgb {
+  const baseWeight = appearance === "light" ? 1 - hue : 0.35;
   return {
-    r: Math.round(color.r * hue + base.r * 0.35),
-    g: Math.round(color.g * hue + base.g * 0.35),
-    b: Math.round(color.b * hue + base.b * 0.35),
+    r: Math.round(color.r * hue + base.r * baseWeight),
+    g: Math.round(color.g * hue + base.g * baseWeight),
+    b: Math.round(color.b * hue + base.b * baseWeight),
   };
 }
 
@@ -274,13 +274,13 @@ function buildPalette(theme: ThemeLike): Palette {
   const addedFg = sgr(theme, "toolDiffAdded");
   const removedFg = sgr(theme, "toolDiffRemoved");
   const contextFg = sgr(theme, "toolDiffContext");
-  // The row tint has no theme slot, so mix the diff colour into the box
-  // background the way an editor would: 14% for the row, 30% for the word.
+  // The row tint has no theme slot: use 16% of the diff hue for the row,
+  // 32% for the word, with the base weight chosen for the theme's appearance.
   const base = sgrRgb(sgr(theme, "toolSuccessBg", "bg")) ?? sgrRgb(sgr(theme, "toolPendingBg", "bg"));
   const added = sgrRgb(addedFg);
   const removed = sgrRgb(removedFg);
   const tint = (color: Rgb | null, hue: number): string | undefined =>
-    base && color ? bgAnsi(tintBackground(base, color, hue)) : undefined;
+    base && color ? bgAnsi(tintBackground(base, color, hue, theme.appearance)) : undefined;
   return {
     addedFg: addedFg ?? "",
     removedFg: removedFg ?? "",

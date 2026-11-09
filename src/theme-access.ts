@@ -10,6 +10,8 @@
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
 export interface ThemeLike {
+  /** Pi resolves this from the theme declaration or its colours; absent on older hosts. */
+  readonly appearance?: "light" | "dark";
   fg(color: string, text: string): string;
   bold(text: string): string;
   /** Present on the live theme; every built-in theme implements it. */
