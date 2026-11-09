@@ -107,8 +107,8 @@ test("mid-word # stays inside the word", async () => {
   // A `#` treated as a word break would split `1#2` and color `1` as a number.
   const { tokens } = await highlight("echo 1#2");
   assert.deepEqual(
-    tokens.map(([token]) => token),
-    ["syntaxFunction"],
+    tokens.map(([token, text]) => [token, text]),
+    [["syntaxFunction", "echo"], ["toolOutput", "1#2"]],
     "`1#2` must be one plain word, not a number followed by a stray break",
   );
 });
@@ -204,6 +204,23 @@ test("a heredoc is not a -c payload", async () => {
   // come out as shell. The delimiter stays the string it always was.
   const result = await highlight("bash <<'EOF'\ncd src\nEOF");
   assert.deepEqual(stringsOf(result), ["'EOF'"]);
+});
+
+test("arguments the grammar cannot name take one quiet colour", async () => {
+  // The shell has no type for these: `cp a b` and `cp a/b` are the same shape,
+  // so guessing path-or-not is off the table. Left alone they would render in
+  // the terminal's default foreground, which is what made a row a wall of white.
+  const { tokens } = await highlight("cp src/a.ts /tmp");
+  assert.deepEqual(
+    tokens.map(([token, text]) => [token, text]),
+    [["syntaxFunction", "cp"], ["toolOutput", "src/a.ts"], ["toolOutput", "/tmp"]],
+  );
+});
+
+test("a value after = is quiet as well", async () => {
+  const result = await highlight("curl --output=out.json $URL");
+  const quiet = result.tokens.filter(([token]) => token === "toolOutput").map(([, text]) => text);
+  assert.deepEqual(quiet, ["out.json"]);
 });
 
 test("randomized inputs terminate and are lossless", async () => {

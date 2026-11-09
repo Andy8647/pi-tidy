@@ -206,7 +206,7 @@ function highlightShell(
       const eq = word.indexOf("=");
       push(word.slice(0, eq), "syntaxVariable");
       push("=", "syntaxOperator");
-      push(word.slice(eq + 1), null);
+      push(word.slice(eq + 1), "toolOutput");
       continue; // still expecting the command word
     }
 
@@ -223,7 +223,7 @@ function highlightShell(
       if (eq !== -1) {
         push(word.slice(0, eq), "syntaxType");
         push("=", "syntaxOperator");
-        push(word.slice(eq + 1), null);
+        push(word.slice(eq + 1), "toolOutput");
       } else {
         push(word, "syntaxType");
       }
@@ -233,7 +233,13 @@ function highlightShell(
     // numbers
     if (/^\d+(\.\d+)?$/.test(word)) { push(word, "syntaxNumber"); continue; }
 
-    push(word, null);
+    // Words the grammar cannot name: arguments, paths, globs, filenames. The
+    // shell has no type for these — `cp foo bar` and `cp foo/bar` are the same
+    // shape — so they are not guessed at, they are one quiet colour. Left
+    // uncoloured they would be the terminal's default foreground, which turns a
+    // path-heavy command into a wall of white. `toolOutput` rather than `muted`:
+    // readable at a glance, and not the grey a comment takes.
+    push(word, "toolOutput");
   }
 
   return out.join("");
