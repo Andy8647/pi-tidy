@@ -26,7 +26,7 @@ every box gets a rounded transparent frame.
 - **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
-- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators
+- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. The script a shell's `-c` takes is highlighted as the code it is, so `bash -c 'set -e` plus five more lines no longer arrives as one flat string colour
 - **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
@@ -201,7 +201,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `highlightBash` | `true` | Syntax-highlights bash commands | Needs pi 1.3 |
+| `highlightBash` | `true` | Syntax-highlights bash commands, including the script a shell's `-c` takes | Needs pi 1.3 |
 | `bashResultLines` | `1` | Visual lines of output in a collapsed bash box. pi's own number is 5, with no setting. `0` hides the output until you expand | Needs pi 1.3. A failed command keeps pi's preview. `ctrl+o` shows everything |
 | `writeLines` | `10` | Visual lines of a written file in a collapsed box. `0` keeps just the header | Needs pi 1.3. `ctrl+o` shows everything |
 | `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form |
