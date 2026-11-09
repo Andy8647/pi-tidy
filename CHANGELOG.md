@@ -4,7 +4,7 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.5] - 2026-11-09
 
 ### Added
 
@@ -12,6 +12,15 @@ What changed in each released version of pi-tidy (published as
 in it: `#7f849c`, `#f00` and `#7f849c80` all work, and alpha is ignored because there is nothing to blend against.
 Fenced code blocks, inline code and thinking keep their text, so a shell comment that happens to look like a color
 stays a comment. `tidy.hexSwatches: false` leaves the markdown to pi.
+
+**A shell's `-c` script is highlighted as the script it is.** `bash -c 'set -e` plus five more lines used to arrive as
+one string token: every row the same green, and no way to read the commands. A quoted argument after `-c` (or a
+combined form like `-lc`) is now tokenized as shell code, three levels of nesting deep, with the quotes still read as
+strings. Heredocs, double-quoted payloads and `grep -c 'x'` keep the plain string treatment.
+
+**Words the grammar cannot name take a colour of their own.** Arguments, paths, globs, filenames and the value of
+`VAR=value` / `--flag=value` were passed through uncoloured, so a path-heavy row was a wall of the terminal's default
+foreground. They take `toolOutput`: readable, and clearly not the grey a comment gets.
 
 ## [0.9.4] - 2026-11-09
 
