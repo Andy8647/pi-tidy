@@ -20,6 +20,9 @@ the rules are full-width by design and ignore it.
 dark themes and older hosts keep their existing colours. No new setting is needed. Existing edit diffs also refresh
 on theme switches and reloads, even when the added-text colour stays the same.
 
+Thanks to @s5unty for the split diff fix, the `appearance` read and the instance-keyed cache included (#73), and to
+@cheney12138 for proposing `userMessageMaxWidth` and the three value forms it takes (#58).
+
 ## [0.9.3] - 2026-11-08
 
 ### Added
