@@ -8,10 +8,12 @@ What changed in each released version of pi-tidy (published as
 
 ### Added
 
-**A hex color in a message gets a swatch.** A reply or your own message that names a color now shows a `●` painted
-in it: `#7f849c`, `#f00` and `#7f849c80` all work, and alpha is ignored because there is nothing to blend against.
-Fenced code blocks, inline code and thinking keep their text, so a shell comment that happens to look like a color
-stays a comment. `tidy.hexSwatches: false` leaves the markdown to pi.
+**A color in a message gets a swatch.** A reply or your own message that names a color now shows a `●` painted in it:
+`#7f849c`, `#f00` and `#7f849c80` for hex, `rgb(127, 132, 156)` / `rgba(…)` and `hsl(240, 10%, 15%)` / `hsla(…)`
+for the CSS functions, commas or spaces between the parts. Alpha is ignored because there is nothing to blend against,
+and named colors (`red`, `tomato`) are not matched at all: they are ordinary words in prose. Fenced code blocks,
+inline code and thinking keep their text, so a shell comment that happens to look like a color stays a comment.
+`tidy.hexSwatches: false` leaves the markdown to pi.
 
 **A shell's `-c` script is highlighted as the script it is.** `bash -c 'set -e` plus five more lines used to arrive as
 one string token: every row the same green, and no way to read the commands. A quoted argument after `-c` (or a

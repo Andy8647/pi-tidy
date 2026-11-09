@@ -60,6 +60,36 @@ test("swatchColor: every CSS hex length, alpha dropped", () => {
   assert.equal(swatchColor("#7f849"), undefined);
 });
 
+test("swatchColor: rgb(), rgba(), hsl() and hsla(), whichever way they are written", () => {
+  assert.equal(swatchColor("rgb(30,30,46)"), "#1e1e2e");
+  assert.equal(swatchColor("rgb(127, 132, 156)"), "#7f849c");
+  assert.equal(swatchColor("rgba(127, 132, 156, 0.5)"), "#7f849c");
+  assert.equal(swatchColor("rgb(50%, 0%, 0%)"), "#800000");
+  assert.equal(swatchColor("HSL(240, 100%, 50%)"), "#0000ff");
+  assert.equal(swatchColor("hsl(120deg 100% 50%)"), "#00ff00");
+  assert.equal(swatchColor("hsla(0, 100%, 50%, .8)"), "#ff0000");
+  assert.equal(swatchColor("rgb(1,2)"), undefined);
+  assert.equal(swatchColor("rgb(a, b, c)"), undefined);
+});
+
+test("color functions in prose get the swatch", () => {
+  const line = render("overlay is rgb(127, 132, 156) and hsl(240, 100%, 50%)", "assistant")[0]!;
+  assert.equal(plain(line).trimEnd(), "overlay is ● rgb(127, 132, 156) and ● hsl(240, 100%, 50%)");
+  assert.match(line, /\x1b\[38;2;127;132;156m●/);
+});
+
+test("a word that ends in rgb is not a color function", () => {
+  const line = render("myrgb(1,2,3) and rgbx(1,2,3) stay as they are", "assistant")[0]!;
+  assert.equal(plain(line).includes("●"), false);
+});
+
+test("color functions inside fences and inline code are left alone", () => {
+  const fenced = render(["```css", "a { color: rgb(255, 0, 0); }", "```"].join("\n"), "assistant").join("\n");
+  assert.equal(fenced.includes("●"), false);
+  const inline = render("`hsl(0, 100%, 50%)` is red", "assistant")[0]!;
+  assert.equal(plain(inline).includes("●"), false);
+});
+
 test("a hex in an assistant reply gains the block, the value stays", () => {
   const [line] = render("The border is #7f849c, a muted grey.", "assistant");
   assert.match(line!, /\x1b\[38;2;127;132;156m●\x1b\[39m/);
