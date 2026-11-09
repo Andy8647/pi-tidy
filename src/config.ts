@@ -28,6 +28,12 @@ export interface TidyConfig {
   userMessageStyle: UserMessageStyle;
   /** Alignment of a framed user message and its label; a rail's label only. */
   userMessageAlign: "left" | "right";
+  /**
+   * The widest a framed user message's text renders before it wraps: `"auto"`
+   * (the whole width), a fraction of the width (`0.7`), or a column count
+   * (`88`). The frame hugs the narrower text.
+   */
+  userMessageMaxWidth: number | "auto";
   /** Show a user message's time next to its icon. */
   userMessageTime: boolean;
   /** Fold a whole run live or only after settlement. */
@@ -147,6 +153,7 @@ const DEFAULTS: TidyConfig = {
   frameMessages: true,
   userMessageStyle: "frame",
   userMessageAlign: "left",
+  userMessageMaxWidth: "auto",
   userMessageTime: true,
   collapseTurns: "afterRun",
   finalReplyStyle: "frame",
@@ -191,6 +198,13 @@ function userMessageStyle(toolbox: any): UserMessageStyle {
   return USER_MESSAGE_STYLES.includes(style) ? style : DEFAULTS.userMessageStyle;
 }
 
+// A fraction of the width (0 < r ≤ 1) or a column count. Anything else — zero, a
+// negative, a non-finite number, a string — is the whole width: a typo in a
+// setting should not hide the message it was meant to narrow.
+function userMaxWidth(value: unknown): number | "auto" {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULTS.userMessageMaxWidth;
+}
+
 const FINAL_REPLY_STYLES: readonly FinalReplyStyle[] = ["frame", "rail", "rules", "off"];
 
 // `frameFinalReply` from before 0.9 keeps working: `true` is "frame", `false` is "off".
@@ -220,6 +234,7 @@ export function loadConfig(): TidyConfig {
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
       userMessageStyle: userMessageStyle(toolbox),
       userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
+      userMessageMaxWidth: userMaxWidth(toolbox?.userMessageMaxWidth),
       userMessageTime: typeof toolbox?.userMessageTime === "boolean" ? toolbox.userMessageTime : DEFAULTS.userMessageTime,
       collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
       finalReplyStyle: finalReplyStyle(toolbox),

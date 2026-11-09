@@ -165,7 +165,7 @@ interface ContainerBoxInternals {
   __customFrame?: { target: CustomRender; top: number; trimTop: number; inset: number; width: number; height: number; rows: number };
   /** A notice Tidy drew itself: the rows a click on it may land on. */
   __noticeFrame?: { rows: number };
-  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; timeFormat: string; headerStyle: HeaderStyle; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; maxWidth: number | "auto"; timeFormat: string; headerStyle: HeaderStyle; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
 }
 
 interface CustomRender {
@@ -190,6 +190,8 @@ export interface ContainerBoxOptions {
   includeUser?: boolean;
   /** Align the framed user message and its label; other message kinds stay left. */
   userAlign?: "left" | "right";
+  /** The widest a framed user message's text gets: `"auto"`, a fraction of the width, or columns. */
+  userMaxWidth?: number | "auto";
   /** The framed user message's time next to its icon. */
   userTime?: boolean;
   /** `tidy.messageTimeFormat`. */
@@ -206,6 +208,7 @@ interface ResolvedContainerOptions {
   icons: boolean;
   includeUser: boolean;
   userAlign: "left" | "right";
+  userMaxWidth: number | "auto";
   userTime: boolean;
   timeFormat: string;
   headerStyle: HeaderStyle;
@@ -215,8 +218,9 @@ const containerOptions = liveSlot<ResolvedContainerOptions | undefined>("contain
 
 /**
  * A user message's frame hugs its text: a one-word prompt gets a small box
- * instead of a full-width one, and a long one still stops at the full width.
- * The text keeps the one-cell inset it has on the left on its right as well.
+ * instead of a full-width one, and a long one still stops at the full width, or
+ * at `userMessageMaxWidth` when that is narrower. The text keeps the one-cell
+ * inset it has on the left on its right as well.
  * The box stays wider than its label: `╭─ ` and ` ─╮` alone leave the top border
  * a stub on each side, which reads as a cramped label and not as a border (#49).
  */
@@ -225,6 +229,19 @@ function hugContent(content: string[], width: number, labelWidth: number): { lin
   const widest = lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
   const floor = labelWidth > 0 ? labelWidth + 10 : 0;
   return { lines, width: Math.min(width, Math.max(widest + 3, floor)) };
+}
+
+/**
+ * How wide a framed user message's text renders, in cells: everything inside the
+ * border by default, otherwise the `userMessageMaxWidth` cap. A cap below 1 is a
+ * fraction of the width pi gave the message. The frame then hugs the wrapped
+ * text, and `hugContent` still keeps room for the label.
+ */
+function userTextWidth(maxWidth: number | "auto", width: number): number {
+  const inside = width - 2;
+  if (maxWidth === "auto") return inside;
+  const columns = maxWidth <= 1 ? maxWidth * width : maxWidth;
+  return Math.max(1, Math.min(inside, Math.floor(columns)));
 }
 
 /** Rows of a notice's own text shown before it is opened. */
@@ -334,8 +351,8 @@ export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
 ): void {
-  const { icons = false, includeUser = false, enabled = true, userAlign = "left", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
-  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userTime, timeFormat, headerStyle });
+  const { icons = false, includeUser = false, enabled = true, userAlign = "left", userMaxWidth = "auto", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
+  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userMaxWidth, userTime, timeFormat, headerStyle });
   if (!enabled) return;
   if (includeUser) installUserMessageTimes();
 
@@ -387,9 +404,10 @@ export function patchContainerBoxes(
         const w = Math.max(4, width);
         // A custom message's icon takes two cells of its first row; rendering
         // the box narrower keeps every line lossless. A user message carries
-        // its icon in the label instead.
+        // its icon in the label instead, and its text stops at its own cap.
         const iconInRow = icons && !isUserMessage;
-        const raw = box.render(iconInRow ? w - 4 : w - 2).map(stripBackgroundFills);
+        const boxWidth = isUserMessage ? userTextWidth(live.userMaxWidth, w) : w - 2;
+        const raw = box.render(iconInRow ? w - 4 : boxWidth).map(stripBackgroundFills);
         let content = trimBlankEdges(raw);
         if (content.length === 0) return [];
         // A custom message's `[type]` row is a title too, and goes into the top
@@ -411,6 +429,7 @@ export function patchContainerBoxes(
           cache.sample === sample &&
           cache.icons === icons &&
           cache.align === align &&
+          cache.maxWidth === live.userMaxWidth &&
           cache.timeFormat === live.timeFormat &&
           cache.headerStyle === live.headerStyle &&
           cache.labelMinute === labelMinute &&
@@ -452,7 +471,7 @@ export function patchContainerBoxes(
           out[0] = OSC133_ZONE_START + out[0];
           out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
         }
-        this.__msgFrameCache = { width: w, sample, icons, align, timeFormat: live.timeFormat, headerStyle: live.headerStyle, labelMinute, labelTime: userTime, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, icons, align, maxWidth: live.userMaxWidth, timeFormat: live.timeFormat, headerStyle: live.headerStyle, labelMinute, labelTime: userTime, lines: content, out };
         return out;
       } catch {
         this.__customFrame = undefined;

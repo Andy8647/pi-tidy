@@ -6,6 +6,14 @@ What changed in each released version of pi-tidy (published as
 
 ## [Unreleased]
 
+### Added
+
+**A framed user message can stop short of the full width.** `userMessageMaxWidth` takes `"auto"` (the default, the
+whole width), a fraction of it (`0.7`) or a column count (`88`). The text wraps earlier and the frame hugs the narrower
+column, so a long prompt keeps the chat-bubble shape under `userMessageAlign: "right"` instead of spanning the screen.
+The label still gets room to draw itself, so a cap narrower than the icon and time is widened to fit them. The rail and
+the rules are full-width by design and ignore it.
+
 ### Fixed
 
 **Split diffs now follow the theme's appearance.** Light themes get pale row backgrounds and stronger word highlights;

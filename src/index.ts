@@ -255,6 +255,7 @@ export default function (pi: ExtensionAPI): void {
       icons: config.icons,
       includeUser: config.userMessageStyle === "frame",
       userAlign: config.userMessageAlign,
+      userMaxWidth: config.userMessageMaxWidth,
       userTime: config.userMessageTime,
       timeFormat: config.messageTimeFormat,
       headerStyle: config.messageHeaderStyle,

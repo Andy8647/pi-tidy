@@ -153,6 +153,16 @@ test("user message padding is clamped and colors merge over the defaults", () =>
   withSettings({ tidy: { userMessagePaddingY: 1.5 } }, () => assert.equal(loadConfig().userMessagePaddingY, 1));
 });
 
+test("user message max width takes a fraction or a column count, and falls back to auto", () => {
+  withSettings({ tidy: { userMessageMaxWidth: 0.7 } }, () => assert.equal(loadConfig().userMessageMaxWidth, 0.7));
+  withSettings({ tidy: { userMessageMaxWidth: 88 } }, () => assert.equal(loadConfig().userMessageMaxWidth, 88));
+  for (const value of [undefined, "auto", "88", 0, -5, null, true] as const) {
+    withSettings({ tidy: { userMessageMaxWidth: value } }, () =>
+      assert.equal(loadConfig().userMessageMaxWidth, "auto", JSON.stringify(value)),
+    );
+  }
+});
+
 test("the README documents every key, under its real default", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf-8");
   const section = readme.slice(readme.indexOf("## Configuration\n"), readme.indexOf("## How it works\n"));
