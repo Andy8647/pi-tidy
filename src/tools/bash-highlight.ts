@@ -23,6 +23,18 @@ const SHELL_KEYWORDS = new Set([
 const WORD_BREAK = /[\s'"`$|&;<>()]/;
 
 /**
+ * Shells whose `-c` takes a script. `-c` on anything else (`grep -c`, `sort -c`)
+ * takes none, so the string after it has to stay a string.
+ */
+const SHELL_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh", "mksh", "fish"]);
+
+/** `-c`, and the combined forms a login or traced shell uses: `-lc`, `-xc`. */
+const SHELL_COMMAND_FLAG = /^-[A-Za-z]*c[A-Za-z]*$/;
+
+/** `bash -c 'bash -c …'` is worth a level or two, not an endless descent. */
+const MAX_PAYLOAD_DEPTH = 3;
+
+/**
  * Tokenize and color a shell command string.
  * `color(token, text)` maps a syntax token name to styled text (theme.fg).
  * Anything unrecognized passes through uncolored.
@@ -30,6 +42,24 @@ const WORD_BREAK = /[\s'"`$|&;<>()]/;
 export function highlightBashCommand(
   command: string,
   color: (token: string, text: string) => string
+): string {
+  return highlightShell(command, color, 0);
+}
+
+/**
+ * The work behind `highlightBashCommand`, which only seeds the descent depth.
+ *
+ * `bash -c 'set -e` + newline + `cd src'` is a shell script inside a string.
+ * Coloring the payload as one string token is what the shell's grammar says, but
+ * a six-line command in one flat colour is unreadable, so the quoted argument of
+ * a shell's `-c` is tokenized as the script it is. Everything else — heredocs,
+ * double-quoted payloads the outer shell expands first — keeps the plain string
+ * treatment.
+ */
+function highlightShell(
+  command: string,
+  color: (token: string, text: string) => string,
+  depth: number
 ): string {
   const out: string[] = [];
   const push = (text: string, token: string | null) => {
@@ -39,13 +69,15 @@ export function highlightBashCommand(
   let i = 0;
   const n = command.length;
   let expectCmd = true; // next word sits in command position
+  let shellNamed = false; // the previous word was a shell, so a `-c` may follow
+  let scriptNext = false; // the token coming up is a shell's `-c` script
 
   while (i < n) {
     const c = command[i];
 
     // whitespace / newlines
     if (c === " " || c === "\t") { push(c, null); i++; continue; }
-    if (c === "\n") { push(c, null); expectCmd = true; i++; continue; }
+    if (c === "\n") { push(c, null); expectCmd = true; shellNamed = false; scriptNext = false; i++; continue; }
 
     // comment (only at word start)
     if (c === "#" && (i === 0 || command[i - 1] === " " || command[i - 1] === "\t" || command[i - 1] === "\n")) {
@@ -55,6 +87,12 @@ export function highlightBashCommand(
       i = end;
       continue;
     }
+
+    // Only the token right after `-c` is its script: read the flag here and
+    // clear it, so a later quote in the same command is a plain string again.
+    // Whitespace and comments above must not consume it.
+    const isScriptPayload = scriptNext;
+    scriptNext = false;
 
     // operators (longest first)
     // fd redirects like 2>&1 (4 chars): target is not a command word
@@ -88,6 +126,16 @@ export function highlightBashCommand(
     if (c === "'") {
       const q = command.indexOf("'", i + 1);
       const end = q === -1 ? n : q + 1;
+      // A shell's `-c` script: the quotes stay strings, what is between them is
+      // the shell code it is. An unclosed quote stays one string, as before.
+      if (isScriptPayload && q !== -1 && depth < MAX_PAYLOAD_DEPTH) {
+        push("'", "syntaxString");
+        // Pushed raw: the inner call colors its own tokens.
+        out.push(highlightShell(command.slice(i + 1, q), color, depth + 1));
+        push("'", "syntaxString");
+        i = end;
+        continue;
+      }
       push(command.slice(i, end), "syntaxString");
       i = end;
       continue;
@@ -142,12 +190,23 @@ export function highlightBashCommand(
     const word = command.slice(i, j);
     i = j;
 
+    // Track `… bash -c`: the shell word arms the flag, the flag arms the next
+    // string. `/bin/bash` counts, and any other word disarms both.
+    if (SHELL_NAMES.has(word.slice(word.lastIndexOf("/") + 1))) {
+      shellNamed = true;
+    } else if (shellNamed && SHELL_COMMAND_FLAG.test(word)) {
+      scriptNext = true;
+      shellNamed = false; // one `-c` per shell word
+    } else if (!word.startsWith("-")) {
+      shellNamed = false;
+    }
+
     // assignment prefix in command position: VAR=value
     if (expectCmd && /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
       const eq = word.indexOf("=");
       push(word.slice(0, eq), "syntaxVariable");
       push("=", "syntaxOperator");
-      push(word.slice(eq + 1), null);
+      push(word.slice(eq + 1), "toolOutput");
       continue; // still expecting the command word
     }
 
@@ -164,7 +223,7 @@ export function highlightBashCommand(
       if (eq !== -1) {
         push(word.slice(0, eq), "syntaxType");
         push("=", "syntaxOperator");
-        push(word.slice(eq + 1), null);
+        push(word.slice(eq + 1), "toolOutput");
       } else {
         push(word, "syntaxType");
       }
@@ -174,7 +233,13 @@ export function highlightBashCommand(
     // numbers
     if (/^\d+(\.\d+)?$/.test(word)) { push(word, "syntaxNumber"); continue; }
 
-    push(word, null);
+    // Words the grammar cannot name: arguments, paths, globs, filenames. The
+    // shell has no type for these — `cp foo bar` and `cp foo/bar` are the same
+    // shape — so they are not guessed at, they are one quiet colour. Left
+    // uncoloured they would be the terminal's default foreground, which turns a
+    // path-heavy command into a wall of white. `toolOutput` rather than `muted`:
+    // readable at a glance, and not the grey a comment takes.
+    push(word, "toolOutput");
   }
 
   return out.join("");
