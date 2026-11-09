@@ -116,6 +116,11 @@ export interface TidyConfig {
    * goes side by side instead, per `splitDiff`.
    */
   codeBlocks: boolean;
+  /**
+   * Paint a dot in front of every hex color a message names (`● #7f849c`).
+   * Fenced code blocks and inline code are skipped.
+   */
+  hexSwatches: boolean;
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -176,6 +181,7 @@ const DEFAULTS: TidyConfig = {
   splitDiffMinWidth: 72,
   diffLines: 20,
   codeBlocks: true,
+  hexSwatches: true,
   thinkingColor: "warning",
   messageBorderColors: {
     assistant: "accent",
@@ -270,6 +276,7 @@ export function loadConfig(): TidyConfig {
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
       codeBlocks: typeof toolbox?.codeBlocks === "boolean" ? toolbox.codeBlocks : DEFAULTS.codeBlocks,
+      hexSwatches: typeof toolbox?.hexSwatches === "boolean" ? toolbox.hexSwatches : DEFAULTS.hexSwatches,
       thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
