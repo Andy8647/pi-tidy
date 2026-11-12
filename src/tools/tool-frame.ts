@@ -17,6 +17,7 @@
  */
 
 import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
@@ -91,6 +92,8 @@ interface ToolBoxInternals extends GroupedTool {
   callRendererComponent?: {
     preview?: { diff?: unknown; error?: unknown };
     children?: ReadonlyArray<{ render(width: number): string[] }>;
+    /** A renderer that returns one component hands back its rows, not children. */
+    render?(width: number): string[];
   };
   hasRendererDefinition(): boolean;
   getRenderShell(): "default" | "self";
@@ -483,6 +486,61 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
 const SPLIT_DIFF_TOOLS = new Set(["edit"]);
 
 /**
+ * The files a result reports, in the shape pi uses for a mutation.
+ *
+ * A tool that wraps `edit` can take something other than `{ path }` — aft's
+ * hashline mode takes `{ patch }` and names the files it touched in its result
+ * instead — so a box cannot assume the call arguments carry one.
+ */
+function resultFiles(details: unknown): Array<{ path?: unknown; sourcePath?: unknown }> {
+  const files = (details as { files?: unknown } | undefined)?.files;
+  return Array.isArray(files) ? files.filter((file) => file && typeof file === "object") : [];
+}
+
+/**
+ * The file a box is about: the call's own `path`, or the one its result reports.
+ *
+ * Reading the result is what makes the path chip, the file-type icon and the
+ * shortened title work for a tool that supplies its own renderers: those skip
+ * pi's edit renderer, and with it `args.path` and the `preview` it keeps state on.
+ * A result names files relative to the working directory (`aft` reports the
+ * patch's own path), so those are resolved here: the box shows an absolute path
+ * everywhere else, and a relative one would neither line up with it nor be worth
+ * copying.
+ */
+function targetPath(tool: { args?: unknown; result?: { details?: unknown }; cwd?: string }, toolName: string): string | undefined {
+  if (!PATH_ARG_TOOLS.has(toolName)) return undefined;
+  const path = (tool.args as { path?: unknown } | undefined)?.path;
+  if (typeof path === "string" && path) return path;
+  for (const file of resultFiles(tool.result?.details)) {
+    for (const candidate of [file.path, file.sourcePath]) {
+      if (typeof candidate !== "string" || !candidate) continue;
+      return isAbsolute(candidate) ? candidate : resolve(tool.cwd ?? process.cwd(), candidate);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The unified diff an edit box can draw.
+ *
+ * pi's edit renderer serialises it onto its call component (`preview.diff`),
+ * which is the only source while the edit is still streaming. Once the result
+ * is in, `details.diff` carries the same string — and it is the only one a tool
+ * with renderers of its own leaves behind. Undefined means "keep what pi drew":
+ * a preview error, or nothing to draw yet.
+ */
+function editDiff(tool: { callRendererComponent?: { preview?: unknown }; result?: { details?: unknown } }): string | undefined {
+  const preview = tool.callRendererComponent?.preview as { diff?: unknown; error?: unknown } | undefined;
+  if (preview) {
+    if ("error" in preview) return undefined;
+    if (typeof preview.diff === "string" && preview.diff) return preview.diff;
+  }
+  const diff = (tool.result?.details as { diff?: unknown } | undefined)?.diff;
+  return typeof diff === "string" && diff ? diff : undefined;
+}
+
+/**
  * Rebuild an edit box's rows as two panes.
  *
  * pi's edit renderer keeps the unified diff string on its call component
@@ -501,17 +559,19 @@ function splitEditBody(
   if (!splitDiff || !SPLIT_DIFF_TOOLS.has(tool.toolName) || innerWidth < splitDiffMinWidth) return undefined;
   const component = tool.callRendererComponent;
   const preview = component?.preview;
-  if (!preview || "error" in preview) return undefined;
-  const diff = typeof preview.diff === "string" ? preview.diff : undefined;
+  if (preview && "error" in preview) return undefined;
+  const diff = editDiff(tool);
   if (!diff) return undefined;
-  const path = (tool.args as { path?: unknown } | undefined)?.path;
-  const filePath = typeof path === "string" ? path : undefined;
+  const filePath = targetPath(tool, tool.toolName);
   // Collapsed, the body is a window on the diff; `ctrl+o` draws all of it.
   const maxLines = tool.expanded ? undefined : diffLines;
   // Row 0 is the call row (`edit ~/x.ts`), which keeps pi's rendering so the
   // icon prefix and path shortening still apply; the body starts with its own
-  // summary row (`↳ diff +1 -1 [...]`).
-  const call = component?.children?.[0]?.render(callWidth) ?? [];
+  // summary row (`↳ diff +1 -1 [...]`). pi's edit renderer keeps the row as the
+  // first child of a container; a renderer that hands back one component (aft's
+  // hashline `edit`) has no children, and its own first row is the call row.
+  const child = component?.children?.[0];
+  const call = child ? child.render(callWidth) : (component?.render?.(callWidth) ?? []).slice(0, 1);
   // pi renders the whole transcript every frame — every wheel tick, every
   // streamed token — so each edit box in the history comes through here each
   // time. Rebuilding (and re-highlighting) its panes is what made scrolling a
@@ -698,7 +758,7 @@ function composeFramedCodemode(
     let kindPrefix = "";
     let fileGlyph = "";
     let filePath = "";
-    const pathArg = PATH_ARG_TOOLS.has(this.toolName) ? (this.args as { path?: unknown } | undefined)?.path : undefined;
+    const pathArg = targetPath(this, this.toolName);
     // Read whether the icons are on or not: the path is also what the border's chip
     // copies, and that is not an icon.
     if (typeof pathArg === "string" && pathArg) filePath = pathArg;
