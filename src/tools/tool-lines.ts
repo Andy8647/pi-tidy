@@ -363,6 +363,20 @@ export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOp
   return formatToolRows(tool, theme, { ...options, rowLines: 1 })[0]!;
 }
 
+/**
+ * Cells between a row's left edge and its arguments: the outcome glyph, the
+ * kind icon and the name, then the space in front of the command. A grouped row
+ * that opens a body hangs the command's own lines on this column, so the row
+ * above and the body under it agree.
+ *
+ * Any status glyph will do: `⋯`, `✗` and `✓` are all one cell, so the column
+ * does not depend on how the call ended.
+ */
+export function commandColumn(tool: ToolLike, options: LineOptions = {}): number {
+  const icon = (options.icons ?? true) ? `${toolKindIcon(tool.toolName)} ` : "";
+  return visibleWidth(rowHead("·", `${icon}${tool.toolName}`, tool.toolName, options.align)) + 1;
+}
+
 /** The call's row, and a second one under it when it is allowed one and has more to say. */
 export function formatToolRows(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string[] {
   const { icons = true, job, width } = options;

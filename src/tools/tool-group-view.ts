@@ -35,6 +35,7 @@ import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts"
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "../draw/frame-draw.ts";
 import {
+  commandColumn,
   formatGroupLine,
   formatThoughtLabel,
   formatThoughtLine,
@@ -80,6 +81,8 @@ export interface GroupedTool {
   result?: { isError?: boolean; durationMs?: number; content?: unknown; details?: unknown };
   imageComponents?: unknown[];
   ui?: { requestRender?(): void };
+  /** pi's per-call renderer state, shared with the call's own renderer. */
+  rendererState?: { tidyCommandIndent?: number };
   setExpanded(expanded: boolean): void;
 }
 
@@ -133,7 +136,19 @@ export function renderGroupedTool(
     agentRunning.get() || tool.isPartial === true || job !== undefined || jobs.length > 0 || plan.revealIn !== undefined;
   // The body is drawn through the tool's own frame cache, so an unchanged box
   // hands back the same array: its identity says "nothing under this row moved".
-  const body = plan.full ? frameBox(Math.max(4, width - BODY_INDENT), true) : undefined;
+  //
+  // An opened bash call puts its whole body on the command's column: the pad is
+  // the head's width, so the command's own lines and the output under it share
+  // one left edge instead of starting under the rail. That makes the column the
+  // group's business, not the call row's, so the row itself is told to hang
+  // nothing (a box of its own still hangs its lines on `$ `, see frameBox).
+  // A job row carries what the job is doing rather than a command, so its body
+  // stays at the rail's pad.
+  const aligned = plan.full && !job && tool.toolName === "bash";
+  const bodyPadCells = aligned ? commandColumn(tool, { icons, align }) : BODY_PAD.length;
+  if (plan.full && tool.rendererState && tool.toolName === "bash") tool.rendererState.tidyCommandIndent = 0;
+  const bodyPad = " ".repeat(bodyPadCells);
+  const body = plan.full ? frameBox(Math.max(4, width - GUTTER_CELLS - bodyPadCells), true) : undefined;
   // Compared field by field against the last frame rather than through a built
   // key: on a folded row the check has to cost less than the row it skips.
   const cached = live ? undefined : groupedRows.get(tool);
@@ -167,7 +182,7 @@ export function renderGroupedTool(
     const base = lines.length;
     const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
     for (const [index, line] of body.entries()) {
-      const out = `${gutter}${BODY_PAD}${line.trimEnd()}`;
+      const out = `${gutter}${bodyPad}${line.trimEnd()}`;
       const section = toggles.find((toggle) => toggle.row === index)?.section;
       lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
     }
@@ -608,6 +623,26 @@ const CARRIER_CLICK = Symbol.for("pi-toolbox:carrier-click");
 type CarrierClickMap = { header: number | null; from: number; to: number };
 
 /**
+ * Fold an expanded thinking run back to its row.
+ *
+ * pi draws the reasoning itself, from `thinkingVisibilityOverrides` (`false` =
+ * shown), so the switch is flipped there instead of the rows being hidden, and
+ * the message's content is rebuilt: the same two moves pi's own click makes,
+ * which is what keeps its click and ours from disagreeing. Returns whether
+ * anything was open.
+ */
+export function closeThinking(component: any): boolean {
+  if (component?.[THOUGHT_OPEN] !== true) return false;
+  const overrides = component.thinkingVisibilityOverrides;
+  const runs = Math.max(1, thinkingRuns(component.lastMessage).length);
+  for (let i = 0; i < runs; i++) overrides?.set?.(i, true);
+  component[THOUGHT_OPEN] = false;
+  component.updateContent?.(component.lastMessage);
+  component.invalidate?.();
+  return true;
+}
+
+/**
  * A carrier message inside an open group: one `🧠` row per thinking run. The
  * collapsed row is the whole point — the group header counts the runs, and the
  * rows are where the model's reasoning actually shows up in the transcript.
@@ -781,11 +816,7 @@ function installCarrierMouse(component: any): void {
     // (the group stayed open and the reasoning folded instead).
     const expanded = component[THOUGHT_OPEN] && component.thinkingVisibilityOverrides?.get?.(0) === false;
     if (expanded && row === "row") {
-      const overrides = component.thinkingVisibilityOverrides;
-      for (let i = 0; i < Math.max(1, thinkingRuns(component.lastMessage).length); i++) overrides?.set?.(i, true);
-      component[THOUGHT_OPEN] = false;
-      component.updateContent?.(component.lastMessage);
-      component.invalidate?.();
+      closeThinking(component);
       setHover(null, null);
       lastRenderer()?.requestRender?.();
       return { handled: true };

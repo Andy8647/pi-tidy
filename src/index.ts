@@ -13,6 +13,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { keyHint, VERSION } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { CommandText, type CommandIndent } from "./tools/command-text.ts";
 import { formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
@@ -34,7 +35,7 @@ import { getTheme, type ThemeLike } from "./theme-access.ts";
 export { highlightBashCommand, formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 export { stripBackgroundFills, patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 
-interface BashRenderState {
+interface BashRenderState extends CommandIndent {
   startedAt?: number;
   endedAt?: number;
   /** Our own slot: the execution extension may be using `callText` itself. */
@@ -66,7 +67,7 @@ function registerBashRenderers(pi: ExtensionAPI, resultLines: number, highlight:
         state.startedAt = Date.now();
         state.endedAt = undefined;
       }
-      const text = state.tidyCallText ?? new Text("", 0, 0);
+      const text = state.tidyCallText ?? new CommandText(state);
       state.tidyCallText = text;
       // 折叠态(默认)只留命令首行 + `+N more lines`,和 pi 其它工具的折叠行为一致;
       // ctrl+o 展开后恢复整条命令(heredoc 之类)。
