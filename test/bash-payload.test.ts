@@ -12,10 +12,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { highlightCode, initTheme } from "@earendil-works/pi-coding-agent";
+import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import { highlightBashCommand } from "../src/tools/bash-highlight.ts";
 import { getTheme } from "../src/theme-access.ts";
 
 initTheme("dark");
+// Pin the colour mode. A terminal with truecolor paints `38;2;…` and a CI runner
+// without one paints `38;5;…`, so an assertion about the escapes themselves reads
+// differently on the two machines — the painting below is the same either way.
+setCapabilityOverrides({ trueColor: true });
 const theme = getTheme()!;
 
 const plain = (text: string) => text.replace(/\x1b\[[0-9;:]*[a-zA-Z]/g, "");
@@ -37,9 +42,10 @@ test("a python3 -c payload is painted as python", () => {
   const payload = "import pathlib\np = pathlib.Path('x')\nprint(p)";
   const command = `python3 -c "${payload}"`;
   const out = paint(command);
-  assert.ok(out.includes(asLanguage(payload, "python")), "the payload is not python-highlighted");
+  const painted = asLanguage(payload, "python");
+  assert.notEqual(painted, payload, "the theme painted nothing to compare against");
+  assert.ok(out.includes(painted), "the payload is not python-highlighted");
   assert.equal(plain(out), command, "no characters lost");
-  assert.ok(/syntaxKeyword|38;2/.test(out), "the payload carries colour");
 });
 
 test("the flag's position and form do not matter", () => {
