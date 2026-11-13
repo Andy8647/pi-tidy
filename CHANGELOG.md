@@ -4,6 +4,41 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**A payload is highlighted as the language it is written in, not just shell.** 0.9.5 taught the tokenizer that a shell's
+`-c` takes a script, which left the form an agent reaches for most often flat: `python3 -c "…"` came out as one
+`syntaxString` token, twelve rows of the same green. A flag takes a program only when the word before it is an
+interpreter, so `python3 -c`, `node -e`, `bun -e`, `ruby -e`, `perl -e`, `php -r` and `lua -e` now hand their payload to
+pi's highlight.js, which paints it with the same `syntax*` tokens the shell around it uses. `-c` on `grep` or `sort`
+still counts and checks: a flag on its own means nothing. Double-quoted payloads are read as code too.
+
+**A heredoc's body belongs to the command that owns it.** `python3 - <<'PY'` used to tokenize its body as shell, so
+`import pathlib` arrived as a command word with an argument. The body is now read whole, up to the line that ends it,
+and highlighted as whatever the command before it runs: shell for `bash <<'EOF'`, python for `python3 -`, nothing at all
+when no interpreter is named (`cat <<'EOF'` is data). An unterminated heredoc, which is every frame but the last while
+the arguments stream in, is left alone.
+
+### Changed
+
+**A command's own lines hang on its first word.** pi draws a shell command as one `Text`, so line two of a script
+started at the frame's edge and read as the box's content rather than the command's body. Opened, the rows after the
+first now start where the command does: after `$ ` in a box of its own, and under the icon and name when a group row
+carries the command. The output under it takes the same column, so a call reads as one block. The body wraps that much
+narrower, so no row grows past the frame.
+
+**Folding a turn forgets what was open inside it.** A turn that was folded and reopened came back with every box and
+every expanded thinking run still open, because the boxes were hidden rather than collapsed and the reasoning lives in
+pi's own visibility switch. Hiding a call or a thought now collapses it: reopening a turn starts from the rows it
+opened with, which is what folding a group already did for the boxes it holds. The `groupOpen` default and the output
+budgets are untouched.
+
+**A double-quoted `-c` payload is a script.** The outer shell expands `$HOME` before the inner shell ever sees it, but
+what is displayed is still a script, and a six-row script in one colour is the thing 0.9.5 set out to fix. The quotes
+stay strings.
+
 ## [0.9.6] - 2026-11-13
 
 ### Fixed

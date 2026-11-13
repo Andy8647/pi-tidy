@@ -27,7 +27,7 @@ every box gets a rounded transparent frame.
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Hex colors you can see** — a message that names a color (`#7f849c`, `#f00`, `rgb(127, 132, 156)`, `hsl(240, 10%, 15%)`) gets a `●` painted in that color in front of it, so a palette in prose reads at a glance. Fenced blocks, inline code and thinking keep their text
-- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. The script a shell's `-c` takes is highlighted as the code it is, so `bash -c 'set -e` plus five more lines no longer arrives as one flat string colour. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
+- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. A payload is highlighted as the language it is written in: a shell's `-c` script as shell, `python3 -c "…"` and `node -e '…'` as python and javascript, and a heredoc's body as whatever the command before it runs (`python3 - <<'PY'`). Opened, a call's whole body hangs on the command's own column (`$ ` in a box of its own, the column after the icon and the name under a group row), so the script and the output under it read as one block. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
 - **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
@@ -52,8 +52,10 @@ A run folds to one line, where it started:
 ```
 
 Click it to open the process, click again to fold. The fold hides thinking and `alwaysShowTools`
-boxes, never your own inputs, and reopens with manual expansion, `groupOpen` and output budgets
-intact. `/tidy turn` toggles the latest run, `/tidy turn N` the one at that position on the branch;
+boxes, never your own inputs, and reopens with `groupOpen` and output budgets intact. What was open
+inside it starts folded again: the calls and the thinking runs a reader had opened are forgotten, the
+same way folding a group forgets the boxes it holds. `/tidy turn` toggles the latest run, `/tidy turn N` the
+one at that position on the branch;
 `ctrl+o` still expands tool outputs and their turns. User inputs, pi's error rows and a job
 notification with no row to absorb it stay visible. A reply with no
 hidden process gets no summary. A folded run whose jobs matched log lines says
