@@ -4,6 +4,22 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-11-13
+
+### Fixed
+
+**An `edit` another extension registers keeps its file and its diff.** aft's hashline mode (`edit_mode: "hashline"`) takes
+`{ patch }` instead of `{ path }` and brings renderers of its own, so the box showed no path chip, no file-type icon and no
+panes: it stacked the tool's own `edited … (+a/-d)` row under a border that repeated the path. The file now comes from the
+result's `details.files` and the diff from `details.diff` when the call carries neither — the same shape pi's own edit
+result uses — and a relative path is resolved against the working directory, so the chip copies all of it. pi's own
+`edit` is unchanged: its preview still wins while the edit streams, and a preview error still keeps pi's rendering.
+
+**A `/reload` with new settings reaches every box and message.** The render caches named the options they read, field by
+field, so an option no cache listed could leave the old frame on screen — 0.9.4's split diff ignoring a theme switch was
+that bug. Each cache now records one revision that every option change bumps, so a setting added later needs nothing
+remembered.
+
 ## [0.9.5] - 2026-11-09
 
 ### Added
