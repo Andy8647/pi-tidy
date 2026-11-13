@@ -33,7 +33,7 @@ import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
-import { liveSlot, tidyEnabled } from "../live.ts";
+import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-state.ts";
 import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { renderSplitDiff } from "./split-diff.ts";
@@ -101,7 +101,8 @@ interface ToolBoxInternals extends GroupedTool {
     width: number;
     color: string;
     expanded: boolean;
-    icons: boolean;
+    /** `optionsRevision()` when it was built: every option a frame reads, in one number. */
+    revision: number;
     unframed: boolean;
     /** The framed codemode fold row wearing the hover band ("" for none). */
     hovered: string;
@@ -142,14 +143,14 @@ interface ToolBoxInternals extends GroupedTool {
     details: unknown;
     script: boolean;
     output: boolean;
-    icons: boolean;
+    revision: number;
     width: number | undefined;
     hovered: string | undefined;
     sample: string;
     value: ComposedCodemodeBody;
   };
   /** The framed list built on the last composed body. */
-  __codemodeList?: { composed: ComposedCodemodeBody; w: number; icons: boolean; value: { title: string; lines: string[]; toggles: CodemodeToggle[] } };
+  __codemodeList?: { composed: ComposedCodemodeBody; w: number; revision: number; value: { title: string; lines: string[]; toggles: CodemodeToggle[] } };
   /** The expanded rendering a framed codemode box composes from, and what it was built from. */
   __codemodeFull?: {
     args: unknown;
@@ -677,13 +678,14 @@ function composedCodemode(
   const state = codemodeSections(tool);
   const details = tool.result?.details;
   const sample = theme.fg("accent", "x");
+  const revision = optionsRevision();
   const cache = tool.__codemodeComposed;
   if (
     cache &&
     cache.details === details &&
     cache.script === state.script &&
     cache.output === state.output &&
-    cache.icons === options.icons &&
+    cache.revision === revision &&
     cache.width === options.width &&
     cache.hovered === options.hovered &&
     cache.sample === sample &&
@@ -697,7 +699,7 @@ function composedCodemode(
     details,
     script: state.script,
     output: state.output,
-    icons: options.icons,
+    revision,
     width: options.width,
     hovered: options.hovered,
     sample,
@@ -730,14 +732,15 @@ function composeFramedCodemode(
   if (composed.toggles.length === 0) return undefined;
   // The title reads the result, which the body was drawn from: a new result is
   // a new body, and so a new composition.
+  const revision = optionsRevision();
   const cache = tool.__codemodeList;
-  if (cache && cache.composed === composed && cache.w === w && cache.icons === icons) return cache.value;
+  if (cache && cache.composed === composed && cache.w === w && cache.revision === revision) return cache.value;
   // The row goes into the top border, so it has to pay for the border's own
   // `╭─ ` and ` ─╮` cells before the body does: laid out at the full width it
   // would be clipped there, and the clip takes the duration first.
   const title = formatToolLine(tool, theme, { icons, width: Math.max(1, w - 6) });
   const value = { title, lines: composed.lines, toggles: composed.toggles };
-  tool.__codemodeList = { composed, w, icons, value };
+  tool.__codemodeList = { composed, w, revision, value };
   return value;
 }
 
@@ -819,6 +822,7 @@ function composeFramedCodemode(
     // asynchronously and rebuilds them), so a hit would freeze the box on
     // its pre-conversion frame.
     const cacheable = this.imageComponents.length === 0;
+    const revision = optionsRevision();
     const cache = this.__frameCache;
     if (
       cacheable &&
@@ -826,7 +830,7 @@ function composeFramedCodemode(
       cache.width === w &&
       cache.color === color &&
       cache.expanded === this.expanded &&
-      cache.icons === icons &&
+      cache.revision === revision &&
       cache.unframed === unframed &&
       cache.hovered === hovered &&
       sameLines(cache.raw, raw)
@@ -958,7 +962,7 @@ function composeFramedCodemode(
     }
 
     if (out.length === 0) return [];
-    if (cacheable) this.__frameCache = { width: w, color, expanded: this.expanded, icons, unframed, hovered, raw, out, geometry };
+    if (cacheable) this.__frameCache = { width: w, color, expanded: this.expanded, revision, unframed, hovered, raw, out, geometry };
     return out;
   }
 

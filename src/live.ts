@@ -13,6 +13,29 @@ export interface LiveSlot<T> {
   set(value: T): void;
 }
 
+/** The slot that holds the revision counter itself; writing it must not bump it. */
+const REVISION = "options-revision";
+let revision: LiveSlot<number> | undefined;
+
+/**
+ * A number that changes whenever a slot is written.
+ *
+ * The render caches hold what a box drew between frames. Keying them off the
+ * options they read means naming every option in every cache, and one missed
+ * name leaves the old frame on screen after a `/reload` with new settings — the
+ * bug class that made 0.9.4's split diff ignore a theme switch. A frame either
+ * sees the same revision it cached under, or it sees every new option at once.
+ *
+ * Reloading and re-patching are the only things that write a slot, so this bumps
+ * a handful of times per session, not per frame.
+ */
+export const optionsRevision = (): number => (revision ??= liveSlot<number>(REVISION, 0)).get();
+
+function bumpRevision(): void {
+  revision ??= liveSlot<number>(REVISION, 0);
+  revision.set(revision.get() + 1);
+}
+
 export function liveSlot<T>(name: string, initial: T): LiveSlot<T> {
   // Still `pi-toolbox:`, on purpose: with the old package and pi-tidy both
   // installed, they share one set of patches instead of framing twice.
@@ -33,6 +56,7 @@ export function liveSlot<T>(name: string, initial: T): LiveSlot<T> {
       // An older build sharing the symbol writes a bare value back into the
       // slot; putting the box back keeps the two on the same object.
       if (store[key] !== box) store[key] = box;
+      if (name !== REVISION) bumpRevision();
     },
   };
 }

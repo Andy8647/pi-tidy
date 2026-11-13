@@ -4,7 +4,7 @@ import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
 import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlock, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
-import { tidyEnabled } from "../live.ts";
+import { optionsRevision, tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { jobNoteCount } from "../tools/background-jobs.ts";
@@ -437,7 +437,8 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const label = replyHeader ? clipToWidth(replyHeader.label, Math.max(1, width - 6), "…") : "";
   const lead = replyHeader?.lead ?? 1;
   const cache = component[CACHE];
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.replyStyle === options.replyStyle && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
+  const revision = optionsRevision();
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -497,7 +498,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const chipShift = framed && options.replyStyle !== "rules" ? 1 : 0;
   const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0), chipShift };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, lead, color, replyStyle: options.replyStyle, framed, railOpen, body, out, layout };
+  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, body, out, layout };
   installMouse(component);
   return out;
 }
