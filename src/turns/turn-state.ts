@@ -1,5 +1,6 @@
 import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
+import { nestedBreakdown, type BreakdownEntry } from "../tools/tool-groups.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type FinalReplyStyle = "frame" | "rail" | "rules" | "off";
@@ -20,7 +21,7 @@ export interface TurnMessage {
 }
 export interface Turn {
   messages: Map<string, TurnMessage>;
-  tools: Map<string, { name: string; args: unknown; failed?: boolean; nestedFailed?: number }>;
+  tools: Map<string, { name: string; args: unknown; failed?: boolean; nestedFailed?: number; nested?: BreakdownEntry[] }>;
   root?: string;
   firstAssistant?: string;
   latestText?: string;
@@ -83,13 +84,26 @@ function add(turn: Turn, key: string, message: TurnMessage): void {
     if (hasText(message)) turn.latestText = key;
     for (const block of message.content ?? []) if (block.type === "toolCall") {
       const previous = turn.tools.get(block.id);
-      turn.tools.set(block.id, { name: block.name, args: block.arguments, failed: previous?.failed, nestedFailed: previous?.nestedFailed });
+      turn.tools.set(block.id, {
+        name: block.name,
+        args: block.arguments,
+        failed: previous?.failed,
+        nestedFailed: previous?.nestedFailed,
+        nested: previous?.nested,
+      });
     }
   } else if (message.role === "toolResult" && message.toolCallId) {
     const previous = turn.tools.get(message.toolCallId);
     const calls = message.nestedCalls?.calls ?? (message.toolName === "codemode" ? message.details?.calls : undefined);
     const nestedFailed = Array.isArray(calls) ? calls.filter((call) => call.status === "error").length : 0;
-    turn.tools.set(message.toolCallId, { name: message.toolName ?? previous?.name ?? "tool", args: previous?.args, failed: message.isError, nestedFailed });
+    const nested = message.toolName === "codemode" ? nestedBreakdown(message.details) : [];
+    turn.tools.set(message.toolCallId, {
+      name: message.toolName ?? previous?.name ?? "tool",
+      args: previous?.args,
+      failed: message.isError,
+      nestedFailed,
+      nested: nested.length > 0 ? nested : previous?.nested,
+    });
   }
 }
 function finishText(turn: Turn): void {

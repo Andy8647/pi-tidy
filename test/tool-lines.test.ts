@@ -17,9 +17,46 @@ import {
   summarizeNestedCalls,
   summarizeResult,
 } from "../src/tools/tool-lines.ts";
-import { buildGroupSummary } from "../src/tools/tool-groups.ts";
+import { buildGroupSummary, nestedBreakdown } from "../src/tools/tool-groups.ts";
 
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
+
+test("a script's entry names what the script ran, and only while the group is closed", () => {
+  const summary = buildGroupSummary([
+    { toolName: "bash", isPartial: false, durationMs: 100 },
+    {
+      toolName: "codemode",
+      isPartial: false,
+      durationMs: 100,
+      nested: nestedBreakdown({ calls: [{ name: "bash" }, { name: "read" }, { name: "bash" }] }),
+    },
+  ]);
+  assert.deepEqual(summary.nested, {
+    owner: "codemode",
+    breakdown: [
+      { name: "bash", count: 2 },
+      { name: "read", count: 1 },
+    ],
+  });
+  // `count` still counts rows, so `2 calls` opens to two rows.
+  const closed = formatGroupLine(summary, theme, { icons: false });
+  assert.match(closed, /2 calls/);
+  assert.match(closed, /codemode×1 \(bash×2 read×1\)/);
+  // Open, each row below names its own calls: the header stops repeating them.
+  assert.ok(!formatGroupLine(summary, theme, { icons: false, open: true }).includes("("));
+});
+
+test("nested calls count by kind, the way the summaries around them do", () => {
+  assert.deepEqual(
+    nestedBreakdown({ calls: [{ name: "mcp__chrome_devtools__click" }, { name: "bash" }, { name: "bash" }] }),
+    [
+      { name: "bash", count: 2 },
+      { name: "chrome_devtools", count: 1 },
+    ],
+  );
+  assert.deepEqual(nestedBreakdown({ calls: [] }), []);
+  assert.deepEqual(nestedBreakdown(undefined), []);
+});
 
 test("group line names the count, the per-tool breakdown and the duration", () => {
   const line = formatGroupLine(

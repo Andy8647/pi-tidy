@@ -9,7 +9,9 @@ import { visibleText } from "../src/draw/frame-draw.ts";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
 import { claimHover, disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
-import { expandTurnForTool, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
+import { expandTurnForTool, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns, type Turn } from "../src/turns/turn-state.ts";
+import { summaryLine } from "../src/turns/turn-view.ts";
+import { getTheme } from "../src/theme-access.ts";
 
 initTheme("dark");
 const cwd = process.cwd();
@@ -127,6 +129,25 @@ test("folding a turn forgets which thinking run was open", () => {
   // the way it forgets its boxes.
   send(chat, "click", summary);
   assert.equal(thoughts(), 1, frame(chat).join("\n"));
+});
+
+test("a folded turn says what its scripts ran, not just how many scripts", () => {
+  const turn: Turn = {
+    messages: new Map(),
+    tools: new Map([
+      ["a", { name: "codemode", args: {}, nested: [{ name: "bash", count: 2 }, { name: "read", count: 1 }] }],
+      ["b", { name: "mcp__chrome_devtools__list_pages", args: {} }],
+    ]),
+    outcome: "completed",
+    startedAt: 1000,
+    endedAt: 2000,
+  };
+  const line = visibleText(summaryLine(turn, getTheme()!, 160, false, 2500));
+  // `2 calls` is still what opening the turn shows; the parenthesised kinds say
+  // what the one script in it did.
+  assert.match(line, /2 calls/, line);
+  assert.match(line, /codemode×1 \(bash×2 read×1\)/, line);
+  assert.match(line, /chrome_devtools×1/, `an MCP tool counts as its server, as nested ones do: ${line}`);
 });
 
 test("restored folded turns keep thoughts in the groups split by pinned tools", () => {

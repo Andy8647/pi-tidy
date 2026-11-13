@@ -431,6 +431,10 @@ function groupHeaderLine(
   const key = [
     summary.count,
     summary.breakdown.map(({ name, count }) => `${name}×${count}`).join(" "),
+    // The scripts' own counts are on the line too: a codemode result arriving
+    // late has to rebuild it.
+    summary.nested?.owner ?? "",
+    summary.nested?.breakdown.map(({ name, count }) => `${name}×${count}`).join(" ") ?? "",
     summary.thoughts,
     summary.thinking,
     summary.durationMs,
