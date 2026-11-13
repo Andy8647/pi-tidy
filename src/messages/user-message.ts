@@ -27,7 +27,7 @@ import {
   trimBlankEdges,
 } from "../draw/frame-draw.ts";
 import { MESSAGE_ICONS } from "../draw/icons.ts";
-import { liveSlot, tidyEnabled } from "../live.ts";
+import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { paint } from "../draw/paint.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 
@@ -72,13 +72,9 @@ interface UserMessageInternals {
   render(width: number): string[];
   __tidyRailCache?: {
     width: number;
-    style: UserMessageStyle;
+    /** `optionsRevision()` when it was built: every option a rail reads, in one number. */
+    revision: number;
     sample: string;
-    paddingY: number;
-    icons: boolean;
-    align: "left" | "right";
-    timeFormat: string;
-    headerStyle: HeaderStyle;
     labelMinute: number;
     labelTime: number | undefined;
     raw: string[];
@@ -140,17 +136,13 @@ function renderRail(
   // The painted cells double as a theme sample: a theme switch with identical
   // content must not hit the cache.
   const sample = rail + rule;
+  const revision = optionsRevision();
   const cache = component.__tidyRailCache;
   if (
     cache &&
     cache.width === width &&
-    cache.style === options.style &&
+    cache.revision === revision &&
     cache.sample === sample &&
-    cache.paddingY === options.paddingY &&
-    cache.icons === options.icons &&
-    cache.align === options.align &&
-    cache.timeFormat === options.timeFormat &&
-    cache.headerStyle === options.headerStyle &&
     cache.labelMinute === labelMinute &&
     cache.labelTime === time &&
     sameLines(cache.raw, raw)
@@ -177,13 +169,8 @@ function renderRail(
   out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
   component.__tidyRailCache = {
     width,
-    style: options.style,
+    revision,
     sample,
-    paddingY: options.paddingY,
-    icons: options.icons,
-    align: options.align,
-    timeFormat: options.timeFormat,
-    headerStyle: options.headerStyle,
     labelMinute,
     labelTime: time,
     raw,

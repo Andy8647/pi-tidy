@@ -32,7 +32,7 @@ import {
   visibleText,
 } from "../draw/frame-draw.ts";
 import { MESSAGE_ICONS, TOOL_ICONS } from "../draw/icons.ts";
-import { liveSlot, tidyEnabled } from "../live.ts";
+import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { noticeBodyText, noticeLabel, noticeText, type NoticeLabel } from "./extension-notice.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { installUserMessageTimes, USER_MESSAGE_TIME } from "./user-message.ts";
@@ -45,7 +45,7 @@ interface MessageBoxInternals {
   children: Array<{ render(width: number): string[] }>;
   expanded: boolean;
   render(width: number): string[];
-  __msgFrameCache?: { width: number; sample: string; icons: boolean; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; revision: number; lines: string[]; out: string[] };
 }
 
 interface MessageBoxOptions {
@@ -109,11 +109,12 @@ export function patchMessageBoxes(
         // with identical content must not hit the cache.
         const sample = theme.fg(borderColor, "·");
         const cache = this.__msgFrameCache;
+        const revision = optionsRevision();
         if (
           cache &&
           cache.width === w &&
           cache.sample === sample &&
-          cache.icons === icons &&
+          cache.revision === revision &&
           sameLines(cache.lines, content)
         )
           return cache.out;
@@ -134,7 +135,7 @@ export function patchMessageBoxes(
         // (issue #29).
         const out = drawFrame(padded, w, theme, borderColor);
         if (label) out[0] = labeledTopBorder(w, theme, borderColor, clipToWidth(label, Math.max(1, w - 6)));
-        this.__msgFrameCache = { width: w, sample, icons, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, revision, lines: content, out };
         return out;
       } catch {
         return originalRender.call(this, width);
@@ -165,7 +166,7 @@ interface ContainerBoxInternals {
   __customFrame?: { target: CustomRender; top: number; trimTop: number; inset: number; width: number; height: number; rows: number };
   /** A notice Tidy drew itself: the rows a click on it may land on. */
   __noticeFrame?: { rows: number };
-  __msgFrameCache?: { width: number; sample: string; icons: boolean; align: "left" | "right"; maxWidth: number | "auto"; timeFormat: string; headerStyle: HeaderStyle; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
+  __msgFrameCache?: { width: number; sample: string; revision: number; labelMinute: number; labelTime: number | undefined; lines: string[]; out: string[] };
 }
 
 interface CustomRender {
@@ -423,15 +424,12 @@ export function patchContainerBoxes(
 
         const sample = theme.fg(borderColor, "·");
         const cache = this.__msgFrameCache;
+        const revision = optionsRevision();
         if (
           cache &&
           cache.width === w &&
           cache.sample === sample &&
-          cache.icons === icons &&
-          cache.align === align &&
-          cache.maxWidth === live.userMaxWidth &&
-          cache.timeFormat === live.timeFormat &&
-          cache.headerStyle === live.headerStyle &&
+          cache.revision === revision &&
           cache.labelMinute === labelMinute &&
           cache.labelTime === userTime &&
           sameLines(cache.lines, content)
@@ -471,7 +469,7 @@ export function patchContainerBoxes(
           out[0] = OSC133_ZONE_START + out[0];
           out[out.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
         }
-        this.__msgFrameCache = { width: w, sample, icons, align, maxWidth: live.userMaxWidth, timeFormat: live.timeFormat, headerStyle: live.headerStyle, labelMinute, labelTime: userTime, lines: content, out };
+        this.__msgFrameCache = { width: w, sample, revision, labelMinute, labelTime: userTime, lines: content, out };
         return out;
       } catch {
         this.__customFrame = undefined;
