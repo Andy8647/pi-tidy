@@ -9,6 +9,7 @@ import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hove
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { jobNoteCount } from "../tools/background-jobs.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
+import { closeThinking } from "../tools/tool-group-view.ts";
 
 const NATIVE_VIEW = Symbol.for("pi-toolbox:message-view");
 export const TURN_LAYOUT = Symbol.for("pi-tidy:turn-layout");
@@ -380,6 +381,9 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   if (!turn || !theme) return draw(width);
   const key = messageKey(component.lastMessage);
   const closed = options.collapseTurns !== "off" && folded(turn);
+  // A folded turn forgets what was open inside it: the calls (see the tool frame)
+  // and the thinking runs, so reopening it starts from the rows it opened with.
+  if (closed) closeThinking(component);
   const visible = turn.outcome === "running" ? turn.latestText : turn.final ?? failedLast(turn);
   const header = options.collapseTurns !== "off" && key === turn.firstAssistant && hasProcess(turn);
   if (closed && key !== visible && !header) return [];

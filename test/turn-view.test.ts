@@ -264,7 +264,7 @@ test("with turn folding off there is no rail", () => {
   assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾") || line.startsWith("│ │")), frame(chat).join("\n"));
 });
 
-test("outer toggling preserves groupOpen and a manually opened tool box", () => {
+test("outer toggling preserves groupOpen and forgets a manually opened tool box", () => {
   const { chat, read } = fixture("afterRun", true, true);
   click(chat, (line) => line.includes("took"));
   assert.ok(frame(chat).some((line) => line.includes("✓") && line.includes("read")));
@@ -272,8 +272,10 @@ test("outer toggling preserves groupOpen and a manually opened tool box", () => 
   assert.equal((read as any).expanded, true);
   click(chat, (line) => line.includes("took"));
   click(chat, (line) => line.includes("took"));
-  assert.equal((read as any).expanded, true);
-  assert.ok(frame(chat).join("\n").includes("const value = 1;"));
+  // A folded turn forgets which of its calls were open, so reopening it shows the
+  // rows it opened with; the groups keep the level the reader left them at.
+  assert.equal((read as any).expanded, false);
+  assert.ok(frame(chat).some((line) => line.includes("✓") && line.includes("read")), "the row is back");
 });
 
 test("afterRun keeps an active run open; live folds it and replaces its latest text", () => {

@@ -38,6 +38,7 @@ import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-sta
 import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
+import { CALL_PROMPT_CELLS } from "./command-text.ts";
 import { pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
 import { formatToolLine } from "./tool-lines.ts";
 import {
@@ -771,6 +772,10 @@ function composeFramedCodemode(
     }
     const iconCells = (kindPrefix ? visibleWidth(kindPrefix) : 0) + (fileGlyph ? visibleWidth(fileGlyph) + 1 : 0);
     const sourceWidth = w - 2 - iconCells;
+    // A command's own lines hang on its first word: after `$ ` in a box of its own.
+    // A group row carries the command at a column of its own and writes that one
+    // before asking for the body (see renderGroupedTool), so only this path resets.
+    if (!unframed && this.rendererState) this.rendererState.tidyCommandIndent = CALL_PROMPT_CELLS;
     const split = splitEditBody(this, w - 2, sourceWidth, theme);
     // Inside a group a codemode body is a call list: the script and the output
     // fold to one row each (they open on click, see tool-group-view.ts), and
@@ -981,6 +986,12 @@ function composeFramedCodemode(
         return [];
       }
       if (hideTurnTool(this.toolCallId)) {
+        // A folded turn forgets which of its calls were open, the way folding a group
+        // forgets the boxes inside it (see closeGroup): reopening either starts from the
+        // plain rows it started with. Nothing of the box is on screen while its turn is
+        // folded, so this is the frame that has to do it. The reset is made as a pointer
+        // would, so it leaves the group's level and the turn's own fold alone.
+        if (this.expanded) asPointer(() => this.setExpanded(false));
         // Carriers still register while the turn is folded. Its tools must
         // register too, especially the pinned boundaries that split groups.
         if (grouping()) planFor(this, toolOptions.get().alwaysShow.has(this.toolName));

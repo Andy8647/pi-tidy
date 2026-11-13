@@ -34,6 +34,7 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
   }));
   const final: any = { ...messages[0], timestamp: 1500, stopReason: "stop", content: [{ type: "text", text: "Done" }] };
   const chat = new Container(); chat.addChild(new UserMessageComponent("Go"));
+  const tools: any[] = [];
   for (const message of messages) {
     chat.addChild(new AssistantMessageComponent(message, true));
     const call = message.content[1];
@@ -45,6 +46,7 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
     tool.setArgsComplete(); tool.markExecutionStarted();
     tool.updateResult({ content: [{ type: "text", text: "ok" }], isError: false, durationMs: 10 });
     chat.addChild(tool);
+    tools.push(tool);
   }
   chat.addChild(new AssistantMessageComponent(final, true));
   const store = new TurnStore(); turnStore.set(store);
@@ -57,7 +59,7 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
       { type: "custom", customType: TURN_ENTRY, data: saved },
     ]);
   }
-  return { chat, store };
+  return { chat, store, tools };
 }
 
 function rawFrame(chat: Container): string[] {
@@ -86,6 +88,46 @@ function openGroups(chat: Container) {
   }
   assert.ok(headers(chat).every(line => line.includes("▾")));
 }
+
+test("folding a turn forgets which of its calls were open", () => {
+  const { chat, tools } = fixture("afterRun", false);
+  openTurn(chat, "afterRun");
+  openGroups(chat);
+  // Open a call's box the way a reader does: a click on its row.
+  send(chat, "click", (line) => line.includes("read ✓"));
+  assert.ok(tools.some((tool) => tool.expanded), "a call is open before the turn folds");
+
+  send(chat, "click", summary);
+  assert.ok(!frame(chat).some((line) => line.includes("THOUGHT_")), "the turn folded");
+
+  // Reopening starts from the plain rows the turn opened with, not from whatever
+  // was open inside it: the same rule a group follows for the boxes it holds.
+  send(chat, "click", summary);
+  assert.deepEqual(
+    tools.map((tool) => tool.expanded),
+    tools.map(() => false),
+    "reopening the turn starts from collapsed calls",
+  );
+});
+
+test("folding a turn forgets which thinking run was open", () => {
+  const { chat } = fixture("afterRun", false);
+  const thoughts = () => frame(chat).filter((line) => line.includes("THOUGHT_0")).length;
+  openTurn(chat, "afterRun");
+  openGroups(chat);
+  // Open a thought's box the way a reader does: a click on its row. The row takes
+  // a tick and the run's text hangs under it, so the thought is on two rows.
+  send(chat, "click", (line) => line.includes("THOUGHT_0"));
+  assert.equal(thoughts(), 2, frame(chat).join("\n"));
+
+  send(chat, "click", summary);
+  assert.ok(!frame(chat).some((line) => line.includes("THOUGHT_")), "the turn folded");
+
+  // Reopening starts from the folded row: a turn forgets the thinking it had open,
+  // the way it forgets its boxes.
+  send(chat, "click", summary);
+  assert.equal(thoughts(), 1, frame(chat).join("\n"));
+});
 
 test("restored folded turns keep thoughts in the groups split by pinned tools", () => {
   for (const mode of ["off", "afterRun", "live"] as const) for (const groupOpen of [false, true]) {
