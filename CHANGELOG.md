@@ -23,6 +23,13 @@ the arguments stream in, is left alone.
 
 ### Changed
 
+**A summary counts through a script.** `codemode×2` said how many scripts ran and nothing about what they ran:
+the calls inside a script never reach the model as calls of their own, so the group header and the folded turn
+summary named the wrapper and stopped there. Both now hang what the script did on the entry that ran it —
+`codemode×1 (bash×4 read×2)` — while `N calls` keeps counting rows, so opening the group still shows that many.
+Open, the group header drops the list, because each row below already names its own calls. MCP tools count as
+their server (`chrome_devtools×2`) in both lists, top-level and nested, instead of `mcp×2` beside a server name.
+
 **A command's own lines hang on its first word.** pi draws a shell command as one `Text`, so line two of a script
 started at the frame's edge and read as the box's content rather than the command's body. Opened, the rows after the
 first now start where the command does: after `$ ` in a box of its own, and under the icon and name when a group row

@@ -15,7 +15,7 @@ every box gets a rounded transparent frame.
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
-- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
+- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A codemode script is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
@@ -54,7 +54,9 @@ A run folds to one line, where it started:
 Click it to open the process, click again to fold. The fold hides thinking and `alwaysShowTools`
 boxes, never your own inputs, and reopens with `groupOpen` and output budgets intact. What was open
 inside it starts folded again: the calls and the thinking runs a reader had opened are forgotten, the
-same way folding a group forgets the boxes it holds. `/tidy turn` toggles the latest run, `/tidy turn N` the
+same way folding a group forgets the boxes it holds. The per-kind counts pierce a script the way the
+group header does (`codemode×1 (bash×4 read×2)`), and an MCP tool counts as its server.
+`/tidy turn` toggles the latest run, `/tidy turn N` the
 one at that position on the branch;
 `ctrl+o` still expands tool outputs and their turns. User inputs, pi's error rows and a job
 notification with no row to absorb it stay visible. A reply with no
