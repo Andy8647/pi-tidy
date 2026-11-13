@@ -192,18 +192,42 @@ test("an unclosed payload quote stays one string", async () => {
   assert.deepEqual(stringsOf(result), ["'cd src"]);
 });
 
-test("a double-quoted payload stays a string", async () => {
-  // The outer shell expands this one before the inner shell ever sees it.
+test("a double-quoted payload is a script too", async () => {
+  // The outer shell expands `$HOME` before the inner shell ever sees it, but what
+  // is displayed is a script, and a script is read as one either way.
   const result = await highlight('bash -c "cd $HOME"');
-  assert.deepEqual(stringsOf(result), ['"cd $HOME"']);
-  assert.ok(!result.tokens.some(([token]) => token === "syntaxVariable"));
+  assert.deepEqual(functionsOf(result), ["bash", "cd"]);
+  assert.deepEqual(stringsOf(result), ['"', '"'], "only the quotes are strings");
+  assert.ok(
+    result.tokens.some(([token]) => token === "syntaxVariable"),
+    "`$HOME` inside the payload is a variable",
+  );
 });
 
-test("a heredoc is not a -c payload", async () => {
-  // Out of scope on purpose: `<<'EOF'` is data, and `python3 - <<'PY'` must not
-  // come out as shell. The delimiter stays the string it always was.
+test("a heredoc's body is the program the word before it runs", async () => {
+  // `python3 - <<'PY'` is the form a sandboxed agent reaches for. Tokenized as
+  // shell, its `import` came out as a command word.
   const result = await highlight("bash <<'EOF'\ncd src\nEOF");
+  assert.deepEqual(functionsOf(result), ["bash", "cd"], "the body is a script, the terminator is not");
   assert.deepEqual(stringsOf(result), ["'EOF'"]);
+
+  // A body whose owner the command does not name stays plain text.
+  const data = await highlight("cat <<'EOF'\ncd src\nEOF");
+  assert.deepEqual(functionsOf(data), ["cat"], "heredoc data is not shell");
+});
+
+test("a payload in another language keeps its characters", async () => {
+  // highlight.js paints these; this worker has no theme, so the call fails and
+  // the payload has to come back as it went in (the helper asserts equality).
+  await highlight("python3 -c 'import pathlib\\np = pathlib.Path(\"x\")'");
+  await highlight("node -e 'const x = 1'");
+  await highlight("python3 - <<'PY'\nimport pathlib\nprint('ok')\nPY");
+});
+
+test("a here-string is not a heredoc", async () => {
+  const result = await highlight("tr a-z A-Z <<< 'hello'");
+  assert.deepEqual(stringsOf(result), ["'hello'"]);
+  assert.ok(!functionsOf(result).some((word) => word === "hello"), "the word after <<< is not a delimiter");
 });
 
 test("arguments the grammar cannot name take one quiet colour", async () => {

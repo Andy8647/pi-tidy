@@ -9,7 +9,9 @@ import { visibleText } from "../src/draw/frame-draw.ts";
 import { patchToolBoxFrames } from "../src/tools/tool-frame.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
 import { claimHover, disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
-import { expandTurnForTool, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
+import { expandTurnForTool, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns, type Turn } from "../src/turns/turn-state.ts";
+import { summaryLine } from "../src/turns/turn-view.ts";
+import { getTheme } from "../src/theme-access.ts";
 
 initTheme("dark");
 const cwd = process.cwd();
@@ -34,6 +36,7 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
   }));
   const final: any = { ...messages[0], timestamp: 1500, stopReason: "stop", content: [{ type: "text", text: "Done" }] };
   const chat = new Container(); chat.addChild(new UserMessageComponent("Go"));
+  const tools: any[] = [];
   for (const message of messages) {
     chat.addChild(new AssistantMessageComponent(message, true));
     const call = message.content[1];
@@ -45,6 +48,7 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
     tool.setArgsComplete(); tool.markExecutionStarted();
     tool.updateResult({ content: [{ type: "text", text: "ok" }], isError: false, durationMs: 10 });
     chat.addChild(tool);
+    tools.push(tool);
   }
   chat.addChild(new AssistantMessageComponent(final, true));
   const store = new TurnStore(); turnStore.set(store);
@@ -57,7 +61,7 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
       { type: "custom", customType: TURN_ENTRY, data: saved },
     ]);
   }
-  return { chat, store };
+  return { chat, store, tools };
 }
 
 function rawFrame(chat: Container): string[] {
@@ -86,6 +90,65 @@ function openGroups(chat: Container) {
   }
   assert.ok(headers(chat).every(line => line.includes("▾")));
 }
+
+test("folding a turn forgets which of its calls were open", () => {
+  const { chat, tools } = fixture("afterRun", false);
+  openTurn(chat, "afterRun");
+  openGroups(chat);
+  // Open a call's box the way a reader does: a click on its row.
+  send(chat, "click", (line) => line.includes("read ✓"));
+  assert.ok(tools.some((tool) => tool.expanded), "a call is open before the turn folds");
+
+  send(chat, "click", summary);
+  assert.ok(!frame(chat).some((line) => line.includes("THOUGHT_")), "the turn folded");
+
+  // Reopening starts from the plain rows the turn opened with, not from whatever
+  // was open inside it: the same rule a group follows for the boxes it holds.
+  send(chat, "click", summary);
+  assert.deepEqual(
+    tools.map((tool) => tool.expanded),
+    tools.map(() => false),
+    "reopening the turn starts from collapsed calls",
+  );
+});
+
+test("folding a turn forgets which thinking run was open", () => {
+  const { chat } = fixture("afterRun", false);
+  const thoughts = () => frame(chat).filter((line) => line.includes("THOUGHT_0")).length;
+  openTurn(chat, "afterRun");
+  openGroups(chat);
+  // Open a thought's box the way a reader does: a click on its row. The row takes
+  // a tick and the run's text hangs under it, so the thought is on two rows.
+  send(chat, "click", (line) => line.includes("THOUGHT_0"));
+  assert.equal(thoughts(), 2, frame(chat).join("\n"));
+
+  send(chat, "click", summary);
+  assert.ok(!frame(chat).some((line) => line.includes("THOUGHT_")), "the turn folded");
+
+  // Reopening starts from the folded row: a turn forgets the thinking it had open,
+  // the way it forgets its boxes.
+  send(chat, "click", summary);
+  assert.equal(thoughts(), 1, frame(chat).join("\n"));
+});
+
+test("a folded turn says what its scripts ran, not just how many scripts", () => {
+  const turn: Turn = {
+    messages: new Map(),
+    tools: new Map([
+      ["a", { name: "codemode", args: {}, nested: [{ name: "bash", count: 2 }, { name: "read", count: 1 }] }],
+      ["b", { name: "mcp__chrome_devtools__list_pages", args: {} }],
+    ]),
+    outcome: "completed",
+    startedAt: 1000,
+    endedAt: 2000,
+  };
+  const line = visibleText(summaryLine(turn, getTheme()!, 160, false, 2500));
+  // `2 calls` is still what opening the turn shows; the parenthesised kinds say
+  // what the one script in it did.
+  assert.match(line, /2 calls/, line);
+  assert.match(line, /codemode×1 \(bash×2 read×1\)/, line);
+  assert.match(line, /chrome_devtools×1/, `an MCP tool counts as its server, as nested ones do: ${line}`);
+});
 
 test("restored folded turns keep thoughts in the groups split by pinned tools", () => {
   for (const mode of ["off", "afterRun", "live"] as const) for (const groupOpen of [false, true]) {

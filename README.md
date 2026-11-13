@@ -15,7 +15,7 @@ every box gets a rounded transparent frame.
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
-- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. Edits and writes never fold — their diff is the point
+- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A codemode script is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
@@ -27,7 +27,7 @@ every box gets a rounded transparent frame.
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Hex colors you can see** — a message that names a color (`#7f849c`, `#f00`, `rgb(127, 132, 156)`, `hsl(240, 10%, 15%)`) gets a `●` painted in that color in front of it, so a palette in prose reads at a glance. Fenced blocks, inline code and thinking keep their text
-- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. The script a shell's `-c` takes is highlighted as the code it is, so `bash -c 'set -e` plus five more lines no longer arrives as one flat string colour. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
+- **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. A payload is highlighted as the language it is written in: a shell's `-c` script as shell, `python3 -c "…"` and `node -e '…'` as python and javascript, and a heredoc's body as whatever the command before it runs (`python3 - <<'PY'`). Opened, a call's whole body hangs on the command's own column (`$ ` in a box of its own, the column after the icon and the name under a group row), so the script and the output under it read as one block. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
 - **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
@@ -52,8 +52,12 @@ A run folds to one line, where it started:
 ```
 
 Click it to open the process, click again to fold. The fold hides thinking and `alwaysShowTools`
-boxes, never your own inputs, and reopens with manual expansion, `groupOpen` and output budgets
-intact. `/tidy turn` toggles the latest run, `/tidy turn N` the one at that position on the branch;
+boxes, never your own inputs, and reopens with `groupOpen` and output budgets intact. What was open
+inside it starts folded again: the calls and the thinking runs a reader had opened are forgotten, the
+same way folding a group forgets the boxes it holds. The per-kind counts pierce a script the way the
+group header does (`codemode×1 (bash×4 read×2)`), and an MCP tool counts as its server.
+`/tidy turn` toggles the latest run, `/tidy turn N` the
+one at that position on the branch;
 `ctrl+o` still expands tool outputs and their turns. User inputs, pi's error rows and a job
 notification with no row to absorb it stay visible. A reply with no
 hidden process gets no summary. A folded run whose jobs matched log lines says

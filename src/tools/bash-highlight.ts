@@ -1,8 +1,14 @@
 /**
  * Bash command syntax highlighting (custom tokenizer — highlight.js's bash
  * grammar is too weak: no command names, flags, paths, or pipe operators)
+ *
+ * A flag or a heredoc can carry a whole program in another language
+ * (`python3 -c "…"`, `python3 - <<'PY'`). Those payloads are handed to
+ * highlight.js through pi's `highlightCode`, so a script reads as the language
+ * it is written in rather than as one flat string.
  */
 
+import { highlightCode } from "@earendil-works/pi-coding-agent";
 import type { ThemeLike } from "../theme-access.ts";
 
 interface BashCallArgs {
@@ -34,6 +40,106 @@ const SHELL_COMMAND_FLAG = /^-[A-Za-z]*c[A-Za-z]*$/;
 /** `bash -c 'bash -c …'` is worth a level or two, not an endless descent. */
 const MAX_PAYLOAD_DEPTH = 3;
 
+/** This tokenizer's own language, as a payload language and as a heredoc's. */
+const SHELL_LANGUAGE = "shell";
+
+/**
+ * A word that runs a program, and the flag that hands it one.
+ */
+interface Runner {
+  /** The language of that program: SHELL_LANGUAGE, or a highlight.js grammar. */
+  language: string;
+  /** Whether `word` is the flag whose next token is the program. */
+  takesProgram(word: string): boolean;
+}
+
+/**
+ * Interpreters whose flag takes a program rather than an argument.
+ *
+ * `-c` on `grep` or `sort` counts and checks, so a flag is not enough on its
+ * own: the word before it has to name one of these. The languages are the ones
+ * pi's highlight.js build registers eagerly (`utils/syntax-highlight.js`); a
+ * payload in a grammar that is not loaded yet comes back unpainted, which is
+ * where it started.
+ */
+const INTERPRETERS: ReadonlyArray<{ names: readonly string[]; language: string; flags: readonly string[] }> = [
+  { names: ["python", "python2", "python3", "pypy", "pypy3"], language: "python", flags: ["-c"] },
+  { names: ["node", "nodejs"], language: "javascript", flags: ["-e", "--eval", "-p", "--print"] },
+  { names: ["bun", "deno", "tsx"], language: "typescript", flags: ["-e", "--eval"] },
+  { names: ["ruby"], language: "ruby", flags: ["-e"] },
+  { names: ["perl"], language: "perl", flags: ["-e", "-E"] },
+  { names: ["php"], language: "php", flags: ["-r"] },
+  { names: ["lua", "luajit"], language: "lua", flags: ["-e"] },
+];
+
+/** `python3.12`, `pypy3.10`: the name is a version of the one in the table. */
+const VERSIONED_INTERPRETER = /^(?:python|pypy)\d+(?:\.\d+)?$/;
+
+const RUNNERS = new Map<string, Runner>();
+for (const entry of INTERPRETERS) {
+  for (const name of entry.names) {
+    RUNNERS.set(name, { language: entry.language, takesProgram: (word) => entry.flags.includes(word) });
+  }
+}
+
+const SHELL_RUNNER: Runner = { language: SHELL_LANGUAGE, takesProgram: (word) => SHELL_COMMAND_FLAG.test(word) };
+
+/** The runner a word names, if any. `/bin/bash` and `python3.12` count. */
+function runnerFor(word: string): Runner | undefined {
+  const base = word.slice(word.lastIndexOf("/") + 1);
+  if (SHELL_NAMES.has(base)) return SHELL_RUNNER;
+  return RUNNERS.get(base) ?? (VERSIONED_INTERPRETER.test(base) ? RUNNERS.get("python") : undefined);
+}
+
+/**
+ * Another language's program, in this theme's colours.
+ *
+ * pi's `highlightCode` maps highlight.js's scopes onto the same `syntax*` tokens
+ * this tokenizer uses, so a Python payload and the shell around it agree. It
+ * throws when no theme is installed (the tokenizer's own tests run without one)
+ * and paints nothing for a grammar that is not loaded yet; either way the text
+ * comes back as it went in, because a payload is never worth losing.
+ */
+function highlightProgram(text: string, language: string): string {
+  try {
+    return highlightCode(text, language).join("\n");
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * The body of a heredoc starting at `start`, and the line that ends it.
+ *
+ * `undefined` when no terminator follows: a command whose arguments are still
+ * streaming has an unterminated heredoc on every frame but the last, and that
+ * has to cost nothing. Lines are read whole, so a body line that looks like
+ * shell is never tokenized as shell.
+ */
+function readHeredoc(
+  command: string,
+  start: number,
+  delimiter: string,
+  stripTabs: boolean,
+): { text: string; terminator: string; end: number } | undefined {
+  if (!delimiter) return undefined;
+  let lineStart = start;
+  for (;;) {
+    const newline = command.indexOf("\n", lineStart);
+    const lineEnd = newline === -1 ? command.length : newline;
+    const line = command.slice(lineStart, lineEnd);
+    if ((stripTabs ? line.replace(/^\t+/, "") : line) === delimiter) {
+      return {
+        text: command.slice(start, lineStart),
+        terminator: line,
+        end: newline === -1 ? command.length : newline + 1,
+      };
+    }
+    if (newline === -1) return undefined;
+    lineStart = newline + 1;
+  }
+}
+
 /**
  * Tokenize and color a shell command string.
  * `color(token, text)` maps a syntax token name to styled text (theme.fg).
@@ -51,10 +157,14 @@ export function highlightBashCommand(
  *
  * `bash -c 'set -e` + newline + `cd src'` is a shell script inside a string.
  * Coloring the payload as one string token is what the shell's grammar says, but
- * a six-line command in one flat colour is unreadable, so the quoted argument of
- * a shell's `-c` is tokenized as the script it is. Everything else — heredocs,
- * double-quoted payloads the outer shell expands first — keeps the plain string
- * treatment.
+ * a six-line command in one flat colour is unreadable, so a payload the word
+ * before the flag named is tokenized as the code it is: shell through this
+ * tokenizer, anything else through highlight.js. A quoted word nothing
+ * introduced stays the string it is.
+ *
+ * A heredoc's body is read whole for the same reason: `python3 - <<'PY'` is the
+ * form a sandboxed agent reaches for, and a body tokenized as shell turns
+ * `import` into a command.
  */
 function highlightShell(
   command: string,
@@ -65,19 +175,56 @@ function highlightShell(
   const push = (text: string, token: string | null) => {
     out.push(token && text ? color(token, text) : text);
   };
+  /** A payload, in the language it is written in. Unknown keeps the text plain. */
+  const pushProgram = (text: string, language: string | null) => {
+    if (!text) return;
+    if (language === SHELL_LANGUAGE) {
+      if (depth < MAX_PAYLOAD_DEPTH) {
+        // Pushed raw: the inner call colors its own tokens.
+        out.push(highlightShell(text, color, depth + 1));
+        return;
+      }
+      out.push(text);
+      return;
+    }
+    out.push(language ? highlightProgram(text, language) : text);
+  };
 
   let i = 0;
   const n = command.length;
   let expectCmd = true; // next word sits in command position
-  let shellNamed = false; // the previous word was a shell, so a `-c` may follow
-  let scriptNext = false; // the token coming up is a shell's `-c` script
+  let named: Runner | null = null; // the previous word runs a program
+  let programNext: string | null = null; // the token coming up is that program
+  let delimiterNext = false; // the token coming up is a heredoc's delimiter
+  let stripTabs = false; // `<<-` eats the body's leading tabs
+  let heredoc: { delimiter: string; language: string | null } | null = null; // read, waiting for its line
 
   while (i < n) {
     const c = command[i];
 
     // whitespace / newlines
     if (c === " " || c === "\t") { push(c, null); i++; continue; }
-    if (c === "\n") { push(c, null); expectCmd = true; shellNamed = false; scriptNext = false; i++; continue; }
+    if (c === "\n") {
+      push(c, null);
+      i++;
+      // A heredoc's body starts on the line after its delimiter. Reading it here,
+      // whole, keeps a body line that looks like shell from being tokenized as shell.
+      if (heredoc) {
+        const body = readHeredoc(command, i, heredoc.delimiter, stripTabs);
+        if (body) {
+          pushProgram(body.text, heredoc.language);
+          push(body.terminator, "toolOutput");
+          i = body.end;
+        }
+        heredoc = null;
+        stripTabs = false;
+      }
+      expectCmd = true;
+      named = null;
+      programNext = null;
+      delimiterNext = false;
+      continue;
+    }
 
     // comment (only at word start)
     if (c === "#" && (i === 0 || command[i - 1] === " " || command[i - 1] === "\t" || command[i - 1] === "\n")) {
@@ -88,11 +235,13 @@ function highlightShell(
       continue;
     }
 
-    // Only the token right after `-c` is its script: read the flag here and
-    // clear it, so a later quote in the same command is a plain string again.
-    // Whitespace and comments above must not consume it.
-    const isScriptPayload = scriptNext;
-    scriptNext = false;
+    // Only the token right after the flag or the `<<` is what it introduces: read
+    // it here and clear it, so a later quote in the same command is a plain
+    // string again. Whitespace and comments above must not consume it.
+    const program = programNext;
+    programNext = null;
+    const delimiter = delimiterNext;
+    delimiterNext = false;
 
     // operators (longest first)
     // fd redirects like 2>&1 (4 chars): target is not a command word
@@ -104,12 +253,22 @@ function highlightShell(
     if (three === "&>>") {
       push(three, "syntaxOperator"); i += 3; continue;
     }
+    // `<<<` is a here-string: the word after it is data, not a body's delimiter.
+    if (three === "<<<") {
+      push(three, "syntaxOperator"); i += 3; continue;
+    }
+    if (three === "<<-") {
+      push(three, "syntaxOperator"); i += 3; delimiterNext = true; stripTabs = true; continue;
+    }
     const two = command.slice(i, i + 2);
     if (two === "&&" || two === "||") {
       push(two, "syntaxOperator"); i += 2; expectCmd = true; continue;
     }
+    if (two === "<<") {
+      push(two, "syntaxOperator"); i += 2; delimiterNext = true; continue;
+    }
     // other redirects: the next word is a file target, not a command
-    if (two === ">>" || two === "2>" || two === ">&" || two === "<&" || two === "&>" || two === "<<") {
+    if (two === ">>" || two === "2>" || two === ">&" || two === "<&" || two === "&>") {
       push(two, "syntaxOperator"); i += 2; continue;
     }
     if (c === "|" || c === ";") {
@@ -126,12 +285,12 @@ function highlightShell(
     if (c === "'") {
       const q = command.indexOf("'", i + 1);
       const end = q === -1 ? n : q + 1;
-      // A shell's `-c` script: the quotes stay strings, what is between them is
-      // the shell code it is. An unclosed quote stays one string, as before.
-      if (isScriptPayload && q !== -1 && depth < MAX_PAYLOAD_DEPTH) {
+      // A quoted word can be a heredoc's delimiter or a runner's program. The
+      // quotes stay strings; what is between them is read as what it is.
+      if (q !== -1 && delimiter) heredoc = { delimiter: command.slice(i + 1, q), language: named?.language ?? null };
+      if (q !== -1 && program) {
         push("'", "syntaxString");
-        // Pushed raw: the inner call colors its own tokens.
-        out.push(highlightShell(command.slice(i + 1, q), color, depth + 1));
+        pushProgram(command.slice(i + 1, q), program);
         push("'", "syntaxString");
         i = end;
         continue;
@@ -144,13 +303,24 @@ function highlightShell(
     // double-quoted string (escape-aware)
     if (c === '"') {
       let j = i + 1;
+      let closes = false;
       while (j < n) {
         if (command[j] === "\\") { j += 2; continue; }
-        if (command[j] === '"') { j++; break; }
+        if (command[j] === '"') { closes = true; break; }
         j++;
       }
-      push(command.slice(i, j), "syntaxString");
-      i = j;
+      const end = closes ? j + 1 : n;
+      const inner = command.slice(i + 1, closes ? j : n);
+      if (closes && delimiter) heredoc = { delimiter: inner, language: named?.language ?? null };
+      if (closes && program) {
+        push('"', "syntaxString");
+        pushProgram(inner, program);
+        push('"', "syntaxString");
+        i = end;
+        continue;
+      }
+      push(command.slice(i, end), "syntaxString");
+      i = end;
       continue;
     }
 
@@ -190,15 +360,25 @@ function highlightShell(
     const word = command.slice(i, j);
     i = j;
 
-    // Track `… bash -c`: the shell word arms the flag, the flag arms the next
-    // string. `/bin/bash` counts, and any other word disarms both.
-    if (SHELL_NAMES.has(word.slice(word.lastIndexOf("/") + 1))) {
-      shellNamed = true;
-    } else if (shellNamed && SHELL_COMMAND_FLAG.test(word)) {
-      scriptNext = true;
-      shellNamed = false; // one `-c` per shell word
+    // Track `… bash -c` and `… python3 -c`: the runner word arms the flag, the
+    // flag arms the next program. `/bin/bash` counts, and a word that is neither
+    // a runner nor a flag disarms both.
+    //
+    // A heredoc's delimiter is data, not a command word: `<<EOF` names the line
+    // that ends the body, and the word before it says which program owns it.
+    if (delimiter) {
+      push(word, "toolOutput");
+      heredoc = { delimiter: word, language: named?.language ?? null };
+      continue;
+    }
+    const runner = runnerFor(word);
+    if (runner) {
+      named = runner;
+    } else if (named?.takesProgram(word)) {
+      programNext = named.language;
+      named = null; // one program per runner word
     } else if (!word.startsWith("-")) {
-      shellNamed = false;
+      named = null;
     }
 
     // assignment prefix in command position: VAR=value

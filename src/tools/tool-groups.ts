@@ -45,6 +45,8 @@ export interface GroupMember {
   jobs?: Array<{ status: JobStatus; fresh: boolean }>;
   /** Running for under RUNNING_ROW_DELAY_MS: not worth announcing yet. */
   fresh?: boolean;
+  /** A script's own calls, which this row counts instead of hiding behind `codemode×N`. */
+  nested?: BreakdownEntry[];
 }
 
 export interface BreakdownEntry {
@@ -52,10 +54,52 @@ export interface BreakdownEntry {
   count: number;
 }
 
+/**
+ * The kind a call is counted as. An MCP tool counts as its server: the tool name
+ * says less than the server does, it eats a summary row, and one server with
+ * three tools is one entry. Nested calls are counted the same way, so a line
+ * that lists both cannot name the same server two different ways.
+ */
+export function toolKindName(name: string): string {
+  return name.startsWith("mcp__") ? (name.split("__")[1] || "mcp") : name;
+}
+
+/** Most frequent first, ties alphabetical: how a summary line reads. */
+function sortedCounts(counts: Map<string, number>): BreakdownEntry[] {
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+/**
+ * What a script's own calls were, as counts.
+ *
+ * A `codemode` call's nested calls never reach the model as calls of their own:
+ * pi keeps them as `{ name, status }` records on the parent's result. The parent
+ * row already shows them in place of its arguments, but a summary that counted
+ * `codemode×2` and stopped there hid everything those two scripts ran.
+ */
+export function nestedBreakdown(details: unknown): BreakdownEntry[] {
+  const calls = (details as { calls?: unknown } | undefined)?.calls;
+  if (!Array.isArray(calls) || calls.length === 0) return [];
+  const counts = new Map<string, number>();
+  for (const call of calls as Array<{ name?: unknown }>) {
+    const name = typeof call?.name === "string" && call.name ? call.name : "call";
+    const kind = toolKindName(name);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return sortedCounts(counts);
+}
+
 export interface GroupSummary {
   count: number;
   /** Per-tool counts, most frequent first, ties alphabetical. */
   breakdown: BreakdownEntry[];
+  /**
+   * What the scripts in this group ran, merged, and the entry that names them:
+   * the `codemode×1` count says how many rows, this says what they did.
+   */
+  nested?: { owner: string; breakdown: BreakdownEntry[] };
   /** Thinking runs listed inside this group (`thoughts` only when > 0). */
   thoughts: number;
   /** One of those runs is still arriving: the marker animates. */
@@ -73,6 +117,8 @@ export interface GroupSummary {
 /** Pure: what the summary line says, independent of theme or icons. */
 export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking = false): GroupSummary {
   const counts = new Map<string, number>();
+  const nested = new Map<string, number>();
+  let nestedOwner: string | undefined;
   let durationMs = 0;
   let running: string | undefined;
   let failed = 0;
@@ -82,16 +128,23 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
     const failedJobs = jobs.filter((job) => job.status === "failed").length;
     failed += Math.max(!member.isPartial && member.isError ? 1 : 0, failedJobs);
     jobsRunning += jobs.filter((job) => job.status === "running" && !job.fresh).length;
-    counts.set(member.toolName, (counts.get(member.toolName) ?? 0) + 1);
+    const kind = toolKindName(member.toolName);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    for (const entry of member.nested ?? []) {
+      nestedOwner ??= kind;
+      nested.set(entry.name, (nested.get(entry.name) ?? 0) + entry.count);
+    }
     if (typeof member.durationMs === "number" && Number.isFinite(member.durationMs)) {
       durationMs += member.durationMs;
     }
     if (member.isPartial && !member.fresh && running === undefined) running = member.toolName;
   }
-  const breakdown = [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  return { count: members.length, breakdown, thoughts, thinking, durationMs, running, failed, jobsRunning };
+  const breakdown = sortedCounts(counts);
+  const summary: GroupSummary = { count: members.length, breakdown, thoughts, thinking, durationMs, running, failed, jobsRunning };
+  // A group's scripts are summed into one list: two scripts that both ran bash
+  // are one `bash×3`, and the parentheses stay one segment of the line.
+  if (nestedOwner !== undefined && nested.size > 0) summary.nested = { owner: nestedOwner, breakdown: sortedCounts(nested) };
+  return summary;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,7 +312,7 @@ export interface ToolLike {
   toolCallId?: string;
   isPartial: boolean;
   expanded: boolean;
-  result?: { durationMs?: number; isError?: boolean };
+  result?: { durationMs?: number; isError?: boolean; details?: unknown };
 }
 
 interface Group {
@@ -649,6 +702,7 @@ export function summaryFor(
         isPartial: member.isPartial,
         isError: member.result?.isError === true,
         durationMs: member.isPartial ? undefined : member.result?.durationMs,
+        nested: member.isPartial ? undefined : nestedBreakdown(member.result?.details),
         jobs: jobs.map((job) => ({
           status: job.status,
           fresh: job.status === "running" && now - (job.startTime ?? now) < RUNNING_ROW_DELAY_MS,

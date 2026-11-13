@@ -11,7 +11,7 @@ import { toolKindIcon } from "../draw/icons.ts";
 import { paint } from "../draw/paint.ts";
 import type { ThemeLike } from "../theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
-import type { GroupSummary } from "./tool-groups.ts";
+import { nestedBreakdown, type GroupSummary } from "./tool-groups.ts";
 
 export interface LineOptions {
   /** Prepend each tool's Nerd Font kind icon. */
@@ -70,7 +70,14 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
 
   const breakdown = summary.breakdown.map(({ name, count }) => {
     const icon = icons ? `${toolKindIcon(name)} ` : "";
-    return theme.fg("muted", `${icon}${name}×${count}`);
+    // What the scripts here ran hangs on the entry that ran them, so `12 calls`
+    // still counts rows and this still says what those rows did. Open, each row
+    // below already names its own calls, and the header stops repeating them.
+    const nested =
+      !open && summary.nested?.owner === name
+        ? ` (${summary.nested.breakdown.map((entry) => `${entry.name}×${entry.count}`).join(" ")})`
+        : "";
+    return theme.fg("muted", `${icon}${name}×${count}${nested}`);
   });
   if (breakdown.length > 0) parts.push(breakdown.join(theme.fg("muted", "  ")));
 
@@ -289,17 +296,9 @@ export interface NestedCallSummary {
 export function summarizeNestedCalls(details: unknown): NestedCallSummary {
   const calls = (details as { calls?: unknown } | undefined)?.calls;
   if (!Array.isArray(calls) || calls.length === 0) return { kinds: "", failed: 0, total: 0 };
-  const counts = new Map<string, number>();
-  let failed = 0;
-  for (const call of calls as Array<{ name?: unknown; status?: unknown }>) {
-    const name = typeof call?.name === "string" && call.name ? call.name : "call";
-    // `mcp__chrome_devtools__take_screenshot` says less than its server does and
-    // eats the row; one server with three tools is one entry.
-    const key = name.startsWith("mcp__") ? (name.split("__")[1] ?? name) : name;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-    if (call?.status === "error" || call?.status === "cancelled") failed++;
-  }
-  const kinds = [...counts].map(([name, count]) => `${name}×${count}`).join(" ");
+  const lost = calls as Array<{ status?: unknown }>;
+  const kinds = nestedBreakdown(details).map(({ name, count }) => `${name}×${count}`).join(" ");
+  const failed = lost.filter((call) => call?.status === "error" || call?.status === "cancelled").length;
   return { kinds, failed, total: calls.length };
 }
 
@@ -361,6 +360,20 @@ function rowHead(status: string, label: string, toolName: string, align: LineOpt
 /** ` ✓ bash cd ~ && python3 - <<'PY' (+26 lines)  3 lines · 0.1s` */
 export function formatToolLine(tool: ToolLike, theme: ThemeLike, options: LineOptions = {}): string {
   return formatToolRows(tool, theme, { ...options, rowLines: 1 })[0]!;
+}
+
+/**
+ * Cells between a row's left edge and its arguments: the outcome glyph, the
+ * kind icon and the name, then the space in front of the command. A grouped row
+ * that opens a body hangs the command's own lines on this column, so the row
+ * above and the body under it agree.
+ *
+ * Any status glyph will do: `⋯`, `✗` and `✓` are all one cell, so the column
+ * does not depend on how the call ended.
+ */
+export function commandColumn(tool: ToolLike, options: LineOptions = {}): number {
+  const icon = (options.icons ?? true) ? `${toolKindIcon(tool.toolName)} ` : "";
+  return visibleWidth(rowHead("·", `${icon}${tool.toolName}`, tool.toolName, options.align)) + 1;
 }
 
 /** The call's row, and a second one under it when it is allowed one and has more to say. */

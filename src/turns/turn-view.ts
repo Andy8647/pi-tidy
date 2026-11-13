@@ -8,7 +8,9 @@ import { optionsRevision, tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { jobNoteCount } from "../tools/background-jobs.ts";
+import { toolKindName } from "../tools/tool-groups.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
+import { closeThinking } from "../tools/tool-group-view.ts";
 
 const NATIVE_VIEW = Symbol.for("pi-toolbox:message-view");
 export const TURN_LAYOUT = Symbol.for("pi-tidy:turn-layout");
@@ -114,11 +116,22 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   if (folded(turn)) {
     add(theme.fg("toolTitle", `${turn.tools.size} calls`));
     const counts = new Map<string, number>();
-    for (const { name } of turn.tools.values()) {
-      const kind = name.startsWith("mcp__") ? "mcp" : name;
+    const nested = new Map<string, number>();
+    let nestedOwner: string | undefined;
+    for (const tool of turn.tools.values()) {
+      const kind = toolKindName(tool.name);
       counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      for (const entry of tool.nested ?? []) {
+        nestedOwner ??= kind;
+        nested.set(entry.name, (nested.get(entry.name) ?? 0) + entry.count);
+      }
     }
-    for (const [name, count] of counts) add(theme.fg("muted", `${name}×${count}`), theme.fg("muted", `${toolKindIcon(name)} ${name}×${count}`));
+    for (const [name, count] of counts) {
+      // A script's own calls hang on the entry that ran them: the count still
+      // says how many calls the run made, this says what those calls did.
+      const inside = nestedOwner === name ? ` (${[...nested].map(([kind, times]) => `${kind}×${times}`).join(" ")})` : "";
+      add(theme.fg("muted", `${name}×${count}${inside}`), theme.fg("muted", `${toolKindIcon(name)} ${name}×${count}${inside}`));
+    }
     if (notes) add(theme.fg("muted", `${notes} matched`));
   }
   const separator = theme.fg("muted", " · ");
@@ -380,6 +393,9 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   if (!turn || !theme) return draw(width);
   const key = messageKey(component.lastMessage);
   const closed = options.collapseTurns !== "off" && folded(turn);
+  // A folded turn forgets what was open inside it: the calls (see the tool frame)
+  // and the thinking runs, so reopening it starts from the rows it opened with.
+  if (closed) closeThinking(component);
   const visible = turn.outcome === "running" ? turn.latestText : turn.final ?? failedLast(turn);
   const header = options.collapseTurns !== "off" && key === turn.firstAssistant && hasProcess(turn);
   if (closed && key !== visible && !header) return [];
