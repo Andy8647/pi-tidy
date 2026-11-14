@@ -21,13 +21,16 @@ import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-previ
 import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
-import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES } from "./config.ts";
+import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES, type TidyConfig } from "./config.ts";
 import { agentRunning, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
 import { patchErrorLines } from "./messages/error-lines.ts";
 import { patchUserMessages } from "./messages/user-message.ts";
 import { restoreColor, withHexSwatchesCached } from "./messages/hex-swatches.ts";
-import { formatWriteCallText } from "./tools/write-preview.ts";
+import { transformLatexEnvironmentsCached } from "./messages/latex-environments.ts";
+import { createWriteCallComponent, formatWriteCallText } from "./tools/write-preview.ts";
+import { createReadPreviewComponent } from "./tools/markdown-latex-preview.ts";
+import { isLatexPath, isMarkdownPath } from "./tools/lang-support.ts";
 import { connectJobs, registerNestedJobs, type EventBusLike } from "./tools/background-jobs.ts";
 import { installGroupBoundaries } from "./tools/tool-group-view.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
@@ -120,33 +123,97 @@ function olderThan(version: string, min: string): boolean {
 }
 
 /**
- * Decorate write's call preview without registering a replacement tool. The
- * active tool (e.g. pi-playpen's sandboxed write) keeps ownership of execution,
- * and next() preserves its shell and result renderer, including error output.
+ * Decorate write's call preview and read's expanded body without registering a
+ * replacement tool. The active tool (e.g. pi-playpen's sandboxed write) keeps
+ * ownership of execution, and next() preserves its shell and result renderer,
+ * including error output.
+ *
+ * One resolver for both, because a second `registerToolRenderer` call would ask
+ * every other extension's resolver one more time for nothing. Markdown and LaTeX
+ * files get a rendered body; everything else keeps exactly what pi drew.
  */
-function registerWritePreview(pi: ExtensionAPI, lines: number): void {
+function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
   // No fallback to a tool override: a duplicate registration takes down
   // whoever else owns `write`. The caller has already warned (see entry point).
   if (!hasRendererApi(pi)) return;
+  const lines = config.writeLines;
 
   pi.registerToolRenderer((toolName, next) => {
     const renderers = next();
-    if (toolName !== "write") return renderers;
+    if (toolName === "write") {
+      return {
+        ...renderers,
+        renderCall(args, theme, context) {
+          // Rendering state is shared with the execution extension's renderers.
+          // Use our own key so its cached components are not overwritten.
+          const state = context.state as { tidyWriteCallText?: Text };
+          const writeArgs = args as Parameters<typeof formatWriteCallText>[0];
+          const preview = createWriteCallComponent(writeArgs, theme, {
+            expanded: context.expanded,
+            lines,
+            renderMarkdown: config.renderMarkdown,
+            renderLatex: config.renderLatex,
+          });
+          if (preview) return preview;
+          const text = state.tidyWriteCallText ?? new Text("", 0, 0);
+          state.tidyWriteCallText = text;
+          text.setText(formatWriteCallText(writeArgs, theme, { expanded: context.expanded, lines }));
+          return text;
+        },
+      };
+    }
+    if (toolName !== "read") return renderers;
+    const downstream = renderers?.renderResult;
+    if (!renderers || !downstream) return renderers;
 
     return {
       ...renderers,
-      renderCall(args, theme, context) {
-        // Rendering state is shared with the execution extension's renderers.
-        // Use our own key so its cached components are not overwritten.
-        const state = context.state as { tidyWriteCallText?: Text };
-        const text = state.tidyWriteCallText ?? new Text("", 0, 0);
-        state.tidyWriteCallText = text;
-        const writeArgs = args as Parameters<typeof formatWriteCallText>[0];
-        text.setText(formatWriteCallText(writeArgs, theme, { expanded: context.expanded, lines }));
-        return text;
+      renderResult(result: any, options: any, theme: any, context: any) {
+        const rawPath = typeof context.args?.file_path === "string" ? context.args.file_path : typeof context.args?.path === "string" ? context.args.path : "";
+        const kindMarkdown = config.renderMarkdown && isMarkdownPath(rawPath);
+        const kindLatex = !kindMarkdown && config.renderLatex && isLatexPath(rawPath);
+        // Collapsed, pi shows the first ten rows plus a hint; that is a code
+        // preview, and the whole point of a document is the expanded box. Only
+        // then is the file text collected, so a 10k-line read is not rendered
+        // twice.
+        if (options?.expanded && !context.isError && (kindMarkdown || kindLatex)) {
+          const { body, notice } = splitTruncationNotice(resultText(result?.content));
+          if (body.trim()) {
+            return createReadPreviewComponent(body, theme, {
+              kind: kindMarkdown ? "markdown" : "latex",
+              renderLatex: config.renderLatex,
+              notice,
+            });
+          }
+        }
+        return downstream(result, options, theme, context);
       },
     };
   });
+}
+
+/** The text blocks of a tool result, joined the way pi joins them. */
+function resultText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: string; text?: string } => !!block && typeof block === "object" && (block as { type?: unknown }).type === "text")
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .join("\n");
+}
+
+/**
+ * pi's truncation row (`[Truncated: …]`, `[First line exceeds …]`) is the last
+ * line of the body it hands a renderer. A rendered document cannot carry it —
+ * Markdown would fold it into a paragraph — so it is lifted out and drawn under
+ * the body in `warning` instead.
+ */
+function splitTruncationNotice(text: string): { body: string; notice?: string } {
+  const rows = text.split("\n");
+  let end = rows.length;
+  while (end > 0 && rows[end - 1]!.trim() === "") end--;
+  const last = rows[end - 1]?.trim();
+  if (last === undefined || !/^\[(?:Truncated:|First line exceeds)/.test(last)) return { body: text };
+  return { body: rows.slice(0, end - 1).join("\n"), notice: last };
 }
 
 /** `registerToolRenderer` arrived in pi 1.3; peer ranges stay `*` (see MIN_PI). */
@@ -312,25 +379,37 @@ export default function (pi: ExtensionAPI): void {
   }
 
   try {
-    registerWritePreview(pi, config.writeLines);
+    registerWritePreview(pi, config);
   } catch (error) {
     console.debug("[pi-tidy] write preview renderer failed:", error);
   }
 
-  // A hex color in a message gets a swatch painted with the color it names.
-  // Display only: the transformer runs before pi's own Markdown renderer and
-  // never reaches the session or the model context. Thinking is skipped — the
-  // box is dim and a swatch in it reads as a misplaced highlight.
-  if (config.hexSwatches) {
+  // Two display-only Markdown rewrites, one registration: pi keeps exactly one
+  // `markdownTransformer` per extension, and the second call would replace the
+  // first. The transformer runs before pi's own Markdown renderer and never
+  // reaches the session or the model context.
+  //
+  // - a bare `\begin{equation}…\end{equation}` becomes a `$$…$$` math block
+  //   (`tidy.renderLatex`), because pi's tokenizer only knows `$$` and `\[`
+  // - a hex colour in a message gets a swatch painted with the colour it names
+  //   (`tidy.hexSwatches`). Thinking is skipped — the box is dim and a swatch
+  //   in it reads as a misplaced highlight.
+  if (config.renderLatex || config.hexSwatches) {
     try {
+      if (typeof (pi as { registerMarkdownTransformer?: unknown }).registerMarkdownTransformer !== "function") {
+        throw new Error("pi.registerMarkdownTransformer is not a function");
+      }
       pi.registerMarkdownTransformer((markdown, { messageType }) => {
-        if (messageType === "assistant-thinking" || !tidyEnabled.get()) return markdown;
-        const theme = getTheme();
-        if (!theme) return markdown;
-        return withHexSwatchesCached(markdown, restoreColor(theme, messageType), theme);
+        if (!tidyEnabled.get()) return markdown;
+        let text = config.renderLatex ? transformLatexEnvironmentsCached(markdown) : markdown;
+        if (config.hexSwatches && messageType !== "assistant-thinking") {
+          const theme = getTheme();
+          if (theme) text = withHexSwatchesCached(text, restoreColor(theme, messageType), theme);
+        }
+        return text;
       });
     } catch (error) {
-      console.debug("[pi-tidy] hex swatch transformer failed:", error);
+      console.debug("[pi-tidy] markdown transformer failed:", error);
     }
   }
 }

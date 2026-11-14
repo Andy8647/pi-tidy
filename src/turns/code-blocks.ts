@@ -9,10 +9,10 @@
  * replies exactly as they are and the caller says so once at load.
  */
 
-import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { visibleText } from "../draw/frame-draw.ts";
 import { renderSplitDiff } from "../tools/split-diff.ts";
+import { highlightLines } from "../tools/lang-support.ts";
 import type { ThemeLike } from "../theme-access.ts";
 
 /**
@@ -43,12 +43,23 @@ export const RULE_GLYPH = "─";
  * block it cannot parse with one flat colour, so an alias can only add: `fish` is a
  * shell (bash's grammar reads its keywords, strings and comments right), while `.env`
  * and TOML are the same `key = value` + `# comment` shape as INI.
+ *
+ * `markdown` and `latex` are the two `highlightLines` draws itself when pi's
+ * highlighter has no grammar for them, which on a cold start is always.
  */
 const HIGHLIGHT_ALIASES: Record<string, string> = {
   fish: "bash",
   toml: "ini",
   env: "ini",
   dotenv: "ini",
+  md: "markdown",
+  markdown: "markdown",
+  mdx: "markdown",
+  tex: "latex",
+  latex: "latex",
+  ltx: "latex",
+  sty: "latex",
+  cls: "latex",
 };
 
 /** A fenced block found while the reply was rendered, in row order. */
@@ -199,7 +210,8 @@ export function ruleCodeToken(
 /**
  * Rows to put in place of pi's body, or undefined to keep pi's. A `diff` block goes
  * side by side when it fits, with the same renderer and switch as an edit's diff;
- * a language pi has no grammar for gets the closest one.
+ * a language pi has no grammar for gets the closest one — and Markdown and LaTeX,
+ * which pi's highlighter cannot parse at all on a cold start, get ours.
  */
 function bodyRows(text: string, lang: string, width: number, indent: number, options: CodeBlockOptions): string[] | undefined {
   if (lang === "diff" && options.splitDiff && options.splitDiffMinWidth <= width) {
@@ -207,7 +219,7 @@ function bodyRows(text: string, lang: string, width: number, indent: number, opt
     if (panes) return panes.lines;
   }
   const alias = HIGHLIGHT_ALIASES[lang];
-  return alias ? highlightCode(text, alias) : undefined;
+  return alias ? highlightLines(text, alias, options.theme) : undefined;
 }
 
 /**
