@@ -97,7 +97,13 @@ test("write rendering preserves the downstream shell and success/error result re
     );
     assert.match(result.render(80).join("\n"), isError ? /sandbox denial/ : /sandbox success/);
   }
-  assert.strictEqual(h.resolve("read"), original, "unrelated tools pass through unchanged");
+  assert.strictEqual(h.resolve("grep"), original, "unrelated tools pass through unchanged");
+  // `read` is no longer unrelated: an expanded result for a Markdown or LaTeX
+  // file is drawn as a document. Its call renderer and everything else stay.
+  const read = h.resolve("read")!;
+  assert.strictEqual(read.renderCall, original.renderCall);
+  assert.strictEqual(read.renderShell, original.renderShell);
+  assert.notStrictEqual(read.renderResult, original.renderResult, "read's result is wrapped for document previews");
 });
 
 test("the registered write renderer respects preview limits, expansion and streaming updates", () => {

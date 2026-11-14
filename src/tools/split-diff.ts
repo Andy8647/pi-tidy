@@ -12,9 +12,10 @@
  * background), so it follows whatever theme pi is running.
  */
 
-import { getLanguageFromPath, highlightCode, keyHint } from "@earendil-works/pi-coding-agent";
+import { keyHint } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "../theme-access.ts";
+import { highlightLines, resolveLanguageFromPath } from "./lang-support.ts";
 
 /** Blank cells on each side of the panes (pi's Box uses the same padding). */
 const PAD = 1;
@@ -303,10 +304,10 @@ function sanitize(text: string): string {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ").replace(/\t/g, TAB);
 }
 
-function highlighter(filePath: string | undefined): (line: string) => string {
+function highlighter(filePath: string | undefined, theme: ThemeLike): (line: string) => string {
   let language: string | undefined;
   try {
-    language = filePath ? getLanguageFromPath(filePath) : undefined;
+    language = resolveLanguageFromPath(filePath);
   } catch {
     language = undefined;
   }
@@ -317,7 +318,7 @@ function highlighter(filePath: string | undefined): (line: string) => string {
     let out = line;
     if (language && line.trim()) {
       try {
-        out = highlightCode(line, language)[0] ?? line;
+        out = highlightLines(line, language, theme)[0] ?? line;
       } catch {
         out = line;
       }
@@ -504,7 +505,7 @@ export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
   if (!lay) return null;
 
   const palette = buildPalette(theme);
-  const highlight = highlighter(filePath);
+  const highlight = highlighter(filePath, theme);
   const lines: string[] = [];
   const bgRows: number[] = [];
 

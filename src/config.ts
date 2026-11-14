@@ -121,6 +121,19 @@ export interface TidyConfig {
    * Fenced code blocks and inline code are skipped.
    */
   hexSwatches: boolean;
+  /**
+   * Render a Markdown file's text as Markdown: in the `write` preview, and in
+   * the `read` result once the box is expanded (`ctrl+o`). `.md`, `.markdown`,
+   * `.mdx` and `.rmd`. Source code read/write stays exactly as pi draws it.
+   */
+  renderMarkdown: boolean;
+  /**
+   * Render LaTeX: `read`/`write` of `.tex`, `.latex`, `.ltx`, `.sty`, `.cls` and
+   * `.bib` get syntax highlighting and, where possible, Unicode math; a
+   * message's display-math environments (`\begin{equation}` …) become math
+   * blocks pi can render. `false` leaves the source alone.
+   */
+  renderLatex: boolean;
   /** Per-kind theme fg colors for message-box borders (any ThemeColor name). */
   messageBorderColors: MessageBorderColors;
   /**
@@ -182,6 +195,8 @@ const DEFAULTS: TidyConfig = {
   diffLines: 20,
   codeBlocks: true,
   hexSwatches: true,
+  renderMarkdown: true,
+  renderLatex: true,
   thinkingColor: "warning",
   messageBorderColors: {
     assistant: "accent",
@@ -277,6 +292,8 @@ export function loadConfig(): TidyConfig {
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
       codeBlocks: typeof toolbox?.codeBlocks === "boolean" ? toolbox.codeBlocks : DEFAULTS.codeBlocks,
       hexSwatches: typeof toolbox?.hexSwatches === "boolean" ? toolbox.hexSwatches : DEFAULTS.hexSwatches,
+      renderMarkdown: typeof toolbox?.renderMarkdown === "boolean" ? toolbox.renderMarkdown : DEFAULTS.renderMarkdown,
+      renderLatex: typeof toolbox?.renderLatex === "boolean" ? toolbox.renderLatex : DEFAULTS.renderLatex,
       thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
       messageBorderColors: {
         ...DEFAULTS.messageBorderColors,
