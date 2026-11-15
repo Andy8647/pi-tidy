@@ -137,16 +137,16 @@ export function renderGroupedTool(
   // The body is drawn through the tool's own frame cache, so an unchanged box
   // hands back the same array: its identity says "nothing under this row moved".
   //
-  // An opened bash call puts its whole body on the command's column: the pad is
-  // the head's width, so the command's own lines and the output under it share
-  // one left edge instead of starting under the rail. That makes the column the
+  // An opened call puts its whole body on its arguments' column: the pad is the
+  // head's width, so the call's own lines and the output under it share one
+  // left edge instead of starting under the rail. That makes the column the
   // group's business, not the call row's, so the row itself is told to hang
   // nothing (a box of its own still hangs its lines on `$ `, see frameBox).
   // A job row carries what the job is doing rather than a command, so its body
   // stays at the rail's pad.
-  const aligned = plan.full && !job && tool.toolName === "bash";
+  const aligned = plan.full && !job;
   const bodyPadCells = aligned ? commandColumn(tool, { icons, align }) : BODY_PAD.length;
-  if (plan.full && tool.rendererState && tool.toolName === "bash") tool.rendererState.tidyCommandIndent = 0;
+  if (aligned && tool.rendererState) tool.rendererState.tidyCommandIndent = 0;
   const bodyPad = " ".repeat(bodyPadCells);
   const body = plan.full ? frameBox(Math.max(4, width - GUTTER_CELLS - bodyPadCells), true) : undefined;
   // Compared field by field against the last frame rather than through a built

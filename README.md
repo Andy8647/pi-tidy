@@ -14,7 +14,7 @@ every box gets a rounded transparent frame.
 
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
-- **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
+- **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A codemode script is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
@@ -67,6 +67,13 @@ so (`· 2 matched`), because the rows carrying those lines are inside the group.
 the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
 not counted twice). Retries and overlap mean the parts need not sum to the total; missing historical
 timings show `—`.
+
+Talking to a run splits it in two. A steer (Enter while the agent works) or a follow-up
+(Alt+Enter, taken when it would stop) is a new instruction: the run above it ends where you
+typed the message and folds on its own, keeping its reply in view. The answer to your message
+starts a new summary below it. Each counts its own calls and its own time, and `/tidy turn`
+toggles either. A steer that beats the first answer changes nothing: with nothing to fold above
+it, it belongs to the run it landed in.
 
 Opened, the process hangs on a rail under the summary's marker, and the rail runs into the final
 reply's border. A box from `alwaysShowTools` joins the rail of a group that is open right above or
@@ -212,7 +219,14 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form. An `edit` another extension registers (aft's hashline mode, for one) gets the panes too, whenever its result carries the `diff` |
 | `splitDiffMinWidth` | `72` | Box width below which the panes give way to pi's unified diff | Needs `splitDiff` |
 | `diffLines` | `20` | Diff rows in a collapsed edit box, starting a third of the budget above the first change, with `… (N more lines, M total, ctrl+o to expand)` under them. `0` keeps just the summary row | Only when the panes are drawn. pi's unified diff has no limit, so with `splitDiff: false` or in a narrower box a long diff is shown whole |
-| `codeBlocks` | `true` | Draws a reply's fenced blocks as a section: the two fence rows become rules, the opening one labelled with its language and a copy chip (`├─ fish 󰆒 ────┤`), and they join the reply's frame or rail at the edges. The code rows are pi's own, apart from the chip: it lights up and the pointer turns into a hand while it is under it (needs a terminal without tmux, where pi tracks the pointer), and shows a tick for a moment after a click puts the block's text on the clipboard. A `diff` block goes side by side instead, under the same switch and width as an edit's diff, and languages highlight.js has no grammar for (`fish`, `.env`, TOML) get the closest one it does. `false` leaves pi's own fences | Assistant replies that tidy draws (needs `collapseTurns` or `finalReplyStyle`). A pi whose Markdown has no `renderToken` keeps its own code blocks, and tidy says so once at session start. With `icons: false` the chip is the word `copy` instead |
+| `codeBlocks` | `true` | Draws a reply's fenced blocks as a section: the two fence rows become rules, the opening one labelled with its language and a copy chip (`├─ fish 󰆒 ────┤`), and they join the reply's frame or rail at the edges. The code rows are pi's own, apart from the chip: it lights up and the pointer turns into a hand while it is under it (needs a terminal without tmux, where pi tracks the pointer), and shows a tick for a moment after a click puts the block's text on the clipboard. A `diff` block goes side by side instead, under the same switch and width as an edit's diff, and languages highlight.js has no grammar for (`fish`, `.env`, TOML) get the closest one it does — `md`/`markdown` and `tex`/`latex` blocks are highlighted directly, since pi's highlighter has no grammar for either. `false` leaves pi's own fences | Assistant replies that tidy draws (needs `collapseTurns` or `finalReplyStyle`). A pi whose Markdown has no `renderToken` keeps its own code blocks, and tidy says so once at session start. With `icons: false` the chip is the word `copy` instead |
+
+### Markdown and LaTeX
+
+| Key | Default | What it does | When it applies |
+|-----|---------|--------------|-----------------|
+| `renderMarkdown` | `true` | Draws a Markdown file instead of its source: headings, lists, quotes, links and code blocks in the theme's own colors, maths included. `.md`, `.markdown`, `.mdx` and `.rmd` | The `write` call preview, and the `read` result once the box is expanded. `false` shows the highlighted source, as pi does |
+| `renderLatex` | `true` | Highlights LaTeX source (`%` comments, `\command`, `{}`/`[]` delimiters, `$…$`) and draws its maths as Unicode where pi's `renderLatex` can (`α + β = ─`, `xᵢ²`, stacked fractions), keeping the source line where it cannot. Also wraps a message's bare display-math environments (`\begin{equation}`, `\begin{align*}`, `\begin{cases}`, …) in `$$…$$` so pi renders them at all. `.tex`, `.latex`, `.ltx`, `.sty`, `.cls` and `.bib` | `read` and `write` boxes, `tex` / `latex` fenced code blocks, `.tex` diffs, and every message tidy draws. `false` leaves the source alone and leaves maths to pi |
 
 ### Colors
 

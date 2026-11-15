@@ -195,17 +195,22 @@ test("the fold rows light up under the pointer before they are clicked", () => {
   resetHover();
 });
 
-test("every body row starts on the same rail, icons on or off", () => {
+test("every body row starts on the row's arguments column, icons on or off", () => {
   for (const icons of [false, true]) {
     resetGroups();
     patchToolBoxFrames({ icons, groupTools: true });
     const chat = transcript();
     openBox(chat);
-    const body = frame(chat).filter((line) => line.trim().startsWith("│"));
+    const lines = frame(chat);
+    // The row above the body says where the arguments start; the body (its own
+    // rail, then the fold labels) has to begin on that same cell, so an opened
+    // call reads as one block instead of a row and a list at two left edges.
+    const row = lines.find((line) => line.includes("codemode ✓"))!;
+    const head = row.indexOf("codemode ✓") + "codemode ✓".length;
+    const argsColumn = head + row.slice(head).search(/\S/);
+    const body = lines.filter((line) => line.trim().startsWith("│"));
     assert.ok(body.length >= 4, body.join("\n"));
-    // ` │   │ <row>`: the group's rail, then the body's. The fold labels used to
-    // take the kind icon in front of them and lose the column.
-    for (const line of body) assert.match(line, /^ │ {3}│ /, line);
+    for (const line of body) assert.equal(line.indexOf("│", 2), argsColumn, line);
   }
   patchToolBoxFrames({ icons: false, groupTools: true });
 });
