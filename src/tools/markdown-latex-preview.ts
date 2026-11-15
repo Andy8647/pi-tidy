@@ -191,6 +191,9 @@ export function renderLatexPreviewLines(content: string, theme: ThemeLike, optio
     if (filled) {
       lines.push("");
       filled = false;
+    } else if (span.start === 0 && lines.length === 1) {
+      // A display formula at the start should not add a spurious leading row.
+      lines.pop();
     }
     for (const row of rendered.split("\n")) {
       lines.push(theme.fg("accent", row));
@@ -224,7 +227,8 @@ export interface ReadPreviewOptions {
   kind: PreviewKind;
   /** `tidy.renderLatex`: math in Markdown, math in LaTeX. */
   renderLatex: boolean;
-  /** pi's `[Truncated: …]` row, re-appended in `warning` under the body. */
+  /** Pi's continuation and truncation rows, kept outside the document body. */
+  continuation?: string;
   notice?: string;
 }
 
@@ -245,7 +249,8 @@ export function createReadPreviewComponent(body: string, theme: ThemeLike, optio
     } else {
       rows.push(...wrapLatexLines(renderLatexPreviewLines(body, theme, { renderMath: options.renderLatex }), width));
     }
-    if (options.notice) rows.push(theme.fg("warning", options.notice));
+    if (options.continuation) rows.push(...wrapTextWithAnsi(theme.fg("toolOutput", options.continuation), width));
+    if (options.notice) rows.push(...wrapTextWithAnsi(theme.fg("warning", options.notice), width));
     return rows;
   };
   return {

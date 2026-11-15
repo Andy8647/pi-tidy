@@ -115,9 +115,10 @@ export function createWriteCallComponent(
   const kind = options.renderMarkdown && isMarkdownPath(rawPath) ? "markdown" : options.renderLatex && isLatexPath(rawPath) ? "latex" : undefined;
   if (!kind) return undefined;
 
-  const head = header(rawPath, theme);
   const rendered = new Map<number, string[]>();
   const build = (width: number): string[] => {
+    // Rebuild themed text after invalidate(), even when the component is reused.
+    const head = header(rawPath, theme);
     const body =
       kind === "markdown"
         ? renderMarkdownLines(content, width, { renderLatex: options.renderLatex })

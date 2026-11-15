@@ -11,8 +11,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { keyHint, VERSION } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, keyHint, VERSION, type ReadToolDetails } from "@earendil-works/pi-coding-agent";
+import { Text, type Component } from "@earendil-works/pi-tui";
 import { CommandText, type CommandIndent } from "./tools/command-text.ts";
 import { formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
@@ -146,15 +146,27 @@ function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
         renderCall(args, theme, context) {
           // Rendering state is shared with the execution extension's renderers.
           // Use our own key so its cached components are not overwritten.
-          const state = context.state as { tidyWriteCallText?: Text };
+          const state = context.state as {
+            tidyWriteCallText?: Text;
+            tidyWritePreview?: { path: unknown; filePath: unknown; content: unknown; expanded: boolean; theme: ThemeLike; component: Component };
+          };
           const writeArgs = args as Parameters<typeof formatWriteCallText>[0];
+          const cached = state.tidyWritePreview;
+          if (cached && cached.path === writeArgs?.path && cached.filePath === writeArgs?.file_path &&
+              cached.content === writeArgs?.content && cached.expanded === context.expanded && cached.theme === theme) {
+            return cached.component;
+          }
           const preview = createWriteCallComponent(writeArgs, theme, {
             expanded: context.expanded,
             lines,
             renderMarkdown: config.renderMarkdown,
             renderLatex: config.renderLatex,
           });
-          if (preview) return preview;
+          if (preview) {
+            state.tidyWritePreview = { path: writeArgs?.path, filePath: writeArgs?.file_path, content: writeArgs?.content, expanded: context.expanded, theme, component: preview };
+            return preview;
+          }
+          state.tidyWritePreview = undefined;
           const text = state.tidyWriteCallText ?? new Text("", 0, 0);
           state.tidyWriteCallText = text;
           text.setText(formatWriteCallText(writeArgs, theme, { expanded: context.expanded, lines }));
@@ -172,21 +184,30 @@ function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
         const rawPath = typeof context.args?.file_path === "string" ? context.args.file_path : typeof context.args?.path === "string" ? context.args.path : "";
         const kindMarkdown = config.renderMarkdown && isMarkdownPath(rawPath);
         const kindLatex = !kindMarkdown && config.renderLatex && isLatexPath(rawPath);
-        // Collapsed, pi shows the first ten rows plus a hint; that is a code
-        // preview, and the whole point of a document is the expanded box. Only
-        // then is the file text collected, so a 10k-line read is not rendered
-        // twice.
-        if (options?.expanded && !context.isError && (kindMarkdown || kindLatex)) {
-          const { body, notice } = splitTruncationNotice(resultText(result?.content));
+        const state = context.state as {
+          tidyReadPreview?: { body: string; notice?: string; continuation?: string; kind: "markdown" | "latex"; theme: ThemeLike; component: Component };
+        } | undefined;
+        // Only expanded documents need a preview; pi owns collapsed and error
+        // results, including the diagnostic for an oversized first line.
+        if (options?.expanded && !context.isError && (kindMarkdown || kindLatex) && !result?.details?.truncation?.firstLineExceedsLimit) {
+          const { body, notice, continuation } = readPreviewText(resultText(result?.content), result?.details);
           if (body.trim()) {
-            return createReadPreviewComponent(body, theme, {
-              kind: kindMarkdown ? "markdown" : "latex",
-              renderLatex: config.renderLatex,
-              notice,
-            });
+            const kind = kindMarkdown ? "markdown" : "latex";
+            const cached = state?.tidyReadPreview;
+            if (cached && cached.body === body && cached.notice === notice && cached.continuation === continuation && cached.kind === kind && cached.theme === theme) {
+              return cached.component;
+            }
+            const component = createReadPreviewComponent(body, theme, { kind, renderLatex: config.renderLatex, notice, continuation });
+            if (state) state.tidyReadPreview = { body, notice, continuation, kind, theme, component };
+            return component;
           }
         }
-        return downstream(result, options, theme, context);
+        // Pi's renderer reuses lastComponent as a Text. Our document component
+        // is not a Text, so never pass it to the downstream renderer.
+        const downstreamContext = context.lastComponent === state?.tidyReadPreview?.component
+          ? { ...context, lastComponent: undefined }
+          : context;
+        return downstream(result, options, theme, downstreamContext);
       },
     };
   });
@@ -201,19 +222,29 @@ function resultText(content: unknown): string {
     .join("\n");
 }
 
-/**
- * pi's truncation row (`[Truncated: …]`, `[First line exceeds …]`) is the last
- * line of the body it hands a renderer. A rendered document cannot carry it —
- * Markdown would fold it into a paragraph — so it is lifted out and drawn under
- * the body in `warning` instead.
- */
-function splitTruncationNotice(text: string): { body: string; notice?: string } {
-  const rows = text.split("\n");
-  let end = rows.length;
-  while (end > 0 && rows[end - 1]!.trim() === "") end--;
-  const last = rows[end - 1]?.trim();
-  if (last === undefined || !/^\[(?:Truncated:|First line exceeds)/.test(last)) return { body: text };
-  return { body: rows.slice(0, end - 1).join("\n"), notice: last };
+/** Keep pi's continuation and truncation messages outside the Markdown body. */
+function readPreviewText(text: string, details: ReadToolDetails | undefined): { body: string; notice?: string; continuation?: string } {
+  const truncation = details?.truncation;
+  if (!truncation?.truncated) return { body: text };
+
+  // The content field is the exact file text before pi appends its continuation
+  // message. Do not remove a matching-looking line from an ordinary document.
+  let body = text;
+  let continuation: string | undefined;
+  const prefix = `${truncation.content}\n\n`;
+  if (text.startsWith(prefix)) {
+    const suffix = text.slice(prefix.length);
+    if (/^\[Showing lines \d+-\d+ of \d+.* Use offset=\d+ to continue\.\]$/.test(suffix)) {
+      body = truncation.content;
+      continuation = suffix;
+    }
+  }
+  const notice = truncation.firstLineExceedsLimit
+    ? `[First line exceeds ${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`
+    : truncation.truncatedBy === "lines"
+      ? `[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines (${truncation.maxLines ?? DEFAULT_MAX_LINES} line limit)]`
+      : `[Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`;
+  return { body, notice, continuation };
 }
 
 /** `registerToolRenderer` arrived in pi 1.3; peer ranges stay `*` (see MIN_PI). */

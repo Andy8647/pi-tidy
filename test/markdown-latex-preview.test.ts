@@ -153,6 +153,12 @@ test("a LaTeX body renders its math and keeps the rest as source", () => {
   assert.match(out, /\\begin\{eqnarray\}x=1\\end\{eqnarray\}/, "math pi cannot parse stays as source");
 });
 
+test("a LaTeX document starting with display math has no extra leading row", () => {
+  const lines = renderLatexPreviewLines("$$x^2$$", theme);
+  assert.match(plain(lines[0]!), /x²/);
+  assert.match(plain(renderLatexPreviewLines("\\section{Intro}", theme)[0]!), /Intro/);
+});
+
 test("renderMath: false is the highlighted source and nothing else", () => {
   const out = rows(renderLatexPreviewLines(TEX, theme, { renderMath: false }));
   assert.match(out, /\$\\alpha \+ \\beta\$/, out);
@@ -284,6 +290,22 @@ test("the document preview honours writeLines and says what it left out", () => 
   assert.doesNotMatch(rows(expanded), /more lines/);
 });
 
+test("a reused write preview refreshes its header when the theme changes", () => {
+  let marker = "old:";
+  const dynamicTheme = new Proxy(theme, {
+    get(target, property) {
+      if (property === "fg") return (slot: string, text: string) => `${marker}${text}`;
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const component = createWriteCallComponent({ path: "/tmp/notes.md", content: "# Title" }, dynamicTheme, writeOptions)!;
+  assert.match(rows(component.render(60)), /old:write/);
+  marker = "new:";
+  component.invalidate();
+  assert.match(rows(component.render(60)), /new:write/);
+});
+
 test("a .tex file's plain row is highlighted even without the document preview", () => {
   const text = formatWriteCallText({ path: "/tmp/main.tex", content: "% note\n\\alpha" }, theme, { expanded: true, lines: 10 });
   assert.ok(text.includes(theme.fg("syntaxComment", "% note")), plain(text));
@@ -355,6 +377,23 @@ test("a collapsed read, an error, and any other file are left to pi", () => {
   }
 });
 
+test("a document preview is not handed to pi's Text renderer on collapse or error", () => {
+  const h = harness();
+  loadTidy(h.pi);
+  const base = createReadToolDefinition(process.cwd());
+  const render = readRenderer(h, base);
+  const result = { content: [{ type: "text", text: MD }], details: undefined };
+  for (const isError of [false, true]) {
+    const context: any = { args: READ_ARGS, isError: false, state: {}, cwd: process.cwd(), showImages: true };
+    const preview = render(result, { expanded: true, isPartial: false }, theme, context);
+    context.lastComponent = preview;
+    context.isError = isError;
+    const delegated = render(result, { expanded: isError, isPartial: false }, theme, context);
+    assert.ok(delegated instanceof Text);
+    if (!isError) assert.equal(rows(delegated.render(80)), "");
+  }
+});
+
 test("renderMarkdown: false leaves an expanded read to pi", () => {
   const h = harness();
   loadTidy(h.pi, { renderMarkdown: false });
@@ -367,21 +406,92 @@ test("renderMarkdown: false leaves an expanded read to pi", () => {
   assert.equal(rows(component.render(60)), "downstream body");
 });
 
-test("pi's truncation row moves under the body, in warning", () => {
-  const body = `${MD}\n[Truncated: showing 4 of 400 lines (4000 line limit)]`;
+test("real read truncation keeps pi's continuation and warning outside the rendered document", async () => {
+  for (const source of [
+    Array.from({ length: 2100 }, (_, i) => `line ${i}`).join("\n"),
+    Array.from({ length: 600 }, () => "a".repeat(100)).join("\n"),
+  ]) {
+    const base = createReadToolDefinition(process.cwd(), {
+      operations: { access: async () => {}, readFile: async () => Buffer.from(source), detectImageMimeType: async () => null },
+    });
+    const result = await base.execute("read", { path: "/tmp/notes.md" }, undefined, undefined, {} as any);
+    assert.equal(result.details?.truncation?.truncated, true);
+    const h = harness();
+    loadTidy(h.pi);
+    const context = { args: READ_ARGS, isError: false, state: {}, cwd: process.cwd(), showImages: true };
+    const options = { expanded: true, isPartial: false };
+    const lines = readRenderer(h, base)(result, options, theme, context).render(120);
+    const piLines = base.renderResult!(result, options, theme, context as any).render(120);
+    const piWarning = piLines.map(plain).find((line) => line.includes("[Truncated:"));
+    assert.ok(piWarning, rows(piLines));
+    assert.ok(lines.some((line) => plain(line).includes(piWarning.trim())), rows(lines));
+    assert.ok(lines.some((line) => line.includes(theme.fg("warning", piWarning.trim()))), rows(lines));
+    assert.match(rows(lines), /\[Showing lines .* Use offset=\d+ to continue\.\]/);
+    assert.equal(rows(lines).match(/\[Showing lines/g)?.length, 1);
+  }
+});
+
+test("an oversized first line stays with pi's renderer", async () => {
+  const base = createReadToolDefinition(process.cwd(), {
+    operations: { access: async () => {}, readFile: async () => Buffer.from("x".repeat(60000)), detectImageMimeType: async () => null },
+  });
+  const result = await base.execute("read", { path: "/tmp/notes.md" }, undefined, undefined, {} as any);
+  assert.equal(result.details?.truncation?.firstLineExceedsLimit, true);
   const h = harness();
   loadTidy(h.pi);
+  const context = { args: READ_ARGS, isError: false, state: {}, cwd: process.cwd(), showImages: true };
+  const options = { expanded: true, isPartial: false };
+  const actual = rows(readRenderer(h, base)(result, options, theme, context).render(120));
+  const expected = rows(base.renderResult!(result, options, theme, context as any).render(120));
+  assert.equal(actual, expected);
+  assert.match(actual, /First line exceeds/);
+});
+
+test("a document's own truncation-looking text is not mistaken for a warning", () => {
+  const h = harness();
+  loadTidy(h.pi);
+  const content = `${MD}\n[Truncated: this is part of the document]`;
   const component = readRenderer(h, baseRenderers())(
-    { content: [{ type: "text", text: body }], details: undefined },
-    { expanded: true, isPartial: false },
-    theme,
-    { args: READ_ARGS, isError: false },
+    { content: [{ type: "text", text: content }], details: undefined },
+    { expanded: true, isPartial: false }, theme, { args: READ_ARGS, isError: false },
   );
-  const lines = component.render(40);
-  const notice = lines.findIndex((line) => line.includes("Truncated"));
-  assert.ok(notice > 0, rows(lines));
-  assert.ok(lines[notice]!.includes(theme.fg("warning", "[Truncated: showing 4 of 400 lines (4000 line limit)]")));
-  assert.equal(lines.slice(0, notice).join("\n").match(/Truncated/g), null, "not inside the Markdown body");
+  assert.match(rows(component.render(80)), /Truncated: this is part of the document/);
+});
+
+test("the read renderer reuses its preview until the body changes", () => {
+  const h = harness();
+  loadTidy(h.pi);
+  const read = readRenderer(h, baseRenderers());
+  const readContext = { args: READ_ARGS, isError: false, state: {} };
+  const options = { expanded: true, isPartial: false };
+  const result = { content: [{ type: "text", text: MD }], details: undefined };
+  const firstRead = read(result, options, theme, readContext);
+  const firstRows = firstRead.render(60);
+  assert.strictEqual(read(result, options, theme, readContext), firstRead);
+  assert.strictEqual(firstRead.render(60), firstRows);
+  assert.notStrictEqual(firstRead.render(61), firstRows);
+  assert.notStrictEqual(read({ content: [{ type: "text", text: "# Changed" }] }, options, theme, readContext), firstRead);
+});
+
+test("the write renderer reuses its preview until its content or expansion changes", () => {
+  const h = harness();
+  loadTidy(h.pi);
+  const write = h.resolve("write")!.renderCall!;
+  const writeContext = { state: {}, expanded: false } as any;
+  const args = { path: "/tmp/notes.md", content: MD };
+  const firstWrite = write(args, theme, writeContext);
+  const firstWriteRows = firstWrite.render(60);
+  assert.strictEqual(write({ ...args }, theme, writeContext), firstWrite);
+  assert.strictEqual(firstWrite.render(60), firstWriteRows);
+  assert.notStrictEqual(firstWrite.render(61), firstWriteRows);
+  assert.notStrictEqual(write({ ...args, content: "# Changed" }, theme, writeContext), firstWrite);
+  writeContext.expanded = true;
+  const expanded = write(args, theme, writeContext);
+  assert.notStrictEqual(expanded, firstWrite);
+  assert.strictEqual(write(args, theme, writeContext), expanded);
+  const expandedRows = expanded.render(60);
+  expanded.invalidate();
+  assert.notStrictEqual(expanded.render(60), expandedRows);
 });
 
 test("the read body wraps to the box width", () => {
@@ -451,7 +561,7 @@ test("md, markdown and tex fences get real highlighting", () => {
     assert.ok(body.join("\n").includes(theme.fg("mdHeading", theme.bold("# Heading"))), rows(body));
   }
   const latex = "% note\n\\alpha + $x^2$";
-  for (const lang of ["tex", "latex"]) {
+  for (const lang of ["tex", "latex", "bib"]) {
     const rendered = fenced(lang, latex);
     assert.ok(rendered, lang);
     const body = rendered!.lines.slice(1, 1 + latex.split("\n").length);
@@ -554,4 +664,11 @@ test("a read .md file draws its Markdown in pi's read box", () => {
   assert.match(out, /read .*notes\.md/, out);
   assert.match(out, /^.*Title.*$/m, out);
   assert.doesNotMatch(out, /# Title/);
+  component.setExpanded(false);
+  const collapsed = rows(component.render(80));
+  assert.doesNotMatch(collapsed, /# Title|Some \*\*text\*\*/, collapsed);
+  component.setExpanded(true);
+  const reopened = rows(component.render(80));
+  assert.match(reopened, /^.*Title.*$/m, reopened);
+  assert.doesNotMatch(reopened, /# Title/);
 });

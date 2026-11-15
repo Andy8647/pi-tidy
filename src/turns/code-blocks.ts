@@ -60,6 +60,7 @@ const HIGHLIGHT_ALIASES: Record<string, string> = {
   ltx: "latex",
   sty: "latex",
   cls: "latex",
+  bib: "latex",
 };
 
 /** A fenced block found while the reply was rendered, in row order. */
