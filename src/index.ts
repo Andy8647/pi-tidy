@@ -203,10 +203,14 @@ function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
           }
         }
         // Pi's renderer reuses lastComponent as a Text. Our document component
-        // is not a Text, so never pass it to the downstream renderer.
-        const downstreamContext = context.lastComponent === state?.tidyReadPreview?.component
+        // is not a Text, so never pass it to the downstream renderer. Drop the
+        // detached preview: it cannot be invalidated if the theme changes while
+        // the result is collapsed, and would otherwise reopen in stale colours.
+        const preview = state?.tidyReadPreview?.component;
+        const downstreamContext = preview && context.lastComponent === preview
           ? { ...context, lastComponent: undefined }
           : context;
+        if (state) state.tidyReadPreview = undefined;
         return downstream(result, options, theme, downstreamContext);
       },
     };

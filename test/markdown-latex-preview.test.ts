@@ -640,6 +640,43 @@ test("a written .md file draws its Markdown inside pi's write box", () => {
   assert.doesNotMatch(out, /# Title/);
 });
 
+test("a collapsed read preview picks up a theme change when reopened", () => {
+  initTheme("dark");
+  try {
+    const h = harness();
+    h.pi.registerTool(createReadToolDefinition(process.cwd()));
+    loadTidy(h.pi);
+    const resolved = h.resolve("read")!;
+    const base = createReadToolDefinition(process.cwd());
+    const definition = { ...base, renderCall: resolved.renderCall, renderResult: resolved.renderResult };
+    const makeBox = () => {
+      const box = new ToolExecutionComponent(
+        "read", "call-theme", READ_ARGS, {}, definition as any, { requestRender() {} } as any, process.cwd(),
+      );
+      box.setArgsComplete();
+      box.markExecutionStarted();
+      box.updateResult({ content: [{ type: "text", text: MD }], isError: false, durationMs: 1 }, false);
+      box.setExpanded(true);
+      box.render(80);
+      return box;
+    };
+    const box = makeBox();
+    const darkRows = (box as any).resultRendererComponent.render(80);
+    box.setExpanded(false);
+    box.render(80);
+    initTheme("light");
+    box.invalidate();
+    box.setExpanded(true);
+    box.render(80);
+    const reopenedRows = (box as any).resultRendererComponent.render(80);
+    const freshRows = (makeBox() as any).resultRendererComponent.render(80);
+    assert.notDeepEqual(darkRows, freshRows, "the themes must produce different output");
+    assert.deepEqual(reopenedRows, freshRows, "reopened preview must use the current theme");
+  } finally {
+    initTheme("dark");
+  }
+});
+
 test("a read .md file draws its Markdown in pi's read box", () => {
   const h = harness();
   h.pi.registerTool(createReadToolDefinition(process.cwd()));

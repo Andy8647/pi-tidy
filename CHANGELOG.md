@@ -8,7 +8,7 @@ What changed in each released version of pi-tidy (published as
 
 ### Added
 
-**Markdown and LaTeX previews for documents.** Expanded `read` results and `write` previews render Markdown and LaTeX files as documents, including supported math. Standalone LaTeX display environments in messages also render as math; Markdown and LaTeX code fences and diffs get syntax highlighting. Set `tidy.renderMarkdown` or `tidy.renderLatex` to `false` to keep the corresponding source display.
+**Markdown and LaTeX previews for documents.** Expanded `read` results and `write` previews render Markdown and LaTeX files as documents, including supported math. A folded `read` preview picks up the current theme when reopened. Standalone LaTeX display environments in messages also render as math; Markdown and LaTeX code fences and diffs get syntax highlighting. Set `tidy.renderMarkdown` or `tidy.renderLatex` to `false` to keep the corresponding source display.
 
 ## [0.9.7] - 2026-11-13
 
