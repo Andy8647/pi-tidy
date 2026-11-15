@@ -233,15 +233,32 @@ export class TurnStore {
         if (!Array.isArray(saved?.keys) || !saved.keys.every((key) => typeof key === "string") ||
           !Number.isFinite(saved.startedAt) || !Number.isFinite(saved.endedAt) || saved.endedAt < saved.startedAt ||
           !["completed", "interrupted", "error", "incomplete", "unknown"].includes(saved.outcome)) continue;
-        const turn = newTurn(saved.startedAt);
+        // An entry an older version wrote covers the whole run, steering and
+        // follow-ups included. The messages are all here, so rebuild the runs a
+        // live session makes now: a user message after the first answer opens
+        // one, at the moment it was typed. Only one run's tool time was saved,
+        // and it cannot be handed to the runs that time was split between.
+        const segments: Turn[] = [newTurn(saved.startedAt)];
         for (const key of saved.keys) {
           const message = this.byMessage.get(key)?.messages.get(key);
-          if (message) { add(turn, key, message); this.byMessage.set(key, turn); }
+          if (!message) continue;
+          const last = segments[segments.length - 1]!;
+          if (message.role === "user" && last.firstAssistant !== undefined) {
+            last.endedAt = message.timestamp ?? last.endedAt;
+            segments.push(newTurn(message.timestamp));
+          }
+          const turn = segments[segments.length - 1]!;
+          add(turn, key, message);
+          this.byMessage.set(key, turn);
         }
-        Object.assign(turn, { endedAt: saved.endedAt, outcome: saved.outcome,
-          toolMs: typeof saved.toolMs === "number" && Number.isFinite(saved.toolMs) && saved.toolMs >= 0 ? saved.toolMs : undefined });
-        finishText(turn);
-        for (const id of turn.tools.keys()) this.byTool.set(id, turn);
+        for (const turn of segments) turn.outcome = "unknown";
+        Object.assign(segments[segments.length - 1]!, { endedAt: saved.endedAt, outcome: saved.outcome,
+          toolMs: segments.length === 1 && typeof saved.toolMs === "number" && Number.isFinite(saved.toolMs) && saved.toolMs >= 0
+            ? saved.toolMs : undefined });
+        for (const turn of segments) {
+          finishText(turn);
+          for (const id of turn.tools.keys()) this.byTool.set(id, turn);
+        }
         legacy = undefined;
       }
     }

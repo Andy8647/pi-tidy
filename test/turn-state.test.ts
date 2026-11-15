@@ -139,6 +139,32 @@ test("a session with no saved entries splits at its user messages too", () => {
   assert.equal(first.outcome, "unknown", "timing that was never recorded stays unknown");
 });
 
+test("an entry written before the split restores as the runs it covered", () => {
+  const messages = [user(100), calling(200), user(500), reply(700)];
+  const store = new TurnStore();
+  store.restore([
+    ...messages.map((message) => ({ type: "message", message })),
+    { type: "custom", customType: TURN_ENTRY, data: {
+      keys: messages.map((message) => messageKey(message)!), startedAt: 100, endedAt: 1000, outcome: "completed", toolMs: 150,
+    } },
+  ]);
+  const first = store.byMessage.get(messageKey(messages[0])!)!;
+  const second = store.byMessage.get(messageKey(messages[2])!)!;
+  assert.notEqual(first, second);
+  assert.equal(first.startedAt, 100);
+  assert.equal(first.endedAt, 500, "the first run ends where the second message was typed");
+  assert.equal(first.outcome, "unknown", "how that run ended was never recorded on its own");
+  assert.equal(first.final, undefined, "a tool-calling message is no reply");
+  assert.equal(first.toolMs, undefined, "one run's tool time cannot be handed to the runs it was split into");
+  assert.equal(store.byTool.get("a"), first);
+  assert.equal(store.byTool.get("b"), first);
+  assert.equal(second.startedAt, 500);
+  assert.equal(second.endedAt, 1000);
+  assert.equal(second.outcome, "completed");
+  assert.equal(second.final, messageKey(messages[3]));
+  assert.equal(second.toolMs, undefined);
+});
+
 test("legacy sessions keep missing timing unknown rather than inferring it", () => {
   const store = new TurnStore();
   const final = reply(700);

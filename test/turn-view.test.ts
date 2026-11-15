@@ -9,7 +9,7 @@ import { cleanTranscriptRows } from "../src/clean-copy.ts";
 import { clipToWidth, formatMessageTime, visibleText } from "../src/draw/frame-draw.ts";
 import { DEFAULT_TOOL_ICON, toolKindIcon } from "../src/draw/icons.ts";
 import { paint } from "../src/draw/paint.ts";
-import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
+import { folded, messageKey, TurnStore, TURN_ENTRY, turnOptions, turnStore, type CollapseTurns } from "../src/turns/turn-state.ts";
 import { joinBoxCorners, replyLabel, summaryLine, railRows } from "../src/turns/turn-view.ts";
 import { getTheme } from "../src/theme-access.ts";
 import { jobForTool, noteJobMessage, resetJobs } from "../src/tools/background-jobs.ts";
@@ -89,7 +89,7 @@ function talkedTo(messages: any[]) {
     store.note({ role: "toolResult", toolCallId: call.id, toolName: call.name, timestamp: message.timestamp + 5, isError: false, content: [] } as any);
   }
   store.settle(false, 4000);
-  return { chat, store };
+  return { chat, store, messages };
 }
 
 /** An answer that wrote a line, thought about it and called a tool. */
@@ -384,6 +384,35 @@ test("a follow-up leaves the answer it interrupted in view", () => {
   assert.ok(answer < asked && asked < second, lines.join("\n"));
   assert.ok(!lines.join("\n").includes("src/first.ts"), "the first segment's call is folded away");
   assert.equal(new Set(store.byMessage.values()).size, 2, "the follow-up opened a second turn");
+});
+
+test("a session saved before the split restores as two runs", () => {
+  const messages: any[] = [
+    { role: "user", content: "Fix this", timestamp: 1000 },
+    step(1100, "first", "CHECKING ONE"),
+    { role: "user", content: "And read second.ts too", timestamp: 2000 },
+    step(2100, "second", "CHECKING TWO"),
+    closing(2300, "Both done."),
+  ];
+  const { chat } = talkedTo(messages);
+  // What 0.9.7 saved: one entry for the whole run, the second message included.
+  const saved = { keys: messages.map((message) => messageKey(message)!), startedAt: 1000, endedAt: 4000,
+    outcome: "completed", toolMs: 20 };
+  const restored = new TurnStore();
+  restored.restore([...messages.map((message) => ({ type: "message", message })),
+    { type: "custom", customType: TURN_ENTRY, data: saved }]);
+  turnStore.set(restored);
+  const lines = frame(chat);
+  const summaries = lines.flatMap((line, index) => (line.includes("took") ? [index] : []));
+  assert.equal(summaries.length, 2, lines.join("\n"));
+  const asked = lines.findIndex((line) => line.includes("And read second.ts too"));
+  assert.ok(summaries[0]! < asked && asked < summaries[1]!, lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("Both done.")));
+  assert.ok(!lines.join("\n").includes("CHECKING"), lines.join("\n"));
+  click(chat, (line) => line.includes("took"));
+  const opened = frame(chat).join("\n");
+  assert.ok(opened.includes("CHECKING ONE"), opened);
+  assert.ok(!opened.includes("CHECKING TWO"), opened);
 });
 
 test("the final reply frame never carries the message's thinking", () => {
