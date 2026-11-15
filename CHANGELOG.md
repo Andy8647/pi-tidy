@@ -4,11 +4,28 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.9.8] - 2026-11-15
 
 ### Added
 
-**Markdown and LaTeX previews for documents.** Expanded `read` results and `write` previews render Markdown and LaTeX files as documents, including supported math. A folded `read` preview picks up the current theme when reopened. Standalone LaTeX display environments in messages also render as math; Markdown and LaTeX code fences and diffs get syntax highlighting. Set `tidy.renderMarkdown` or `tidy.renderLatex` to `false` to keep the corresponding source display.
+**Markdown and LaTeX files read as documents.** A `write` preview and an expanded `read` now draw `.md` through pi's
+own `Markdown` component, and `.tex` with highlighted source plus Unicode maths where `renderLatex` can draw it. A
+reply's bare `\begin{align}` gets wrapped so pi picks it up at all, and a folded read preview picks up the current
+theme when it is reopened. `tidy.renderMarkdown: false` and `tidy.renderLatex: false` bring back the source. Thanks to
+@yuzhi535 for the implementation ([#83](https://github.com/Andy8647/pi-tidy/pull/83)).
+
+### Changed
+
+**An opened call hangs its body on its arguments, every tool now, not just bash.** It used to start three cells in,
+so a read's path and the file under it sat at two left edges. Bodies give up as many cells as that column is deep,
+and below about 84 columns an `edit`'s panes give way to pi's unified diff.
+
+### Fixed
+
+**A steer or a follow-up is a run of its own.** A message typed while the agent worked landed inside the same run,
+under a summary that covered it, and a follow-up pushed the answer before it out of the fold. It now closes the run
+it interrupted and starts a new one; a session saved earlier restores the same way. Thanks to @angribot for the report
+([#84](https://github.com/Andy8647/pi-tidy/issues/84)).
 
 ## [0.9.7] - 2026-11-13
 
