@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore } from "./turn-state.ts";
+import { folded, TurnStore, TURN_ENTRY, turnOptions, turnStore, type TurnMessage } from "./turn-state.ts";
 
 export function connectTurns(pi: ExtensionAPI): void {
   const restore = (ctx: ExtensionContext) => {
@@ -7,14 +7,21 @@ export function connectTurns(pi: ExtensionAPI): void {
     store.restore(ctx.sessionManager.getBranch());
     turnStore.set(store);
   };
+  // A segment the run leaves behind is written down as it closes, not when the
+  // run settles: one run can hold several of them, and only the last is current
+  // by then.
+  const note = (message: TurnMessage, ended = false) => {
+    const closed = turnStore.get().note(message, ended);
+    if (closed?.keys.length) pi.appendEntry(TURN_ENTRY, closed);
+  };
   pi.on("session_start", (_event, ctx) => restore(ctx));
   pi.on("session_tree", (_event, ctx) => restore(ctx));
   pi.on("before_agent_start", () => { turnStore.get().begin(); });
   pi.on("agent_start", () => { turnStore.get().begin(); });
   pi.on("before_provider_request", () => { turnStore.get().requestStart(); });
-  pi.on("message_start", ({ message }) => { turnStore.get().note(message); });
-  pi.on("message_update", ({ message }) => { turnStore.get().note(message); });
-  pi.on("message_end", ({ message }) => { turnStore.get().note(message, true); });
+  pi.on("message_start", ({ message }) => { note(message); });
+  pi.on("message_update", ({ message }) => { note(message); });
+  pi.on("message_end", ({ message }) => { note(message, true); });
   pi.on("tool_execution_start", (event) => {
     turnStore.get().toolStart(event.toolCallId, event.parentToolCallId);
   });

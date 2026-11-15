@@ -14,7 +14,7 @@ every box gets a rounded transparent frame.
 
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
-- **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Steering, retries and continuations stay in the run
+- **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A codemode script is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
@@ -67,6 +67,13 @@ so (`· 2 matched`), because the rows carrying those lines are inside the group.
 the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
 not counted twice). Retries and overlap mean the parts need not sum to the total; missing historical
 timings show `—`.
+
+Talking to a run splits it in two. A steer (Enter while the agent works) or a follow-up
+(Alt+Enter, taken when it would stop) is a new instruction: the run above it ends where you
+typed the message and folds on its own, keeping its reply in view. The answer to your message
+starts a new summary below it. Each counts its own calls and its own time, and `/tidy turn`
+toggles either. A steer that beats the first answer changes nothing: with nothing to fold above
+it, it belongs to the run it landed in.
 
 Opened, the process hangs on a rail under the summary's marker, and the rail runs into the final
 reply's border. A box from `alwaysShowTools` joins the rail of a group that is open right above or

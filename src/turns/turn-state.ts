@@ -128,26 +128,45 @@ export class TurnStore {
   settlementOutcome?: "completed" | "aborted" | "error";
 
   begin(now = Date.now()): void {
-    if (this.current) return; // retries, queued steering and automatic continuation stay in this run
+    if (this.current) return; // retries and automatic continuation stay in this run; a user message splits it (see note)
     this.current = newTurn(now);
     this.pendingLlmAt = undefined;
     this.settlementOutcome = undefined;
     this.toolStarts.clear();
     this.toolIntervals = [];
   }
-  note(message: TurnMessage, ended = false): void {
+  /**
+   * Record one message. A user message that arrives after this run answered
+   * something is a new instruction: typed while the agent worked (steering) or
+   * queued for when it would stop (a follow-up). The answer above it is finished
+   * and belongs to its own segment, so the turn is settled here and a new one
+   * begins. Returns the segment this message closed.
+   */
+  note(message: TurnMessage, ended = false): SavedTurn | undefined {
     const key = messageKey(message);
-    if (!key || !this.current) return;
-    if (message.role === "user" && !this.current.root && message.timestamp !== undefined) {
-      this.current.startedAt = Math.min(this.current.startedAt!, message.timestamp);
+    if (!key || !this.current) return undefined;
+    // A first answer is what makes a segment, and what a fold can hide. Before
+    // one exists (the run's own prompt, or a steer that beat the first response,
+    // or this message's own `message_end`) the message is part of the segment.
+    let closed: SavedTurn | undefined;
+    if (message.role === "user" && this.current.firstAssistant !== undefined) {
+      // End the segment where the message was typed, not where it was delivered:
+      // the two then meet, and neither one claims the other's time.
+      const saved = this.settle(false, message.timestamp ?? Date.now());
+      if (saved) { this.begin(saved.endedAt); closed = saved; }
     }
-    add(this.current, key, message);
-    this.byMessage.set(key, this.current);
-    if (message.role === "toolResult" && message.toolCallId) this.byTool.set(message.toolCallId, this.current);
+    const turn = this.current;
+    if (message.role === "user" && !turn.root && message.timestamp !== undefined) {
+      turn.startedAt = Math.min(turn.startedAt!, message.timestamp);
+    }
+    add(turn, key, message);
+    this.byMessage.set(key, turn);
+    if (message.role === "toolResult" && message.toolCallId) this.byTool.set(message.toolCallId, turn);
     if (message.role === "assistant") for (const block of message.content ?? []) {
-      if (block.type === "toolCall") this.byTool.set(block.id, this.current);
+      if (block.type === "toolCall") this.byTool.set(block.id, turn);
     }
     if (message.role === "assistant") this.pendingLlmAt = !ended && message.durationMs === undefined ? message.timestamp : undefined;
+    return closed;
   }
   requestStart(now = Date.now()): void {
     if (this.current && this.toolStarts.size === 0) this.pendingLlmAt = now;

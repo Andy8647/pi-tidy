@@ -49,6 +49,34 @@ test("lifecycle settles once, persists outside model context, and restores the a
   assert.equal(turnStore.get().byMessage.has(messageKey(answer)!), false, "abandoned branches cannot leak into current state");
 });
 
+test("a steer mid-run persists the segment it closed, and only the last one at settlement", async () => {
+  const h = harness();
+  loadTidy(tidy, h.pi, { collapseTurns: "afterRun", frameFinalReply: true, groupTools: false });
+  const ctx = { sessionManager: { getBranch: () => [] }, ui: { notify() {} } } as any;
+  const fire = async (event: string, data = {}) => {
+    for (const handler of h.handlers.get(event) ?? []) await handler({ type: event, ...data }, ctx);
+  };
+  const steer = { role: "user", timestamp: 2000, content: "Also the tests" };
+  const second = { ...answer, timestamp: 2100, content: [{ type: "text", text: "Both done" }] };
+  const keys = (index: number) => (h.entries[index]!.data as { keys: string[] }).keys;
+  await fire("before_agent_start"); await fire("agent_start");
+  await fire("message_start", { message: user });
+  await fire("message_end", { message: answer });
+  assert.equal(h.entries.length, 0, "a run still on its first segment has nothing to write");
+  await fire("message_start", { message: steer });
+  assert.equal(h.entries.length, 1, "the segment is written down as the steer arrives");
+  assert.deepEqual(keys(0), [messageKey(user), messageKey(answer)]);
+  await fire("message_end", { message: steer });
+  assert.equal(h.entries.length, 1, "the same message's end is not a second segment");
+  await fire("message_end", { message: second });
+  await fire("agent_settled", { aborted: false });
+  assert.equal(h.entries.length, 2, "the run's last segment settles with the run");
+  assert.deepEqual(keys(1), [messageKey(steer), messageKey(second)]);
+  const store = turnStore.get();
+  assert.equal(store.byMessage.get(messageKey(user)!), store.byMessage.get(messageKey(answer)!));
+  assert.notEqual(store.byMessage.get(messageKey(steer)!), store.byMessage.get(messageKey(answer)!));
+});
+
 test("disabled turn features register no timing or persistence listeners", () => {
   const h = harness(); loadTidy(tidy, h.pi, { collapseTurns: "off", frameFinalReply: false });
   assert.equal(h.handlers.has("before_provider_request"), false);

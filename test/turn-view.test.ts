@@ -57,6 +57,54 @@ function frame(chat: Container): string[] {
   for (let pass = 0; pass < 4; pass++) lines = chat.render(W);
   return lines.map(visibleText);
 }
+
+/**
+ * A run the user talked to while it worked: a steer (Enter mid-run) or a
+ * follow-up (queued for when the run would stop). Both arrive as a user message
+ * between two answers, so the transcript holds two segments. Replayed through the
+ * same `note` calls the lifecycle makes, with the components pi would draw.
+ */
+function talkedTo(messages: any[]) {
+  resetGroups(); resetHover();
+  patchToolBoxFrames({ groupTools: true, groupOpen: false, icons: false, splitDiff: true });
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: true, icons: false });
+  const store = new TurnStore(); turnStore.set(store);
+  store.begin(1000);
+  const chat = new Container();
+  for (const message of messages) {
+    if (message.role === "user") {
+      // Both events, as pi sends them: the second one lands in the segment the first opened.
+      store.note(message); store.note(message, true);
+      chat.addChild(new UserMessageComponent(message.content));
+      continue;
+    }
+    store.note(message, true);
+    chat.addChild(new AssistantMessageComponent(message, true));
+    const call = message.content.find((block: any) => block.type === "toolCall");
+    if (!call) continue;
+    const tool = new ToolExecutionComponent(call.name, call.id, call.arguments, {}, createReadToolDefinition(cwd) as any, ui, cwd);
+    tool.setExpanded(false); tool.setArgsComplete(); tool.markExecutionStarted();
+    tool.updateResult({ content: [{ type: "text", text: `contents of ${call.id}` }], isError: false, durationMs: 10 });
+    chat.addChild(tool);
+    store.note({ role: "toolResult", toolCallId: call.id, toolName: call.name, timestamp: message.timestamp + 5, isError: false, content: [] } as any);
+  }
+  store.settle(false, 4000);
+  return { chat, store };
+}
+
+/** An answer that wrote a line, thought about it and called a tool. */
+function step(timestamp: number, id: string, text: string): any {
+  return {
+    role: "assistant", provider: "openai", model: "test", timestamp, durationMs: 50, stopReason: "toolUse",
+    content: [
+      { type: "thinking", thinking: `thinking about ${id}` },
+      { type: "text", text },
+      { type: "toolCall", id, name: "read", arguments: { path: `${cwd}/src/${id}.ts` } },
+    ],
+  };
+}
+/** Text with no tool call after it: the segment's final reply. */
+const closing = (timestamp: number, text: string): any => ({ ...step(timestamp, "unused", text), stopReason: "stop", content: [{ type: "text", text }] });
 function click(chat: Container, predicate: (line: string) => boolean, last = false) {
   const lines = frame(chat);
   const indices = lines.map((line, index) => predicate(line) ? index : -1).filter((index) => index >= 0);
@@ -289,6 +337,53 @@ test("afterRun keeps an active run open; live folds it and replaces its latest t
   assert.ok(!frame(live.chat).join("\n").includes("claude-sonnet-4-5"), "streaming final text is not boxed yet");
   live.store.settle(false, 1800);
   assert.ok(frame(live.chat).join("\n").includes("claude-sonnet-4-5"));
+});
+
+test("a steer is a second segment: two summaries with the message between them", () => {
+  const { chat } = talkedTo([
+    { role: "user", content: "Fix this", timestamp: 1000 },
+    step(1100, "first", "CHECKING ONE"),
+    { role: "user", content: "And read second.ts too", timestamp: 2000 },
+    step(2100, "second", "CHECKING TWO"),
+    closing(2300, "Both done."),
+  ]);
+  const lines = frame(chat);
+  const at = (predicate: (line: string) => boolean) => lines.findIndex(predicate);
+  const summaries = lines.flatMap((line, index) => (line.includes("took") ? [index] : []));
+  assert.equal(summaries.length, 2, lines.join("\n"));
+  const asked = at((line) => line.includes("And read second.ts too"));
+  assert.ok(summaries[0]! < asked && asked < summaries[1]!, lines.join("\n"));
+  assert.ok(!lines.join("\n").includes("CHECKING"), "each summary folds its own process");
+  assert.ok(!lines.join("\n").includes("interrupted"), "a steer is not an abort");
+  assert.ok(lines.some((line) => line.includes("Both done.")));
+  // They fold on their own: opening the first leaves the steer's run closed.
+  click(chat, (line) => line.includes("took"));
+  const opened = frame(chat);
+  const text = opened.join("\n");
+  assert.equal(opened.filter((line) => line.includes("▸ took")).length, 1, text);
+  assert.ok(opened.some((line) => line.startsWith("▾ took")), text);
+  assert.ok(text.includes("CHECKING ONE"), text);
+  assert.ok(!text.includes("CHECKING TWO"), `the segment after the steer stays folded:\n${text}`);
+});
+
+test("a follow-up leaves the answer it interrupted in view", () => {
+  const { chat, store } = talkedTo([
+    { role: "user", content: "Fix this", timestamp: 1000 },
+    step(1100, "first", "CHECKING"),
+    closing(1300, "First answer."),
+    { role: "user", content: "And the tests?", timestamp: 2000 },
+    closing(2100, "Second answer."),
+  ]);
+  const lines = frame(chat);
+  const at = (predicate: (line: string) => boolean) => lines.findIndex(predicate);
+  const summary = at((line) => line.includes("took"));
+  const answer = at((line) => line.includes("First answer."));
+  const asked = at((line) => line.includes("And the tests?"));
+  const second = at((line) => line.includes("Second answer."));
+  assert.ok(summary >= 0 && summary < answer, lines.join("\n"));
+  assert.ok(answer < asked && asked < second, lines.join("\n"));
+  assert.ok(!lines.join("\n").includes("src/first.ts"), "the first segment's call is folded away");
+  assert.equal(new Set(store.byMessage.values()).size, 2, "the follow-up opened a second turn");
 });
 
 test("the final reply frame never carries the message's thinking", () => {
