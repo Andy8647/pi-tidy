@@ -338,7 +338,7 @@ function wrappedLine(turn: Turn): string {
   return visibleText(summaryLine(turn, getTheme()!, 200, false, 2000));
 }
 
-test("a fabric program's calls are counted through the turn, like a script's", () => {
+test("a script's calls hang on its entry; a fabric program's join the run's counts", () => {
   const script = wrappedLine(wrappedTurn("codemode", {
     details: { calls: [{ name: "bash", status: "ok" }, { name: "read", status: "error" }] },
   }));
@@ -354,7 +354,14 @@ test("a fabric program's calls are counted through the turn, like a script's", (
       ],
     },
   }));
-  assert.match(program, /fabric_exec×1 \(bash×1 read×1\)/, program);
-  assert.match(program, /1 nested failed/, program);
+  // The program's calls count beside the model's own: three calls, one failure,
+  // no parentheses and no separate "nested failed".
+  assert.match(program, /3 calls/, program);
+  assert.match(program, /fabric_exec×1/, program);
+  assert.match(program, /bash×1/, program);
+  assert.match(program, /read×1/, program);
+  assert.ok(!program.includes("("), "no nested list on the entry: " + program);
+  assert.match(program, /1 failed/, program);
+  assert.ok(!program.includes("nested failed"), program);
   assert.ok(!program.includes("load×1"), "fabric's own plumbing stays out of the count");
 });

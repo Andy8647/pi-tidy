@@ -126,3 +126,33 @@ export function nestedCallsOf(details: unknown): NestedCall[] {
   if (Array.isArray(record.audits)) return fromAudits(record);
   return [];
 }
+
+/**
+ * The wrappers whose recorded calls count as calls of the run.
+ *
+ * `codemode` keeps its 0.9.7 reading: its calls hang on its entry
+ * (`codemode×1 (bash×2)`) and its row lists them when opened. pi-fabric's
+ * `fabric_exec` counts the other way: every call its program made joins the
+ * summary beside the calls the model issued (`fabric_exec×1 bash×2 edit×1`),
+ * and its edits and writes draw as boxes of their own — a change to a file is
+ * the point, wherever it came from.
+ */
+const MERGED_WRAPPERS = new Set(["fabric_exec"]);
+
+/** Whether a tool's recorded calls join the counts around it. */
+export function mergesNestedCalls(toolName: string | undefined): boolean {
+  return toolName !== undefined && MERGED_WRAPPERS.has(toolName);
+}
+
+/**
+ * The calls whose changes draw as boxes of their own, below the wrapper's box:
+ * an edit's diff and a write's content are the point, wherever they came from.
+ * The wrapper's list keeps their rows — it still says what ran — and the box
+ * below carries what they wrote.
+ */
+const PROMOTED_TOOLS = new Set(["edit", "write"]);
+
+/** Whether a recorded call draws as a box of its own instead of inside the list. */
+export function isPromotedCall(call: NestedCall): boolean {
+  return PROMOTED_TOOLS.has(call.name);
+}

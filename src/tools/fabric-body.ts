@@ -22,7 +22,7 @@ import {
   type CodemodeToggle,
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
-import { nestedCallsOf, type NestedCall } from "./nested-calls.ts";
+import { isPromotedCall, nestedCallsOf, type NestedCall } from "./nested-calls.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { formatToolRows } from "./tool-lines.ts";
 
@@ -168,6 +168,9 @@ function callRows(calls: readonly NestedCall[], input: FabricBodyInput): { rows:
   const { theme, options } = input;
   const built: Array<{ row: string; under: string[]; fills: number[] }> = [];
   for (const call of calls) {
+    // A promoted call keeps its row (the list still says what ran); its diff
+    // or content draws in the box below, not here.
+    const promoted = isPromotedCall(call);
     const [row] = formatToolRows(
       {
         toolName: call.name,
@@ -187,9 +190,11 @@ function callRows(calls: readonly NestedCall[], input: FabricBodyInput): { rows:
     if (call.status === "error" && call.error) under.push(...painted(call.error.split("\n"), ERROR_INDENT, theme, "error"));
     // What hangs under a call sits on the same column its output does: two cells
     // in, the way an edit box hangs its diff under its own call row.
-    const diff = diffRows(call, input);
-    for (const row of diff.fills) fills.push(under.length + row);
-    under.push(...indent(diff.rows, DETAIL_INDENT));
+    if (!promoted) {
+      const diff = diffRows(call, input);
+      for (const row of diff.fills) fills.push(under.length + row);
+      under.push(...indent(diff.rows, DETAIL_INDENT));
+    }
     // A call that failed already says why; a report about the call says nothing.
     if (call.output && call.status !== "error" && !QUIET_RESULT.has(call.name)) {
       under.push(...outputRows(call.output, input));

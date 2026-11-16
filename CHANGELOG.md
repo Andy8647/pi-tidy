@@ -8,17 +8,19 @@ What changed in each released version of pi-tidy (published as
 
 ### Added
 
-**A `fabric_exec` call reads as the call list it is.** pi-fabric keeps the calls a program made on its own result
+**A `fabric_exec` call reads as the calls it made.** pi-fabric keeps the calls a program made on its own result
 (`details.audits`) instead of drawing them as tool rows, so tidy saw one call where three had run: the folded row
 showed the program's first line, an `edit` the program made never appeared, and nothing said what it wrote. Both
 records a wrapper can keep — pi's `codemode` `details.calls` and fabric's `details.audits` — are now read as one
-list, whatever the tool is called. The folded row names what ran (`fabric_exec bash×2 read×1 edit×1`), the group
-summary counts it through (`fabric_exec×1 (bash×2 read×1 edit×1)`), and opening the box draws one row per call, with
-the program and the output folded to one row each. A nested `edit` keeps the diff it wrote under its own row, in the
-same panes an `edit` box uses — a window of `diffLines` rows, with the rest counted, the way an `edit` box shows a
-long diff, tinted on the changed rows and hanging on the same column as the call's own output — and a failed call
-keeps its error under its row. A call's own output keeps `bashResultLines` rows and
-counts what it left.
+list, whatever the tool is called.
+
+A `fabric_exec` program's calls **join the run's counts**: the group line and the folded turn read
+`5 calls · fabric_exec×1 bash×2 edit×1 write×1` — the calls beside the model's own, no parentheses, failures counted
+with the run's (`codemode` keeps its `codemode×1 (bash×2)` reading). An `edit` or `write` the program made **draws
+as a box of its own**, below the wrapper's row or box, folded or open: the diff in the same panes an `edit` box uses
+(a window of `diffLines` rows, the rest counted, tinted on the changed rows), the write's content as the text it
+wrote, a failure's error in red. Opening the wrapper lists the rest of its calls, with the program and the output
+folded to one row each; a call's own output keeps `bashResultLines` rows and counts what it left.
 
 Fabric's routine internal calls (the `native.load` it uses to bring a provider's tools into scope) are left out, as
 fabric's own card leaves them out. A session reloaded from disk still lists the calls — the arguments are kept — but

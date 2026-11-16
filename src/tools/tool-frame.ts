@@ -30,6 +30,7 @@ import {
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
 import { composeFabricBody } from "./fabric-body.ts";
+import { isPromotedCall, mergesNestedCalls, nestedCallsOf, type NestedCall } from "./nested-calls.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
@@ -140,6 +141,8 @@ interface ToolBoxInternals extends GroupedTool {
   __codemodeToggles?: CodemodeToggle[];
   /** Rows of a call list's body whose fill belongs to the content (a nested diff). */
   __callListFills?: ReadonlySet<number>;
+  /** The boxes a wrapper's promoted calls drew last (a fabric edit's diff). */
+  __promotedBoxes?: { calls: NestedCall[]; width: number; revision: number; theme: ThemeLike; rows: string[] };
   /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
   /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
@@ -869,6 +872,90 @@ function composeFramedCallList(
   return value;
 }
 
+/**
+ * The boxes a wrapper's promoted calls draw below its own: a fabric edit's
+ * diff, a write's content — the change itself, as a box of its own, the way a
+ * model-issued edit draws. The rows are the frame's own (title in the border,
+ * split panes for a diff), built from the audit, so they need no component of
+ * their own and no click of their own either.
+ */
+function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike): string[] {
+  if (!mergesNestedCalls(tool.toolName)) return [];
+  const calls = nestedCallsOf(tool.result?.details).filter(isPromotedCall);
+  if (calls.length === 0) return [];
+  const revision = optionsRevision();
+  const cache = tool.__promotedBoxes;
+  if (cache && cache.calls.length === calls.length && cache.calls.every((call, i) => call === calls[i]) &&
+      cache.width === w && cache.revision === revision && cache.theme === theme) {
+    return cache.rows;
+  }
+  const { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
+  const rows: string[] = [];
+  for (const call of calls) {
+    rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }));
+  }
+  tool.__promotedBoxes = { calls, width: w, revision, theme, rows };
+  return rows;
+}
+
+/** One promoted call as a framed box: title in the border, the change below. */
+function promotedCallBox(
+  call: NestedCall,
+  w: number,
+  theme: ThemeLike,
+  options: { icons: boolean; toolColors: Record<string, string>; splitDiff: boolean; splitDiffMinWidth: number; diffLines: number },
+): string[] {
+  const args = (call.args ?? {}) as Record<string, unknown>;
+  const path = typeof args.path === "string" ? args.path : undefined;
+  const failed = call.status === "error";
+  const color = failed ? "error" : options.toolColors[call.name] || "accent";
+  const inner = Math.max(2, w - 2);
+
+  // The body: an edit's diff in the panes its own box uses, a write's content
+  // as the text it wrote. A failed call keeps its error instead.
+  let body: string[] = [];
+  let bgRows: ReadonlySet<number> | undefined;
+  if (failed && call.error) {
+    body = call.error.split("\n").map((line) => ` ${theme.fg("error", line || " ")}`);
+  } else if (call.name === "edit" && call.diff) {
+    const split = options.splitDiff && inner >= options.splitDiffMinWidth
+      ? renderSplitDiff({ diff: call.diff, width: inner, theme, ...(path ? { filePath: path } : {}), maxLines: options.diffLines, hint: false })
+      : undefined;
+    if (split) {
+      body = split.lines;
+      bgRows = new Set(split.bgRows);
+    } else {
+      body = call.diff.split("\n").slice(0, options.diffLines).map((line) =>
+        ` ${theme.fg(line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "toolDiffContext", line || " ")}`,
+      );
+    }
+  } else if (call.name === "write" && typeof args.content === "string") {
+    // A cell of padding, the way pi's own shell pads a box's body.
+    body = args.content.replace(/\s+$/, "").split("\n").slice(0, options.diffLines).map((line) => ` ${theme.fg("toolOutput", line || " ")}`);
+  } else if (call.output) {
+    body = call.output.split("\n").slice(0, options.diffLines).map((line) => ` ${theme.fg("toolOutput", line || " ")}`);
+  }
+
+  // The title is the row a group would draw for the call, in the border.
+  const title = formatToolLine(
+    {
+      toolName: call.name,
+      args: path ? { ...args, path: shortenPath(path) } : args,
+      isPartial: call.status === "running",
+      result: {
+        isError: failed,
+        ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
+        content: call.output === undefined ? [] : [{ type: "text" as const, text: call.output }],
+      },
+    },
+    theme,
+    { icons: options.icons, width: Math.max(1, w - 6) },
+  );
+  const framed = drawFrame(body, w, theme, color, bgRows);
+  framed[0] = labeledTopBorder(w, theme, color, clipToWidth(title.trim(), Math.max(1, w - 6), "…"));
+  return framed;
+}
+
 /** The rounded box at width `w` (what pi would draw, reframed). */
   function frameBox(this: ToolBoxInternals, w: number, theme: ThemeLike, unframed = false): string[] {
     const { icons, toolColors } = toolOptions.get();
@@ -1135,6 +1222,10 @@ function composeFramedCallList(
       }
       const railed = railTurnTool(this.toolCallId);
       const w = Math.max(4, railed ? width - TURN_RAIL_CELLS : width);
+      // A wrapper's promoted calls draw as boxes of their own, below whatever
+      // this box drew — folded or open, the change itself stays visible.
+      const promoted = promotedCallBoxes(this, w, theme);
+      const withPromoted = (rows: string[]): string[] => promoted.length === 0 ? rows : [...rows, ...promoted];
       if (grouping()) {
         const { icons, alwaysShow, highlightBash, toolRowLines } = toolOptions.get();
         const grouped = renderGroupedTool(
@@ -1146,16 +1237,16 @@ function composeFramedCallList(
         );
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
-          return finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
+          return finishBox(this, withPromoted(railed ? railRows(grouped, theme) : grouped), theme);
         }
       }
-      if (!railed) return finishBox(this, frameBox.call(this, w, theme), theme);
+      if (!railed) return finishBox(this, withPromoted(frameBox.call(this, w, theme)), theme);
       this.__railCells = TURN_RAIL_BOX_CELLS;
       const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
       // On the rail a box's corner sits in its neighbouring groups' rail column. With
       // grouping off nothing has registered, so there is nothing to meet.
       const { above, below } = pinnedJoints(this);
-      return finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
+      return finishBox(this, withPromoted(railRows(joinBoxCorners(box, above, below), theme, " ")), theme);
     } catch {
       this.__frameGeometry = undefined;
       measurePathChip(this, []);

@@ -3,10 +3,12 @@
  * definition that draws its own card the way pi-fabric does, and clicks
  * dispatched through pi-tui's Container the way a terminal click arrives.
  *
- * fabric draws its calls itself, so tidy builds these rows from the record the
- * result carries (`details.audits`) instead of from anything it rendered: the
- * program and the output fold to one row each, every call gets a row, and a
- * nested `edit` keeps the diff it wrote under its own row.
+ * fabric records the calls its program made (`details.audits`), and tidy reads
+ * them as calls of the run: the summary counts them beside the model's own
+ * (`fabric_exec×1 bash×1 edit×1`, no parentheses), an edit or write the program
+ * made draws as a box of its own below — folded or open, the change stays
+ * visible — and opening the wrapper lists the rest, with the program and the
+ * output folded to one row each.
  */
 
 import assert from "node:assert/strict";
@@ -164,23 +166,38 @@ const click = (chat: Container, needle: string) => clickRow(chat, (line) => line
 
 /** The header opens the group; the call row under it opens the box. */
 function openBox(chat: Container) {
-  click(chat, "1 call");
+  clickRow(chat, (line) => /\d+ calls?/.test(line), "calls");
   // The header names the tool too (`fabric_exec×1`), so the row is the one that
   // carries its outcome glyph.
   clickRow(chat, (line) => line.includes("fabric_exec") && line.includes("✓"), "fabric_exec");
 }
 
-test("a folded fabric_exec says what the program ran, not its first line", () => {
+test("a program's calls join the run's counts, beside the model's own", () => {
   resetGroups();
   const lines = frame(transcript());
   const line = lines.find((row) => row.includes("fabric_exec"))!;
   assert.ok(line, lines.join("\n"));
-  assert.ok(line.includes("(bash×1 edit×1 read×1)"), line);
+  assert.match(line, /4 calls/, line);
+  assert.match(line, /bash×1/, line);
+  assert.match(line, /edit×1/, line);
+  assert.match(line, /read×1/, line);
+  assert.match(line, /fabric_exec×1/, line);
+  assert.ok(!line.includes("("), "no nested list on the entry: " + line);
   assert.ok(!line.includes("await pi.bash"), "the program is not the row's argument");
   assert.ok(!line.includes("load"), "fabric's own plumbing is not counted");
 });
 
-test("an opened fabric_exec is its call list, with the program and the output folded", () => {
+test("an edit the program made draws as a box of its own, while the group is folded", () => {
+  resetGroups();
+  const lines = frame(transcript());
+  const body = lines.join("\n");
+  const title = lines.find((line) => line.startsWith("╭─") && line.includes("edit") && line.includes("/tmp/a.ts"));
+  assert.ok(title, "the edit has a box of its own:\n" + body);
+  assert.ok(body.includes("world2"), "the change is visible without opening anything:\n" + body);
+  assert.ok(body.includes("↳ diff"), body);
+});
+
+test("an opened fabric_exec lists its calls, with the program and the output folded", () => {
   resetGroups();
   const chat = transcript();
   openBox(chat);
@@ -193,20 +210,8 @@ test("an opened fabric_exec is its call list, with the program and the output fo
   assert.ok(!body.includes("await pi.bash"), "the program is folded away");
   assert.ok(!body.includes("three calls, all good"), "the output is folded away");
   assert.ok(!body.includes("> load"), "fabric's card is not what these rows came from");
-});
-
-test("a nested edit keeps the diff it wrote under its own row", () => {
-  resetGroups();
-  const chat = transcript();
-  openBox(chat);
-  const lines = frame(chat);
-  const body = lines.join("\n");
-  const row = lines.findIndex((line) => line.includes("edit ") && line.includes("/tmp/a.ts"));
-  assert.ok(row >= 0, body);
-  const under = lines.slice(row + 1, row + 6).join("\n");
-  assert.ok(under.includes("↳ diff"), `the diff hangs under the row:\n${body}`);
-  assert.ok(under.includes("world2"), `and carries what it wrote:\n${body}`);
-  assert.ok(!body.includes("+2 world2"), "the panes, not the raw unified diff");
+  // The edit's diff draws once, in its own box — not again inside the list.
+  assert.equal(body.split("↳ diff").length - 1, 1, body);
 });
 
 test("the fold rows open the program and the output in place", () => {
@@ -225,7 +230,7 @@ test("the fold rows open the program and the output in place", () => {
   assert.ok(output.includes("await pi.bash"), "the program stays open");
 });
 
-test("with grouping off, the same list sits in a frame of its own", () => {
+test("with grouping off, the list sits in a frame and the edit below it", () => {
   patchToolBoxFrames({ icons: false, groupTools: false });
   try {
     const chat = new Container();
@@ -238,6 +243,8 @@ test("with grouping off, the same list sits in a frame of its own", () => {
     assert.ok(body.includes("▸ output · 1 line"), body);
     assert.ok(body.includes("echo hi"), body);
     assert.ok(!body.includes("> load"), "the card is not what these rows came from");
+    const editBox = lines.find((line) => line.startsWith("╭─") && line.includes("edit") && line.includes("/tmp/a.ts"));
+    assert.ok(editBox, "the edit's own box follows:\n" + body);
 
     // The fold rows are the framed body's own rows, one deeper than the border.
     click(chat, "▸ script");
@@ -256,12 +263,39 @@ test("a failed call keeps its error under its row, in red", () => {
     { ref: "pi.bash", tool: "bash", provider: "pi", success: false, error: "no such file", args: { command: "cat /nope" }, startedAt: 1, endedAt: 2 },
   ];
   const chat = transcript({ audits: failed, text: "failed" });
+  const folded = frame(chat).join("\n");
+  assert.match(folded, /1 failed/, folded);
   openBox(chat);
   const lines = frame(chat);
   const body = lines.join("\n");
   const row = lines.findIndex((line) => line.includes("cat /nope"));
   assert.ok(row >= 0, body);
   assert.ok(lines[row + 1]!.includes("no such file"), body);
+});
+
+test("a failed edit's box carries its error, in red", () => {
+  resetGroups();
+  const failed = [
+    { ref: "pi.edit", tool: "edit", provider: "pi", success: false, error: "oldText not found", args: { path: "/tmp/a.ts" }, startedAt: 1, endedAt: 2 },
+  ];
+  const lines = frame(transcript({ audits: failed, text: "failed" }));
+  const body = lines.join("\n");
+  const at = lines.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
+  assert.ok(at >= 0, body);
+  assert.ok(lines.slice(at, at + 4).join("\n").includes("oldText not found"), body);
+});
+
+test("a write the program made draws its content as a box of its own", () => {
+  resetGroups();
+  const wrote = [
+    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/n.ts", content: "hello\nworld\n" }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
+  ];
+  const lines = frame(transcript({ audits: wrote, text: "done" }));
+  const body = lines.join("\n");
+  const at = lines.findIndex((line) => line.startsWith("╭─") && line.includes("write") && line.includes("/tmp/n.ts"));
+  assert.ok(at >= 0, body);
+  assert.ok(lines.slice(at, at + 5).join("\n").includes("hello"), body);
+  assert.ok(lines.slice(at, at + 5).join("\n").includes("world"), body);
 });
 
 test("a long diff keeps to the diff rows, and says how many it left", () => {
@@ -279,9 +313,7 @@ test("a long diff keeps to the diff rows, and says how many it left", () => {
       endedAt: 2,
     },
   ];
-  const chat = transcript({ audits: big, text: "done" });
-  openBox(chat);
-  const body = frame(chat).join("\n");
+  const body = frame(transcript({ audits: big, text: "done" })).join("\n");
   assert.match(body, /\(\d+ more lines, \d+ total\)/, body);
   // Nothing here can open the rest, so no keybinding is promised.
   assert.ok(!body.includes("to expand"), body);
@@ -321,35 +353,9 @@ test("calls fabric dropped from the record are counted without its own plumbing"
 /** Count the background fills a frame keeps: the split diff's tinted rows. */
 const tint = (rows: readonly string[]) => rows.reduce((n, row) => n + (row.match(/\x1b\[48;[0-9;]*m/g) ?? []).length, 0);
 
-/** pi's own frame, for comparison: the raw rows a box draws, before tidy. */
-function rawFrame(chat: Container, width = W): string[] {
-  return chat.render(width);
-}
-
-test("a framed fabric box keeps the tint of a nested diff", () => {
-  patchToolBoxFrames({ icons: false, groupTools: false });
-  try {
-    const chat = new Container();
-    chat.addChild(fabric().component);
-    const rows = rawFrame(chat);
-    assert.ok(tint(rows) > 0, "the changed rows keep their fill:\n" + rows.map(strip).join("\n"));
-  } finally {
-    patchToolBoxFrames({ icons: false, groupTools: true });
-    resetGroups();
-  }
-});
-
-test("a nested diff hangs on the same column as the call's output", () => {
+test("the promoted edit's box keeps the tint of its diff", () => {
   resetGroups();
   const chat = transcript();
-  openBox(chat);
-  const lines = frame(chat);
-  const body = lines.filter((line) => line.includes("│"));
-  const output = body.find((line) => line.endsWith("hi"))!;
-  const summary = body.find((line) => line.includes("↳ diff"))!;
-  const panes = body.find((line) => line.includes("old") && line.includes("new"))!;
-  assert.ok(output && summary && panes, lines.join("\n"));
-  const content = (line: string) => line.slice(line.lastIndexOf("│") + 1).search(/\S/);
-  assert.equal(content(summary), content(output), lines.join("\n"));
-  assert.equal(content(panes), content(output), lines.join("\n"));
+  const rows = chat.render(W);
+  assert.ok(tint(rows) > 0, "the changed rows keep their fill:\n" + rows.map(strip).join("\n"));
 });
