@@ -578,11 +578,20 @@ export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
 
   if (window.below > 0) {
     const total = rows.length;
-    const rest = `… (${window.below} more line${window.below === 1 ? "" : "s"}, ${total} total`;
-    // A diff nothing can open says so by closing here: a keybinding that does
-    // nothing is worse than no keybinding at all.
-    const hint = input.hint === false ? `${rest})` : `${rest}, ${keyHint("app.tools.expand", "to expand")})`;
-    lines.push(pad(`${" ".repeat(PAD)}${label(hint)}`, width));
+    const more = `${window.below} more line${window.below === 1 ? "" : "s"}`;
+    if (input.hint === false) {
+      // A diff nothing can open says so by closing here: a keybinding that
+      // does nothing is worse than no keybinding at all.
+      lines.push(pad(`${" ".repeat(PAD)}${label(`… (${more}, ${total} total)`)}`, width));
+    } else {
+      const hint = keyHint("app.tools.expand", "to expand");
+      lines.push(
+        pad(
+          `${" ".repeat(PAD)}${label(`… (${more}, ${total} total,`)} ${hint}${label(")")}`,
+          width,
+        ),
+      );
+    }
   }
 
   return { lines, bgRows };
