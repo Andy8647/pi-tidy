@@ -4,6 +4,29 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**A `fabric_exec` call reads as the call list it is.** pi-fabric keeps the calls a program made on its own result
+(`details.audits`) instead of drawing them as tool rows, so tidy saw one call where three had run: the folded row
+showed the program's first line, an `edit` the program made never appeared, and nothing said what it wrote. Both
+records a wrapper can keep — pi's `codemode` `details.calls` and fabric's `details.audits` — are now read as one
+list, whatever the tool is called. The folded row names what ran (`fabric_exec bash×2 read×1 edit×1`), the group
+summary counts it through (`fabric_exec×1 (bash×2 read×1 edit×1)`), and opening the box draws one row per call, with
+the program and the output folded to one row each. A nested `edit` keeps the diff it wrote under its own row, in the
+same panes an `edit` box uses, and a failed call keeps its error under its row.
+
+Fabric's routine internal calls (the `native.load` it uses to bring a provider's tools into scope) are left out, as
+fabric's own card leaves them out. A session reloaded from disk still lists the calls — the arguments are kept — but
+the diffs and the calls' output are gone: fabric does not persist them.
+
+### Changed
+
+**A wrapper's calls are counted wherever they are recorded.** The summary line and a turn's list used to read one
+record shape and only for a tool named `codemode`; a tool that records its calls in the other shape was invisible to
+both.
+
 ## [0.9.8] - 2026-11-15
 
 ### Added
