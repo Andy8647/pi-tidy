@@ -419,3 +419,29 @@ test("on an open turn's rail, the promoted box hangs on the rail too", async () 
     resetGroups();
   }
 });
+
+test("a long write is windowed and counts what it left", () => {
+  resetGroups();
+  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
+  const wrote = [
+    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
+  ];
+  const rows = frame(transcript({ audits: wrote, text: "done" }));
+  const body = rows.join("\n");
+  assert.ok(body.includes("line 0"), body);
+  assert.ok(!body.includes("line 30"), "the tail is windowed away:\n" + body);
+  assert.ok(body.includes("40 more lines"), "the window says how much it left:\n" + body);
+});
+
+test("a long error on a promoted edit is windowed too", () => {
+  resetGroups();
+  const error = Array.from({ length: 30 }, (_, i) => "error line " + i).join("\n");
+  const failed = [
+    { ref: "pi.edit", tool: "edit", provider: "pi", success: false, error, args: { path: "/tmp/e.ts" } },
+  ];
+  const rows = frame(transcript({ audits: failed, text: "failed" }));
+  const body = rows.join("\n");
+  assert.ok(body.includes("error line 0"), body);
+  assert.ok(!body.includes("error line 25"), "the tail is windowed away:\n" + body);
+  assert.ok(body.includes("more lines"), body);
+});

@@ -932,11 +932,19 @@ function promotedCallBox(
   const inner = Math.max(2, w - 2);
 
   // The body: an edit's diff in the panes its own box uses, a write's content
-  // as the text it wrote. A failed call keeps its error instead.
+  // as the text it wrote. A failed call keeps its error instead. Each is a
+  // window of `diffLines` rows with the rest counted — nothing here opens
+  // further, so an unbounded body would own the screen for good.
+  const budget = Math.max(1, options.diffLines);
+  const window = (lines: string[], paint: (line: string) => string): string[] => {
+    const shown = lines.slice(0, budget).map((line) => ` ${paint(line)}`);
+    if (lines.length > budget) shown.push(` ${theme.fg("dim", `… ${lines.length - budget} more line${lines.length - budget === 1 ? "" : "s"}`)}`);
+    return shown;
+  };
   let body: string[] = [];
   let bgRows: ReadonlySet<number> | undefined;
   if (failed && call.error) {
-    body = call.error.split("\n").map((line) => ` ${theme.fg("error", line || " ")}`);
+    body = window(call.error.split("\n"), (line) => theme.fg("error", line || " "));
   } else if (call.name === "edit" && call.diff) {
     const split = options.splitDiff && inner >= options.splitDiffMinWidth
       ? renderSplitDiff({ diff: call.diff, width: inner, theme, ...(path ? { filePath: path } : {}), maxLines: options.diffLines, hint: false })
@@ -945,15 +953,15 @@ function promotedCallBox(
       body = split.lines;
       bgRows = new Set(split.bgRows);
     } else {
-      body = call.diff.split("\n").slice(0, options.diffLines).map((line) =>
-        ` ${theme.fg(line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "toolDiffContext", line || " ")}`,
+      body = window(call.diff.split("\n"), (line) =>
+        theme.fg(line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "toolDiffContext", line || " "),
       );
     }
   } else if (call.name === "write" && typeof args.content === "string") {
     // A cell of padding, the way pi's own shell pads a box's body.
-    body = args.content.replace(/\s+$/, "").split("\n").slice(0, options.diffLines).map((line) => ` ${theme.fg("toolOutput", line || " ")}`);
+    body = window(args.content.replace(/\s+$/, "").split("\n"), (line) => theme.fg("toolOutput", line || " "));
   } else if (call.output) {
-    body = call.output.split("\n").slice(0, options.diffLines).map((line) => ` ${theme.fg("toolOutput", line || " ")}`);
+    body = window(call.output.split("\n"), (line) => theme.fg("toolOutput", line || " "));
   }
 
   // The title is the row a group would draw for the call, in the border.
