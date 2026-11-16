@@ -16,6 +16,7 @@ import {
   foldRow,
   plural,
   ruleRow,
+  type CodemodeBodyFill,
   type CodemodeBodyOptions,
   type CodemodeSections,
   type CodemodeToggle,
@@ -101,10 +102,10 @@ function unifiedDiff(diff: string, theme: ThemeLike, maxLines: number): string[]
   );
 }
 
-/** The diff this audit wrote, in the panes an `edit` box uses. */
-function diffRows(call: NestedCall, input: FabricBodyInput): string[] {
+/** The diff this audit wrote, in the panes an `edit` box uses, and the rows that carry a fill. */
+function diffRows(call: NestedCall, input: FabricBodyInput): { rows: string[]; fills: number[] } {
   const diff = call.diff;
-  if (!diff) return [];
+  if (!diff) return { rows: [], fills: [] };
   const maxLines = Math.max(1, input.diffLines);
   const path = fields(call.args)?.path;
   const width = input.options.width;
@@ -119,7 +120,12 @@ function diffRows(call: NestedCall, input: FabricBodyInput): string[] {
         hint: false,
       });
   // The panes carry their own colours and tints: only the fallback needs one.
-  return indent(split?.lines ?? unifiedDiff(diff, input.theme, maxLines), DETAIL_INDENT);
+  // The panes pad themselves by a cell, as a box's body does; this block is not
+  // inside a box, so that cell comes off and the diff starts where the call's
+  // own output does.
+  const raw = split?.lines ?? unifiedDiff(diff, input.theme, maxLines);
+  const lines = split ? raw.map((line) => line.slice(1)) : raw;
+  return { rows: lines, fills: split?.bgRows ?? [] };
 }
 
 /** A call's arguments as a record: every paper trail here records an object. */
@@ -158,9 +164,9 @@ function outputRows(output: string, input: FabricBodyInput): string[] {
  * under it — a failure's text, an edit's diff — is drawn only when there is
  * something there.
  */
-function callRows(calls: readonly NestedCall[], input: FabricBodyInput): string[] {
+function callRows(calls: readonly NestedCall[], input: FabricBodyInput): { rows: string[]; fills: number[] } {
   const { theme, options } = input;
-  const built: Array<{ row: string; under: string[] }> = [];
+  const built: Array<{ row: string; under: string[]; fills: number[] }> = [];
   for (const call of calls) {
     const [row] = formatToolRows(
       {
@@ -177,23 +183,31 @@ function callRows(calls: readonly NestedCall[], input: FabricBodyInput): string[
       { icons: options.icons, width: options.width },
     );
     const under: string[] = [];
+    const fills: number[] = [];
     if (call.status === "error" && call.error) under.push(...painted(call.error.split("\n"), ERROR_INDENT, theme, "error"));
-    under.push(...diffRows(call, input));
+    // What hangs under a call sits on the same column its output does: two cells
+    // in, the way an edit box hangs its diff under its own call row.
+    const diff = diffRows(call, input);
+    for (const row of diff.fills) fills.push(under.length + row);
+    under.push(...indent(diff.rows, DETAIL_INDENT));
     // A call that failed already says why; a report about the call says nothing.
     if (call.output && call.status !== "error" && !QUIET_RESULT.has(call.name)) {
       under.push(...outputRows(call.output, input));
     }
-    built.push({ row: row!, under });
+    built.push({ row: row!, under, fills });
   }
   // The durations share one column across the call rows only: a diff row has no
   // duration to line up, and its length would push the column off the body.
   const aligned = alignCallRows(built.map((each) => each.row), options.width);
   const rows: string[] = [];
+  const fills: number[] = [];
   built.forEach((each, index) => {
+    const at = rows.length;
     rows.push(aligned[index]!);
+    for (const row of each.fills) fills.push(at + 1 + row);
     for (const line of each.under) rows.push(line);
   });
-  return rows;
+  return { rows, fills };
 }
 
 /**
@@ -205,7 +219,8 @@ export function composeFabricBody(input: FabricBodyInput): ComposedCodemodeBody 
   const { details, state, theme, options } = input;
   const script = programLines(input.args);
   const calls = nestedCallsOf(details);
-  const callsList = callRows(calls, input);
+  const callsBlock = callRows(calls, input);
+  const callsList = callsBlock.rows;
   const omitted = omittedCount(details);
   const failure = fields(details)?.error;
   const output = input.output.replace(/\s+$/, "");
@@ -221,6 +236,7 @@ export function composeFabricBody(input: FabricBodyInput): ComposedCodemodeBody 
     // The rule closes a block of calls; with no calls it has nothing to close.
     if (rule !== undefined && callsList.length > 0) rows.push(rule);
   }
+  const callsAt = rows.length;
   rows.push(...callsList);
   if (omitted > 0) rows.push(` ${theme.fg("dim", `… ${plural(omitted, "more call")}`)}`);
   if (typeof failure === "string" && failure) {
@@ -234,5 +250,6 @@ export function composeFabricBody(input: FabricBodyInput): ComposedCodemodeBody 
     rows.push(foldRow(state.output, options.hovered === "output", "output", plural(outputLines.length, "line"), theme));
     if (state.output) rows.push(...painted(outputLines, 0, theme, "toolOutput"));
   }
-  return { lines: rows, toggles };
+  const fills: CodemodeBodyFill[] = callsBlock.fills.map((row) => ({ row: callsAt + row }));
+  return { lines: rows, toggles, ...(fills.length > 0 ? { fills } : {}) };
 }

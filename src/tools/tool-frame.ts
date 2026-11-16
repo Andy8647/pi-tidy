@@ -138,6 +138,8 @@ interface ToolBoxInternals extends GroupedTool {
   };
   /** Row indices of a call list's fold labels in the last framed body. */
   __codemodeToggles?: CodemodeToggle[];
+  /** Rows of a call list's body whose fill belongs to the content (a nested diff). */
+  __callListFills?: ReadonlySet<number>;
   /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
   /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
@@ -167,7 +169,12 @@ interface ToolBoxInternals extends GroupedTool {
     value: ComposedCodemodeBody;
   };
   /** The framed list built on the last composed body. */
-  __codemodeList?: { composed: ComposedCodemodeBody; w: number; revision: number; value: { title: string; lines: string[]; toggles: CodemodeToggle[] } };
+  __codemodeList?: {
+    composed: ComposedCodemodeBody;
+    w: number;
+    revision: number;
+    value: { title: string; lines: string[]; toggles: CodemodeToggle[]; fills: ReadonlySet<number> };
+  };
   /** The expanded rendering a framed codemode box composes from, and what it was built from. */
   __codemodeFull?: {
     args: unknown;
@@ -826,7 +833,7 @@ function composeFramedCallList(
   w: number,
   theme: ThemeLike,
   icons: boolean,
-): { title: string; lines: string[]; toggles: CodemodeToggle[] } | undefined {
+): { title: string; lines: string[]; toggles: CodemodeToggle[]; fills: ReadonlySet<number> } | undefined {
   const width = w - 2;
   // The rules and the title stop a cell short of the right border: pi's rows
   // keep a cell of padding there, as they do on the left.
@@ -852,7 +859,12 @@ function composeFramedCallList(
   // `╭─ ` and ` ─╮` cells before the body does: laid out at the full width it
   // would be clipped there, and the clip takes the duration first.
   const title = formatToolLine(tool, theme, { icons, width: Math.max(1, w - 6) });
-  const value = { title, lines: composed.lines, toggles: composed.toggles };
+  const value = {
+    title,
+    lines: composed.lines,
+    toggles: composed.toggles,
+    fills: new Set((composed.fills ?? []).map((fill) => fill.row)),
+  };
   tool.__codemodeList = { composed, w, revision, value };
   return value;
 }
@@ -900,6 +912,7 @@ function composeFramedCallList(
     const codemodeRows: CodemodeToggle[] = [];
     const listOptions: CodemodeBodyOptions = { icons, width: sourceWidth - railCells, hovered: codemodeHover(this) };
     let raw: string[];
+    let listFills: ReadonlySet<number> | undefined;
     if (collapse) {
       // fabric's rows are built from the record it kept, so pi's never have to
       // be drawn; codemode's are pi's own rows, so they are drawn a second time
@@ -910,8 +923,10 @@ function composeFramedCallList(
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
       codemodeRows.push(...composed.toggles);
+      listFills = new Set((composed.fills ?? []).map((fill) => fill.row));
     } else if (listed) {
       raw = listed.lines;
+      listFills = listed.fills;
     } else {
       raw = kind === "codemode"
         ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons, width: sourceWidth })
@@ -920,6 +935,7 @@ function composeFramedCallList(
           : source.render(sourceWidth);
     }
     this.__codemodeToggles = codemodeRows;
+    this.__callListFills = listFills;
     // The framed list's fold rows, as rows of this box's output: the top border
     // is row 0 and the body starts under it, so every row is one deeper.
     this.__codemodeFolds = listed?.toggles.map((toggle) => ({ row: toggle.row + 1, section: toggle.section }));
@@ -1034,9 +1050,15 @@ function composeFramedCallList(
       const splitBg = split && edges.start > 0
         ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
         : split?.bgRows;
-      const bgRows = banded ?? (splitBg && titleShift
-        ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
-        : splitBg);
+      // A call list's own tinted rows (a nested diff) are indexed in the body it
+      // drew; the same trimming that moved everything else moved them.
+      const listBg = this.__callListFills && edges.start > 0
+        ? new Set([...this.__callListFills].map((row) => row - edges.start).filter((row) => row >= 0))
+        : this.__callListFills;
+      const contentBg = splitBg && listBg ? new Set([...splitBg, ...listBg]) : (splitBg ?? listBg);
+      const bgRows = banded ?? (contentBg && titleShift
+        ? new Set([...contentBg].map((row) => row - titleShift).filter((row) => row >= 0))
+        : contentBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
       // A border that names a file carries a chip: the path is the one thing a reader
       // wants out of a write or edit box, and dragging its border for it is not obvious.

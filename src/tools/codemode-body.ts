@@ -459,6 +459,12 @@ export interface CodemodeToggle {
   section: CodemodeSection;
 }
 
+/** A row that carries its own background fill — a split diff's tinted rows. */
+export interface CodemodeBodyFill {
+  /** Index in the composed lines. */
+  row: number;
+}
+
 const TIMER_ROW = /^\s*(?:Took|Elapsed)\s+\d/;
 const CONTINUATION = /^\s{4,}\S/;
 const TEXT_ITEM = /^==> text \d+\/\d+ <==$/;
@@ -499,7 +505,7 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
   if (calls.length === 0) {
     const start = plain.findIndex((row) => OUTPUT_START.test(row.trim()));
     if (start < 0) return undefined;
-    return finishRegions(lines, plain, -1, start, toolName);
+    return finishRegions(lines, -1, start, toolName);
   }
   if (first < 0 || last < 0) return undefined;
   // pi's box wraps an argument longer than the row onto the rows below it; those
@@ -509,13 +515,12 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
   // What hangs under a call: its error text, indented by the renderer.
   while (end < lines.length && (plain[end]!.trim() === "" || CONTINUATION.test(plain[end]!))) end++;
   while (end > first && plain[end - 1]!.trim() === "") end--;
-  return finishRegions(lines, plain, first, end, toolName);
+  return finishRegions(lines, first, end, toolName);
 }
 
 /** Cut the three regions out of the body once `start`/`end` of the calls are known. */
 function finishRegions(
   lines: readonly string[],
-  plain: readonly string[],
   first: number,
   end: number,
   toolName: string,
@@ -554,6 +559,8 @@ export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n ==
 export interface ComposedCodemodeBody {
   lines: string[];
   toggles: CodemodeToggle[];
+  /** Rows whose fill belongs to the content, so the frame keeps it. */
+  fills?: CodemodeBodyFill[];
 }
 
 /**

@@ -16,7 +16,8 @@ list, whatever the tool is called. The folded row names what ran (`fabric_exec b
 summary counts it through (`fabric_exec×1 (bash×2 read×1 edit×1)`), and opening the box draws one row per call, with
 the program and the output folded to one row each. A nested `edit` keeps the diff it wrote under its own row, in the
 same panes an `edit` box uses — a window of `diffLines` rows, with the rest counted, the way an `edit` box shows a
-long diff — and a failed call keeps its error under its row. A call's own output keeps `bashResultLines` rows and
+long diff, tinted on the changed rows and hanging on the same column as the call's own output — and a failed call
+keeps its error under its row. A call's own output keeps `bashResultLines` rows and
 counts what it left.
 
 Fabric's routine internal calls (the `native.load` it uses to bring a provider's tools into scope) are left out, as

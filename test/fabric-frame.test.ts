@@ -317,3 +317,39 @@ test("calls fabric dropped from the record are counted without its own plumbing"
   const body = frame(chat).join("\n");
   assert.ok(body.includes("… 4 more calls"), body);
 });
+
+/** Count the background fills a frame keeps: the split diff's tinted rows. */
+const tint = (rows: readonly string[]) => rows.reduce((n, row) => n + (row.match(/\x1b\[48;[0-9;]*m/g) ?? []).length, 0);
+
+/** pi's own frame, for comparison: the raw rows a box draws, before tidy. */
+function rawFrame(chat: Container, width = W): string[] {
+  return chat.render(width);
+}
+
+test("a framed fabric box keeps the tint of a nested diff", () => {
+  patchToolBoxFrames({ icons: false, groupTools: false });
+  try {
+    const chat = new Container();
+    chat.addChild(fabric().component);
+    const rows = rawFrame(chat);
+    assert.ok(tint(rows) > 0, "the changed rows keep their fill:\n" + rows.map(strip).join("\n"));
+  } finally {
+    patchToolBoxFrames({ icons: false, groupTools: true });
+    resetGroups();
+  }
+});
+
+test("a nested diff hangs on the same column as the call's output", () => {
+  resetGroups();
+  const chat = transcript();
+  openBox(chat);
+  const lines = frame(chat);
+  const body = lines.filter((line) => line.includes("│"));
+  const output = body.find((line) => line.endsWith("hi"))!;
+  const summary = body.find((line) => line.includes("↳ diff"))!;
+  const panes = body.find((line) => line.includes("old") && line.includes("new"))!;
+  assert.ok(output && summary && panes, lines.join("\n"));
+  const content = (line: string) => line.slice(line.lastIndexOf("│") + 1).search(/\S/);
+  assert.equal(content(summary), content(output), lines.join("\n"));
+  assert.equal(content(panes), content(output), lines.join("\n"));
+});
