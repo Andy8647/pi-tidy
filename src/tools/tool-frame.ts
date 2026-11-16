@@ -20,7 +20,7 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, shortenPath, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
 import {
   composeCodemodeBody,
   codemodeSections,
@@ -34,6 +34,7 @@ import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
+import { DEFAULT_BASH_RESULT_LINES } from "../config.ts";
 import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-state.ts";
 import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
@@ -158,7 +159,6 @@ interface ToolBoxInternals extends GroupedTool {
     output: string;
     script: boolean;
     outputOpen: boolean;
-    expanded: boolean;
     icons: boolean;
     revision: number;
     width: number | undefined;
@@ -223,6 +223,11 @@ export interface ToolFrameOptions {
   highlightBash?: boolean;
   /** Rows a group's call may take: 2 lets one that does not fit go on to a second. */
   toolRowLines?: number;
+  /**
+   * Rows of a nested call's own output a call list keeps under its row, the way
+   * a bash box keeps this many of its own (default 1).
+   */
+  bashResultLines?: number;
 }
 
 interface ResolvedToolFrameOptions {
@@ -237,6 +242,7 @@ interface ResolvedToolFrameOptions {
   thinkingColor: string;
   highlightBash: boolean;
   toolRowLines: number;
+  bashResultLines: number;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -251,15 +257,10 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   thinkingColor: "warning",
   highlightBash: true,
   toolRowLines: 1,
+  bashResultLines: DEFAULT_BASH_RESULT_LINES,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
-
-/** `$HOME` as `~`, the form a title shows its path in. */
-function shortenPath(path: string): string {
-  const home = homedir();
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
-}
 
 /**
  * A file box's path chip, in its lit states: lit under the pointer, a tick for a moment
@@ -346,6 +347,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor = "warning",
     highlightBash = true,
     toolRowLines = 1,
+    bashResultLines = DEFAULT_BASH_RESULT_LINES,
   } = options;
   toolOptions.set({
     icons,
@@ -359,6 +361,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor,
     highlightBash,
     toolRowLines,
+    bashResultLines,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
   // Value, not a closure: the patch runs again on `/reload`, which is what
@@ -765,7 +768,6 @@ function composedFabric(tool: ToolBoxInternals, theme: ThemeLike, options: Codem
   const output = resultText(tool.result?.content);
   const sample = theme.fg("accent", "x");
   const revision = optionsRevision();
-  const expanded = tool.expanded === true;
   const cache = tool.__fabricComposed;
   if (
     cache &&
@@ -774,7 +776,6 @@ function composedFabric(tool: ToolBoxInternals, theme: ThemeLike, options: Codem
     cache.output === output &&
     cache.script === state.script &&
     cache.outputOpen === state.output &&
-    cache.expanded === expanded &&
     cache.icons === options.icons &&
     cache.revision === revision &&
     cache.width === options.width &&
@@ -783,12 +784,13 @@ function composedFabric(tool: ToolBoxInternals, theme: ThemeLike, options: Codem
   ) {
     return cache.value;
   }
+  const { bashResultLines, diffLines } = toolOptions.get();
   const value = composeFabricBody({
     args: tool.args,
     details,
     output,
-    expanded,
-    diffLines: toolOptions.get().diffLines,
+    diffLines,
+    outputLines: bashResultLines,
     state,
     theme,
     options,
@@ -799,7 +801,6 @@ function composedFabric(tool: ToolBoxInternals, theme: ThemeLike, options: Codem
     output,
     script: state.script,
     outputOpen: state.output,
-    expanded,
     icons: options.icons,
     revision,
     width: options.width,

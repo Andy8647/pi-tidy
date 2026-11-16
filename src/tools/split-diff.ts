@@ -44,6 +44,11 @@ export interface SplitDiffInput {
    * whole rest of the row is the line, indentation included.
    */
   numbered?: boolean;
+  /**
+   * Whether the footer may say how to see the rest (default true). A nested
+   * diff has no expansion of its own: the tree it hangs in does not open it.
+   */
+  hint?: boolean;
 }
 
 export interface SplitDiffOutput {
@@ -572,14 +577,12 @@ export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
   }
 
   if (window.below > 0) {
-    const hint = keyHint("app.tools.expand", "to expand");
     const total = rows.length;
-    lines.push(
-      pad(
-        `${" ".repeat(PAD)}${label(`… (${window.below} more line${window.below === 1 ? "" : "s"}, ${total} total,`)} ${hint}${label(")")}`,
-        width,
-      ),
-    );
+    const rest = `… (${window.below} more line${window.below === 1 ? "" : "s"}, ${total} total`;
+    // A diff nothing can open says so by closing here: a keybinding that does
+    // nothing is worse than no keybinding at all.
+    const hint = input.hint === false ? `${rest})` : `${rest}, ${keyHint("app.tools.expand", "to expand")})`;
+    lines.push(pad(`${" ".repeat(PAD)}${label(hint)}`, width));
   }
 
   return { lines, bgRows };

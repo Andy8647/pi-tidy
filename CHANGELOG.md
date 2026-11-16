@@ -15,7 +15,9 @@ records a wrapper can keep — pi's `codemode` `details.calls` and fabric's `det
 list, whatever the tool is called. The folded row names what ran (`fabric_exec bash×2 read×1 edit×1`), the group
 summary counts it through (`fabric_exec×1 (bash×2 read×1 edit×1)`), and opening the box draws one row per call, with
 the program and the output folded to one row each. A nested `edit` keeps the diff it wrote under its own row, in the
-same panes an `edit` box uses, and a failed call keeps its error under its row.
+same panes an `edit` box uses — a window of `diffLines` rows, with the rest counted, the way an `edit` box shows a
+long diff — and a failed call keeps its error under its row. A call's own output keeps `bashResultLines` rows and
+counts what it left.
 
 Fabric's routine internal calls (the `native.load` it uses to bring a provider's tools into scope) are left out, as
 fabric's own card leaves them out. A session reloaded from disk still lists the calls — the arguments are kept — but

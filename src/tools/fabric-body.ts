@@ -9,6 +9,7 @@
  * and a nested `edit` keeps the diff it wrote under its own row.
  */
 
+import { shortenPath } from "../draw/frame-draw.ts";
 import type { ThemeLike } from "../theme-access.ts";
 import {
   alignCallRows,
@@ -31,8 +32,6 @@ const QUIET_RESULT = new Set(["edit", "write"]);
 const DETAIL_INDENT = 2;
 /** Cells a failed call's text hangs in: the width of pi's own error block. */
 const ERROR_INDENT = 4;
-/** Rows of a call's own output an expanded box draws. */
-const OUTPUT_LINES_MAX = 200;
 
 export interface FabricBodyInput {
   /** The call's arguments: the program, and any payloads it refers to. */
@@ -41,10 +40,14 @@ export interface FabricBodyInput {
   details: unknown;
   /** The text the program returned to the model. */
   output: string;
-  /** Whether the box itself is expanded: diffs and output rows follow it. */
-  expanded: boolean;
-  /** Rows a nested diff may take while the box is not expanded. */
+  /**
+   * Rows a nested diff may take. Opening a call to read its list must not put a
+   * four-hundred-line rewrite on screen, and the diff's own header row already
+   * says how big it was: a window is the same one an edit box shows collapsed.
+   */
   diffLines: number;
+  /** Rows of a call's own output to keep under its row, the way a bash box keeps `bashResultLines` of its own. */
+  outputLines: number;
   /** Which of the two folds the reader opened. */
   state: CodemodeSections;
   theme: ThemeLike;
@@ -65,9 +68,16 @@ function programLines(args: unknown): string[] {
   return trimmed.trim() ? trimmed.split("\n") : [];
 }
 
+/**
+ * Calls a progress update left out to stay bounded, minus the internal plumbing
+ * among them: fabric's own card subtracts the same ones, and a count that
+ * disagreed with the rows above it would read as a bug.
+ */
 function omittedCount(details: unknown): number {
-  const count = fields(fields(details)?.omittedCalls)?.count;
-  return typeof count === "number" && count > 0 ? count : 0;
+  const omitted = fields(fields(details)?.omittedCalls);
+  const count = typeof omitted?.count === "number" ? omitted.count : 0;
+  const internal = typeof omitted?.internal === "number" ? omitted.internal : 0;
+  return Math.max(0, count - internal);
 }
 
 /** One row per line, hanging `cells` in from the row above it. */
@@ -85,9 +95,8 @@ function painted(lines: readonly string[], cells: number, theme: ThemeLike, toke
  * pi's unified diff, coloured the way an edit box colours it: what a nested
  * edit gets on a box too narrow for the side-by-side panes.
  */
-function unifiedDiff(diff: string, theme: ThemeLike, maxLines: number | undefined): string[] {
-  const lines = diff.split("\n");
-  return (maxLines === undefined ? lines : lines.slice(0, maxLines)).map((line) =>
+function unifiedDiff(diff: string, theme: ThemeLike, maxLines: number): string[] {
+  return diff.split("\n").slice(0, maxLines).map((line) =>
     theme.fg(line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "toolDiffContext", line || " "),
   );
 }
@@ -96,7 +105,7 @@ function unifiedDiff(diff: string, theme: ThemeLike, maxLines: number | undefine
 function diffRows(call: NestedCall, input: FabricBodyInput): string[] {
   const diff = call.diff;
   if (!diff) return [];
-  const maxLines = input.expanded ? undefined : input.diffLines;
+  const maxLines = Math.max(1, input.diffLines);
   const path = fields(call.args)?.path;
   const width = input.options.width;
   const split = width === undefined
@@ -106,10 +115,38 @@ function diffRows(call: NestedCall, input: FabricBodyInput): string[] {
         width: Math.max(1, width - DETAIL_INDENT),
         theme: input.theme,
         ...(typeof path === "string" ? { filePath: path } : {}),
-        ...(maxLines === undefined ? {} : { maxLines }),
+        maxLines,
+        hint: false,
       });
   // The panes carry their own colours and tints: only the fallback needs one.
   return indent(split?.lines ?? unifiedDiff(diff, input.theme, maxLines), DETAIL_INDENT);
+}
+
+/** A call's arguments as a record: every paper trail here records an object. */
+type CallArgs = Record<string, unknown>;
+
+/** The call's arguments with `$HOME` shortened: a project path eats a row otherwise. */
+function rowArgs(args: unknown): CallArgs {
+  const record = fields(args) ?? {};
+  const path = record.path;
+  if (typeof path !== "string") return record;
+  const short = shortenPath(path);
+  return short === path ? record : { ...record, path: short };
+}
+
+/**
+ * What a call produced, as many rows as a bash box keeps of its own output, and
+ * a count of what the window left out: a `read` of a long file is one row here,
+ * not the file.
+ */
+function outputRows(output: string, input: FabricBodyInput): string[] {
+  // The trailing newline a tool's output ends with is not a line: counted, the
+  // row would promise one more than the note beside it does.
+  const lines = output.replace(/\s+$/, "").split("\n");
+  const keep = Math.max(1, input.outputLines);
+  const rows = painted(lines.slice(0, keep), DETAIL_INDENT, input.theme, "toolOutput");
+  if (lines.length > keep) rows.push(...painted([`… ${plural(lines.length - keep, "more line")}`], DETAIL_INDENT, input.theme, "dim"));
+  return rows;
 }
 
 /**
@@ -122,13 +159,13 @@ function diffRows(call: NestedCall, input: FabricBodyInput): string[] {
  * something there.
  */
 function callRows(calls: readonly NestedCall[], input: FabricBodyInput): string[] {
-  const { theme, options, expanded } = input;
+  const { theme, options } = input;
   const built: Array<{ row: string; under: string[] }> = [];
   for (const call of calls) {
     const [row] = formatToolRows(
       {
         toolName: call.name,
-        args: call.args,
+        args: rowArgs(call.args),
         isPartial: call.status === "running",
         result: {
           isError: call.status === "error",
@@ -143,8 +180,8 @@ function callRows(calls: readonly NestedCall[], input: FabricBodyInput): string[
     if (call.status === "error" && call.error) under.push(...painted(call.error.split("\n"), ERROR_INDENT, theme, "error"));
     under.push(...diffRows(call, input));
     // A call that failed already says why; a report about the call says nothing.
-    if (expanded && call.output && call.status !== "error" && !QUIET_RESULT.has(call.name)) {
-      under.push(...painted(call.output.split("\n").slice(0, OUTPUT_LINES_MAX), DETAIL_INDENT, theme, "toolOutput"));
+    if (call.output && call.status !== "error" && !QUIET_RESULT.has(call.name)) {
+      under.push(...outputRows(call.output, input));
     }
     built.push({ row: row!, under });
   }

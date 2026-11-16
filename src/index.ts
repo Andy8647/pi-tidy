@@ -343,6 +343,7 @@ export default function (pi: ExtensionAPI): void {
       thinkingColor: config.thinkingColor,
       highlightBash: config.highlightBash,
       toolRowLines: config.toolRowLines,
+      bashResultLines: config.bashResultLines,
     });
     // Live job updates (pi-processes broadcasts on the shared extension bus).
     connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);

@@ -263,3 +263,57 @@ test("a failed call keeps its error under its row, in red", () => {
   assert.ok(row >= 0, body);
   assert.ok(lines[row + 1]!.includes("no such file"), body);
 });
+
+test("a long diff keeps to the diff rows, and says how many it left", () => {
+  resetGroups();
+  const lines = Array.from({ length: 40 }, (_, i) => `+${i + 2} added ${i}`);
+  const big = [
+    {
+      ref: "pi.edit",
+      tool: "edit",
+      provider: "pi",
+      success: true,
+      args: { path: "/tmp/a.ts" },
+      result: { ok: true, output: "ok", details: { diff: ` 1 head\n-${2} gone\n${lines.join("\n")}` } },
+      startedAt: 1,
+      endedAt: 2,
+    },
+  ];
+  const chat = transcript({ audits: big, text: "done" });
+  openBox(chat);
+  const body = frame(chat).join("\n");
+  assert.match(body, /\(\d+ more lines, \d+ total\)/, body);
+  // Nothing here can open the rest, so no keybinding is promised.
+  assert.ok(!body.includes("to expand"), body);
+});
+
+test("a call's own output keeps a row and counts the rest", () => {
+  resetGroups();
+  const noisy = [
+    {
+      ref: "pi.bash",
+      tool: "bash",
+      provider: "pi",
+      success: true,
+      args: { command: "list" },
+      result: { ok: true, output: "alpha\nbravo\ncharlie\ndelta\necho\n" },
+      startedAt: 1,
+      endedAt: 2,
+    },
+  ];
+  const chat = transcript({ audits: noisy, text: "done" });
+  openBox(chat);
+  const body = frame(chat).join("\n");
+  assert.ok(body.includes("list"), body);
+  assert.ok(body.includes("alpha"), "the first row is kept");
+  assert.ok(!body.includes("bravo"), "the tail is not");
+  assert.ok(body.includes("4 more lines"), body);
+});
+
+test("calls fabric dropped from the record are counted without its own plumbing", () => {
+  resetGroups();
+  const chat = transcript({ audits: [], text: "done", extra: { omittedCalls: { count: 7, done: 7, failed: 0, internal: 3 } } });
+  openBox(chat);
+  const body = frame(chat).join("\n");
+  assert.ok(body.includes("… 4 more calls"), body);
+});
