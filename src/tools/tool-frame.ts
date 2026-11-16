@@ -29,6 +29,7 @@ import {
   type CodemodeToggle,
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
+import { composeFabricBody } from "./fabric-body.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
@@ -134,16 +135,31 @@ interface ToolBoxInternals extends GroupedTool {
     call: string[];
     value: { raw: string[]; bgRows: ReadonlySet<number> } | undefined;
   };
-  /** Row indices of the codemode fold labels in the last framed body. */
+  /** Row indices of a call list's fold labels in the last framed body. */
   __codemodeToggles?: CodemodeToggle[];
-  /** A framed codemode box's fold rows, in its own output rows; unset for every other box. */
+  /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
-  /** The last composed codemode body, and what it was composed from. */
+  /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
   __codemodeComposed?: {
     body: string[];
     details: unknown;
     script: boolean;
     output: boolean;
+    revision: number;
+    width: number | undefined;
+    hovered: string | undefined;
+    sample: string;
+    value: ComposedCodemodeBody;
+  };
+  /** The last composed fabric body, and what it was composed from. */
+  __fabricComposed?: {
+    args: unknown;
+    details: unknown;
+    output: string;
+    script: boolean;
+    outputOpen: boolean;
+    expanded: boolean;
+    icons: boolean;
     revision: number;
     width: number | undefined;
     hovered: string | undefined;
@@ -285,9 +301,29 @@ function finishBox(box: ToolBoxInternals, rows: string[], theme: ThemeLike): str
   return withCopyChip(box, rows, theme);
 }
 
-/** A codemode box drawn in a frame of its own: grouping off, or codemode in `alwaysShowTools`. */
-const framedCodemode = (tool: ToolBoxInternals) =>
+/** A call-list box drawn in a frame of its own: grouping off, or its tool in `alwaysShowTools`. */
+const framedCallList = (tool: ToolBoxInternals) =>
   tidyEnabled.get() && (!toolOptions.get().groupTools || toolOptions.get().alwaysShow.has(tool.toolName));
+
+/** A tool whose body is the calls it made, and which record those calls are in. */
+type CallListKind = "codemode" | "fabric";
+
+const CALL_LIST_TOOLS = new Map<string, CallListKind>([
+  ["codemode", "codemode"],
+  ["fabric_exec", "fabric"],
+]);
+
+/**
+ * Whether this box reads as a call list, and which body draws it.
+ *
+ * `codemode` was the first: pi draws a script's calls as rows inside the result,
+ * so tidy decorates that text. pi-fabric's `fabric_exec` keeps its calls in
+ * `details.audits` and draws nothing for tidy here, so its body is built from the
+ * record instead (fabric-body.ts) — including the diff of a nested `edit`.
+ */
+function callListKind(tool: ToolBoxInternals): CallListKind | undefined {
+  return CALL_LIST_TOOLS.get(tool.toolName);
+}
 
 /** The component pi routes a box's clicks through (its result MouseRegions live inside). */
 function mouseTarget(tool: ToolBoxInternals): MouseTarget | undefined {
@@ -469,11 +505,11 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
       }
       noteSetExpanded(this, expanded, pointerDepth > 0);
     }
-    // A framed codemode box draws its call list whatever pi's flag says (see
-    // fullCodemodeBody), so what expanding opens there is the script and the
+    // A framed call list draws its rows whatever pi's flag says (see
+    // fullCodemodeBody), so what expanding opens there is the program and the
     // output: ctrl+o shows everything, and a click on the box does the same for
     // that one box. Its fold rows still open one section at a time.
-    if (this.toolName === "codemode" && framedCodemode(this)) {
+    if (callListKind(this) && framedCallList(this)) {
       const sections = codemodeSections(this);
       sections.script = expanded;
       sections.output = expanded;
@@ -709,28 +745,103 @@ function composedCodemode(
   return value;
 }
 
+/** The text blocks of a result, joined: what the model was handed. */
+function resultText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: "text"; text: string } => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n");
+}
+
 /**
- * A framed codemode box as a call list: the row a group would show for it
- * (`✓ codemode bash×2 read×1 · 0.1s`) in place of pi's title, then the calls,
- * with the script and the output folded to one row each. The row is handed
+ * `composeFabricBody`, kept per box. Same reason as the codemode body: every
+ * open box is composed on every frame, and a nested diff re-highlights every
+ * changed line of itself when it is rebuilt.
+ */
+function composedFabric(tool: ToolBoxInternals, theme: ThemeLike, options: CodemodeBodyOptions): ComposedCodemodeBody {
+  const state = codemodeSections(tool);
+  const details = tool.result?.details;
+  const output = resultText(tool.result?.content);
+  const sample = theme.fg("accent", "x");
+  const revision = optionsRevision();
+  const expanded = tool.expanded === true;
+  const cache = tool.__fabricComposed;
+  if (
+    cache &&
+    cache.args === tool.args &&
+    cache.details === details &&
+    cache.output === output &&
+    cache.script === state.script &&
+    cache.outputOpen === state.output &&
+    cache.expanded === expanded &&
+    cache.icons === options.icons &&
+    cache.revision === revision &&
+    cache.width === options.width &&
+    cache.hovered === options.hovered &&
+    cache.sample === sample
+  ) {
+    return cache.value;
+  }
+  const value = composeFabricBody({
+    args: tool.args,
+    details,
+    output,
+    expanded,
+    diffLines: toolOptions.get().diffLines,
+    state,
+    theme,
+    options,
+  });
+  tool.__fabricComposed = {
+    args: tool.args,
+    details,
+    output,
+    script: state.script,
+    outputOpen: state.output,
+    expanded,
+    icons: options.icons,
+    revision,
+    width: options.width,
+    hovered: options.hovered,
+    sample,
+    value,
+  };
+  return value;
+}
+
+/**
+ * A framed call list: the row a group would show for the call
+ * (`✓ codemode bash×2 read×1 · 0.1s`) in place of pi's title, then its rows,
+ * with the program and the output folded to one row each. The row is handed
  * back apart from the body: every other framed tool puts its title in the top
  * border, and this one had no title of its own to put there. Undefined keeps
  * pi's layout: no renderer to draw it again, or nothing to fold yet (the
  * script is still streaming, or the output cannot be told from the calls).
  */
-function composeFramedCodemode(
+function composeFramedCallList(
   tool: ToolBoxInternals,
+  kind: CallListKind,
   w: number,
   theme: ThemeLike,
   icons: boolean,
 ): { title: string; lines: string[]; toggles: CodemodeToggle[] } | undefined {
   const width = w - 2;
-  const body = fullCodemodeBody(tool, width, theme);
-  if (!body) return undefined;
   // The rules and the title stop a cell short of the right border: pi's rows
   // keep a cell of padding there, as they do on the left.
-  const composed = composedCodemode(tool, body, theme, { icons, width: width - 1, hovered: codemodeHover(tool) });
-  if (composed.toggles.length === 0) return undefined;
+  const options = { icons, width: width - 1, hovered: codemodeHover(tool) };
+  let composed: ComposedCodemodeBody;
+  if (kind === "fabric") {
+    composed = composedFabric(tool, theme, options);
+  } else {
+    const body = fullCodemodeBody(tool, width, theme);
+    if (!body) return undefined;
+    composed = composedCodemode(tool, body, theme, options);
+  }
+  // A codemode list is only worth drawing once its script can be told from its
+  // output; fabric's rows are built from the record, so they stand on their own.
+  if (kind === "codemode" && composed.toggles.length === 0) return undefined;
+  if (composed.lines.length === 0) return undefined;
   // The title reads the result, which the body was drawn from: a new result is
   // a new body, and so a new composition.
   const revision = optionsRevision();
@@ -781,26 +892,27 @@ function composeFramedCodemode(
     // fold to one row each (they open on click, see tool-group-view.ts), and
     // every row sits one rail deeper than the call it belongs to. In a frame of
     // its own it is the same list, under the row a group would show for it.
-    const codemode = this.toolName === "codemode";
-    const collapse = codemode && unframed;
-    const listed = codemode && !unframed ? composeFramedCodemode(this, w, theme, icons) : undefined;
+    const kind = callListKind(this);
+    const collapse = kind !== undefined && unframed;
+    const listed = kind !== undefined && !unframed ? composeFramedCallList(this, kind, w, theme, icons) : undefined;
     const railCells = collapse ? 2 : 0;
     const codemodeRows: CodemodeToggle[] = [];
+    const listOptions: CodemodeBodyOptions = { icons, width: sourceWidth - railCells, hovered: codemodeHover(this) };
     let raw: string[];
     if (collapse) {
-      const body = source.render(sourceWidth - railCells);
-      const composed = composedCodemode(this, body, theme, {
-        icons,
-        width: sourceWidth - railCells,
-        hovered: codemodeHover(this),
-      });
+      // fabric's rows are built from the record it kept, so pi's never have to
+      // be drawn; codemode's are pi's own rows, so they are drawn a second time
+      // at full length (see fullCodemodeBody).
+      const composed = kind === "fabric"
+        ? composedFabric(this, theme, listOptions)
+        : composedCodemode(this, source.render(sourceWidth - railCells), theme, listOptions);
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
       codemodeRows.push(...composed.toggles);
     } else if (listed) {
       raw = listed.lines;
     } else {
-      raw = codemode
+      raw = kind === "codemode"
         ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons, width: sourceWidth })
         : split
           ? split.raw
