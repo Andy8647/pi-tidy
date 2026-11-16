@@ -142,7 +142,9 @@ interface ToolBoxInternals extends GroupedTool {
   /** Rows of a call list's body whose fill belongs to the content (a nested diff). */
   __callListFills?: ReadonlySet<number>;
   /** The boxes a wrapper's promoted calls drew last (a fabric edit's diff). */
-  __promotedBoxes?: { calls: NestedCall[]; width: number; revision: number; theme: ThemeLike; rows: string[] };
+  __promotedBoxes?: { details: unknown; width: number; revision: number; theme: ThemeLike; rows: string[]; height: number };
+  /** Rows this component drew itself last, before the promoted boxes were appended. */
+  __lastOwnRows?: number;
   /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
   /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
@@ -487,6 +489,14 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
+    // The promoted boxes hang below this component's own rows and answer no
+    // click of their own: a packet on one must not fall through to the
+    // wrapper's box mouse, which would fold the list the reader is looking at.
+    const promoted = this.__promotedBoxes;
+    if (promoted && typeof event?.y === "number") {
+      const own = this.__lastOwnRows ?? 0;
+      if (event.y >= own && event.y < own + promoted.height) return undefined;
+    }
     // Before the rail is discounted and before a group gets its say: the chip is the one
     // cell range of the box that copies instead of opening, wherever the row came from.
     const chip = pathChipMouse.call(this, event);
@@ -880,21 +890,31 @@ function composeFramedCallList(
  * their own and no click of their own either.
  */
 function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike): string[] {
-  if (!mergesNestedCalls(tool.toolName)) return [];
-  const calls = nestedCallsOf(tool.result?.details).filter(isPromotedCall);
-  if (calls.length === 0) return [];
+  if (!mergesNestedCalls(tool.toolName)) {
+    tool.__promotedBoxes = undefined;
+    return [];
+  }
+  const details = tool.result?.details;
   const revision = optionsRevision();
   const cache = tool.__promotedBoxes;
-  if (cache && cache.calls.length === calls.length && cache.calls.every((call, i) => call === calls[i]) &&
-      cache.width === w && cache.revision === revision && cache.theme === theme) {
+  // The details object is the record's identity: pi hands the same one back
+  // until a new result lands, and the calls read from it cannot change without
+  // it. Comparing the parsed calls instead would miss every time — the reader
+  // builds fresh objects on every frame.
+  if (cache && cache.details === details && cache.width === w && cache.revision === revision && cache.theme === theme) {
     return cache.rows;
+  }
+  const calls = nestedCallsOf(details).filter(isPromotedCall);
+  if (calls.length === 0) {
+    tool.__promotedBoxes = undefined;
+    return [];
   }
   const { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
   const rows: string[] = [];
   for (const call of calls) {
     rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }));
   }
-  tool.__promotedBoxes = { calls, width: w, revision, theme, rows };
+  tool.__promotedBoxes = { details, width: w, revision, theme, rows, height: rows.length };
   return rows;
 }
 
@@ -1223,9 +1243,15 @@ function promotedCallBox(
       const railed = railTurnTool(this.toolCallId);
       const w = Math.max(4, railed ? width - TURN_RAIL_CELLS : width);
       // A wrapper's promoted calls draw as boxes of their own, below whatever
-      // this box drew — folded or open, the change itself stays visible.
-      const promoted = promotedCallBoxes(this, w, theme);
-      const withPromoted = (rows: string[]): string[] => promoted.length === 0 ? rows : [...rows, ...promoted];
+      // this box drew — folded or open, the change itself stays visible. On a
+      // turn's rail they hang on it too: the rail runs down everything the run
+      // drew, and a box outside it would read as a stranger's.
+      const withPromoted = (rows: string[], boxWidth: number, railPad?: string): string[] => {
+        this.__lastOwnRows = rows.length;
+        const promoted = promotedCallBoxes(this, boxWidth, theme);
+        if (promoted.length === 0) return rows;
+        return [...rows, ...(railPad === undefined ? promoted : railRows(promoted, theme, railPad))];
+      };
       if (grouping()) {
         const { icons, alwaysShow, highlightBash, toolRowLines } = toolOptions.get();
         const grouped = renderGroupedTool(
@@ -1237,16 +1263,17 @@ function promotedCallBox(
         );
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
-          return finishBox(this, withPromoted(railed ? railRows(grouped, theme) : grouped), theme);
+          return finishBox(this, railed ? withPromoted(railRows(grouped, theme), w, "") : withPromoted(grouped, w), theme);
         }
       }
-      if (!railed) return finishBox(this, withPromoted(frameBox.call(this, w, theme)), theme);
+      if (!railed) return finishBox(this, withPromoted(frameBox.call(this, w, theme), w), theme);
       this.__railCells = TURN_RAIL_BOX_CELLS;
-      const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
+      const boxWidth = Math.max(4, width - TURN_RAIL_BOX_CELLS);
+      const box = frameBox.call(this, boxWidth, theme);
       // On the rail a box's corner sits in its neighbouring groups' rail column. With
       // grouping off nothing has registered, so there is nothing to meet.
       const { above, below } = pinnedJoints(this);
-      return finishBox(this, withPromoted(railRows(joinBoxCorners(box, above, below), theme, " ")), theme);
+      return finishBox(this, withPromoted(railRows(joinBoxCorners(box, above, below), theme, " "), boxWidth, " "), theme);
     } catch {
       this.__frameGeometry = undefined;
       measurePathChip(this, []);

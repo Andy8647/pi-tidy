@@ -359,3 +359,63 @@ test("the promoted edit's box keeps the tint of its diff", () => {
   const rows = chat.render(W);
   assert.ok(tint(rows) > 0, "the changed rows keep their fill:\n" + rows.map(strip).join("\n"));
 });
+
+test("a settled promoted box comes from the cache, not a rebuild", () => {
+  resetGroups();
+  const chat = transcript();
+  chat.render(W); // settle
+  const before = (chat as any).children?.[1]?.__promotedBoxes?.rows;
+  assert.ok(before, "the wrapper cached its promoted rows");
+  chat.render(W);
+  chat.render(W);
+  const after = (chat as any).children?.[1]?.__promotedBoxes?.rows;
+  assert.equal(after, before, "the same array: a settled box costs one key check");
+});
+
+test("clicking a promoted box does not fold the wrapper it belongs to", () => {
+  resetGroups();
+  const chat = transcript();
+  openBox(chat);
+  const lines = frame(chat);
+  const at = lines.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
+  assert.ok(at >= 0, lines.join("\n"));
+  chat.handleMouse({ type: "click", button: "left", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: lines.length } as any);
+  const after = frame(chat).join("\n");
+  assert.ok(after.includes("▸ script"), "the wrapper's list stays open:\n" + after);
+});
+
+test("on an open turn's rail, the promoted box hangs on the rail too", async () => {
+  const { TurnStore, turnOptions, turnStore, expandTurnForTool } = await import("../src/turns/turn-state.ts");
+  const { UserMessageComponent } = await import("@earendil-works/pi-coding-agent");
+  resetGroups();
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: true, icons: false });
+  try {
+    const store = new TurnStore();
+    turnStore.set(store);
+    store.begin(1000);
+    const user = { role: "user", timestamp: 1000, content: "go" } as any;
+    const call = fabric();
+    const step = { role: "assistant", timestamp: 1100, provider: "p", model: "m", stopReason: "toolUse", content: [{ type: "toolCall", id: call.id, name: "fabric_exec", arguments: {} }] } as any;
+    const result = { role: "toolResult", toolCallId: call.id, toolName: "fabric_exec", timestamp: 1200, isError: false, content: [{ type: "text", text: "out" }], details: details() } as any;
+    const final = { role: "assistant", timestamp: 1300, provider: "p", model: "m", stopReason: "stop", content: [{ type: "text", text: "done" }] } as any;
+    const chat = new Container();
+    chat.addChild(new UserMessageComponent("go"));
+    chat.addChild(new AssistantMessageComponent(step, true));
+    chat.addChild(call.component);
+    chat.addChild(new AssistantMessageComponent(final, true));
+    for (const m of [user, step, result, final]) store.note(m, true);
+    store.settle(false, 1800);
+    expandTurnForTool(call.id, true);
+    let rows: string[] = [];
+    for (let i = 0; i < 5; i++) rows = frame(chat);
+    const at = rows.findIndex((line) => line.includes("╭─") && line.includes("edit"));
+    assert.ok(at >= 0, rows.join("\n"));
+    assert.ok(rows[at]!.startsWith("│"), "the box hangs on the turn's rail:\n" + rows.join("\n"));
+    // Every row of the box, down to its bottom border.
+    const end = rows.findIndex((line, i) => i > at && line.includes("╰"));
+    for (let i = at; i <= end; i++) assert.ok(rows[i]!.startsWith("│"), rows[i]);
+  } finally {
+    turnOptions.set({ ...turnOptions.get(), collapseTurns: "off" });
+    resetGroups();
+  }
+});
