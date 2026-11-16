@@ -1,6 +1,7 @@
 import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
 import { nestedBreakdown, type BreakdownEntry } from "../tools/tool-groups.ts";
+import { nestedCallsOf } from "../tools/nested-calls.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type FinalReplyStyle = "frame" | "rail" | "rules" | "off";
@@ -94,9 +95,13 @@ function add(turn: Turn, key: string, message: TurnMessage): void {
     }
   } else if (message.role === "toolResult" && message.toolCallId) {
     const previous = turn.tools.get(message.toolCallId);
-    const calls = message.nestedCalls?.calls ?? (message.toolName === "codemode" ? message.details?.calls : undefined);
-    const nestedFailed = Array.isArray(calls) ? calls.filter((call) => call.status === "error").length : 0;
-    const nested = message.toolName === "codemode" ? nestedBreakdown(message.details) : [];
+    // pi's own record of the calls a tool made, or the wrapper's when it keeps
+    // one: either way this is the only place a nested failure is counted.
+    const recorded = message.nestedCalls?.calls;
+    const nestedFailed = Array.isArray(recorded)
+      ? recorded.filter((call) => call.status === "error").length
+      : nestedCallsOf(message.details).filter((call) => call.status === "error").length;
+    const nested = nestedBreakdown(message.details);
     turn.tools.set(message.toolCallId, {
       name: message.toolName ?? previous?.name ?? "tool",
       args: previous?.args,

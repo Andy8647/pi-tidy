@@ -12,6 +12,7 @@ import { paint } from "../draw/paint.ts";
 import type { ThemeLike } from "../theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
 import { nestedBreakdown, type GroupSummary } from "./tool-groups.ts";
+import { nestedCallsOf } from "./nested-calls.ts";
 
 export interface LineOptions {
   /** Prepend each tool's Nerd Font kind icon. */
@@ -277,7 +278,7 @@ function splitAtCells(text: string, cells: number): { first: string; second: str
     : { first: plain, second: text.slice(plain.length), gap: 0 };
 }
 
-/** A `codemode` script's nested calls, counted by tool. */
+/** A wrapper's nested calls, counted by tool. */
 export interface NestedCallSummary {
   /** `bash×3 read×1` — empty when the script called no tools. */
   kinds: string;
@@ -286,19 +287,19 @@ export interface NestedCallSummary {
 }
 
 /**
- * The nested tool calls of a `codemode` script, from `result.details.calls`.
+ * The nested tool calls a wrapper recorded on its result.
  *
- * A script's calls are not tool rows: they never reach the model as calls, so
- * pi keeps them as `{ name, status, durationMs, error }` records on the parent
- * result instead of components. Nothing else in the transcript counts them, so
- * the folded row is the only place a glance can see what a script ran.
+ * Those calls are not tool rows: they never reach the model as calls, so the
+ * wrapper keeps them as records on the parent result instead of components —
+ * pi's `codemode` as `details.calls`, pi-fabric's `fabric_exec` as
+ * `details.audits` (see nested-calls.ts). Nothing else in the transcript counts
+ * them, so the folded row is the only place a glance can see what a program ran.
  */
 export function summarizeNestedCalls(details: unknown): NestedCallSummary {
-  const calls = (details as { calls?: unknown } | undefined)?.calls;
-  if (!Array.isArray(calls) || calls.length === 0) return { kinds: "", failed: 0, total: 0 };
-  const lost = calls as Array<{ status?: unknown }>;
+  const calls = nestedCallsOf(details);
+  if (calls.length === 0) return { kinds: "", failed: 0, total: 0 };
   const kinds = nestedBreakdown(details).map(({ name, count }) => `${name}×${count}`).join(" ");
-  const failed = lost.filter((call) => call?.status === "error" || call?.status === "cancelled").length;
+  const failed = calls.filter((call) => call.status === "error" || call.status === "cancelled").length;
   return { kinds, failed, total: calls.length };
 }
 
@@ -398,10 +399,10 @@ export function formatToolRows(tool: ToolLike, theme: ThemeLike, options: LineOp
   // on every row, whatever the name's length (see groupAlign). The kind icon is
   // the same width on every row, so only the word is padded.
   const head = rowHead(status, theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`), tool.toolName, options.align);
-  // A codemode script's “arguments” are its source, which the open box already
-  // shows. What a folded row is missing is what the script ran: the nested
-  // calls take the arguments' place instead of the script's first line.
-  const nested = tool.toolName === "codemode" ? summarizeNestedCalls(tool.result?.details) : undefined;
+  // A wrapper's “arguments” are its program, which the open box already shows.
+  // What a folded row is missing is what the program ran: the nested calls take
+  // the arguments' place instead of the script's first line.
+  const nested = summarizeNestedCalls(tool.result?.details);
   const { text, suffix, rest } = nested?.kinds ? { text: nested.kinds, suffix: "", rest: [] } : argParts(tool.args);
 
   // `  12 lines · 0.3s` — what it produced, then how long it took.

@@ -33,6 +33,7 @@
 
 import type { JobStatus } from "./background-jobs.ts";
 import { agentRunning, groupOpen } from "../live.ts";
+import { nestedCallsOf } from "./nested-calls.ts";
 
 export interface GroupMember {
   toolName: string;
@@ -72,20 +73,20 @@ function sortedCounts(counts: Map<string, number>): BreakdownEntry[] {
 }
 
 /**
- * What a script's own calls were, as counts.
+ * What a wrapper's own calls were, as counts.
  *
- * A `codemode` call's nested calls never reach the model as calls of their own:
- * pi keeps them as `{ name, status }` records on the parent's result. The parent
- * row already shows them in place of its arguments, but a summary that counted
- * `codemode×2` and stopped there hid everything those two scripts ran.
+ * Those calls never reach the model as calls of their own: the wrapper keeps
+ * them as a record on the parent's result (nested-calls.ts reads both shapes).
+ * The parent row already shows them in place of its arguments, but a summary
+ * that counted `codemode×2` and stopped there hid everything those scripts ran,
+ * and a `fabric_exec` that ran three tools read as a single call.
  */
 export function nestedBreakdown(details: unknown): BreakdownEntry[] {
-  const calls = (details as { calls?: unknown } | undefined)?.calls;
-  if (!Array.isArray(calls) || calls.length === 0) return [];
+  const calls = nestedCallsOf(details);
+  if (calls.length === 0) return [];
   const counts = new Map<string, number>();
-  for (const call of calls as Array<{ name?: unknown }>) {
-    const name = typeof call?.name === "string" && call.name ? call.name : "call";
-    const kind = toolKindName(name);
+  for (const call of calls) {
+    const kind = toolKindName(call.name);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   return sortedCounts(counts);
