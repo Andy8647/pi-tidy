@@ -314,9 +314,9 @@ test("a long diff keeps to the diff rows, and says how many it left", () => {
     },
   ];
   const body = frame(transcript({ audits: big, text: "done" })).join("\n");
-  assert.match(body, /\(\d+ more lines, \d+ total\)/, body);
-  // Nothing here can open the rest, so no keybinding is promised.
-  assert.ok(!body.includes("to expand"), body);
+  assert.match(body, /\(\d+ more lines, \d+ total,/, body);
+  // The box opens on a click now, so the footer may promise the keybinding.
+  assert.ok(body.includes("to expand"), body);
 });
 
 test("a call's own output keeps a row and counts the rest", () => {
@@ -444,4 +444,102 @@ test("a long error on a promoted edit is windowed too", () => {
   assert.ok(body.includes("error line 0"), body);
   assert.ok(!body.includes("error line 25"), "the tail is windowed away:\n" + body);
   assert.ok(body.includes("more lines"), body);
+});
+
+test("clicking a promoted write box opens its whole content, and clicking again shuts it", () => {
+  resetGroups();
+  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
+  const wrote = [
+    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
+  ];
+  const chat = transcript({ audits: wrote, text: "done" });
+  const folded = frame(chat);
+  assert.ok(folded.join("\n").includes("40 more lines"), "starts windowed");
+  const at = folded.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
+  assert.ok(at >= 0, folded.join("\n"));
+  chat.handleMouse({ type: "click", button: "left", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: folded.length } as any);
+  const open = frame(chat).join("\n");
+  assert.ok(open.includes("line 59"), "the whole content is shown:\n" + open.slice(0, 400));
+  assert.ok(!open.includes("more lines"), "no window note while open");
+  // Click again: shut.
+  const openRows = frame(chat);
+  const at2 = openRows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
+  chat.handleMouse({ type: "click", button: "left", x: 10, y: at2 + 2, screenX: 10, screenY: at2 + 2, width: W, height: openRows.length } as any);
+  const shut = frame(chat).join("\n");
+  assert.ok(shut.includes("40 more lines"), "windowed again:\n" + shut.slice(0, 400));
+  assert.ok(!shut.includes("line 59"), "the tail is hidden again");
+});
+
+test("clicking a promoted edit box opens its whole diff", () => {
+  resetGroups();
+  const lines = Array.from({ length: 40 }, (_, i) => `+${i + 2} added ${i}`);
+  const big = [
+    { ref: "pi.edit", tool: "edit", provider: "pi", success: true, args: { path: "/tmp/a.ts" }, result: { ok: true, output: "ok", details: { diff: ` 1 head\n-2 gone\n${lines.join("\n")}` } }, startedAt: 1, endedAt: 2 },
+  ];
+  const chat = transcript({ audits: big, text: "done" });
+  const folded = frame(chat);
+  const at = folded.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
+  chat.handleMouse({ type: "click", button: "left", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: folded.length } as any);
+  const open = frame(chat).join("\n");
+  assert.ok(open.includes("added 39"), "the last changed line is shown:\n" + open.slice(0, 300));
+  assert.ok(!open.includes("more lines"), "no window note while open");
+});
+
+test("ctrl+o opens the promoted boxes with the wrapper, and collapse-all shuts them", () => {
+  resetGroups();
+  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
+  const wrote = [
+    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
+  ];
+  const call = fabric({ audits: wrote, text: "done" });
+  const chat = new Container();
+  chat.addChild(call.component);
+  (call.component as any).setExpanded(true);
+  const open = frame(chat).join("\n");
+  assert.ok(open.includes("line 59"), "expand-all opens the promoted box too:\n" + open.slice(0, 300));
+  (call.component as any).setExpanded(false);
+  const shut = frame(chat).join("\n");
+  assert.ok(shut.includes("40 more lines"), "collapse-all shuts it");
+});
+
+test("opening one promoted box leaves its neighbour shut, and spans follow the growth", () => {
+  resetGroups();
+  const content = Array.from({ length: 80 }, (_, i) => "line " + i).join("\n");
+  const audits = [
+    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
+    ...AUDITS.filter((a) => a.tool === "edit"),
+  ];
+  const chat = transcript({ audits, text: "done" });
+  let rows = frame(chat);
+  const wAt = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
+  chat.handleMouse({ type: "click", button: "left", x: 5, y: wAt + 2, screenX: 5, screenY: wAt + 2, width: W, height: rows.length } as any);
+  rows = frame(chat);
+  assert.ok(rows.join("\n").includes("line 79"), "write open");
+  const eAt = rows.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
+  assert.ok(eAt > wAt, "the edit box follows the taller write box");
+  chat.handleMouse({ type: "click", button: "left", x: 5, y: eAt + 2, screenX: 5, screenY: eAt + 2, width: W, height: rows.length } as any);
+  rows = frame(chat);
+  const wAt2 = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
+  chat.handleMouse({ type: "click", button: "left", x: 5, y: wAt2, screenX: 5, screenY: wAt2, width: W, height: rows.length } as any);
+  assert.ok(frame(chat).join("\n").includes("more lines"), "write shut again");
+});
+
+test("a new record resets which promoted boxes are open", () => {
+  resetGroups();
+  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
+  const wrote = [
+    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
+  ];
+  const call = fabric({ audits: wrote, text: "done" });
+  const chat = new Container();
+  chat.addChild(call.component);
+  let rows = frame(chat);
+  const at = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
+  chat.handleMouse({ type: "click", button: "left", x: 5, y: at + 2, screenX: 5, screenY: at + 2, width: W, height: rows.length } as any);
+  assert.ok(frame(chat).join("\n").includes("line 59"));
+  (call.component as any).updateResult(
+    { content: [{ type: "text", text: "done" }], isError: false, durationMs: 400, details: details(wrote) } as any,
+    false,
+  );
+  assert.ok(frame(chat).join("\n").includes("more lines"), "a new record starts shut");
 });

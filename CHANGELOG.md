@@ -19,7 +19,9 @@ A `fabric_exec` program's calls **join the run's counts**: the group line and th
 with the run's (`codemode` keeps its `codemode×1 (bash×2)` reading). An `edit` or `write` the program made **draws
 as a box of its own**, below the wrapper's row or box, folded or open: the diff in the same panes an `edit` box uses
 (a window of `diffLines` rows, the rest counted, tinted on the changed rows), the write's content as the text it
-wrote, a failure's error in red. Opening the wrapper lists the rest of its calls, with the program and the output
+wrote, a failure's error in red. A click on one of these boxes opens its whole body — the write's full content, the
+edit's full diff — and a second click shuts it again, the way a native edit box toggles; `ctrl+o` opens them with the
+wrapper, and collapse-all shuts them. Opening the wrapper lists the rest of its calls, with the program and the output
 folded to one row each; a call's own output keeps `bashResultLines` rows and counts what it left.
 
 Fabric's routine internal calls (the `native.load` it uses to bring a provider's tools into scope) are left out, as

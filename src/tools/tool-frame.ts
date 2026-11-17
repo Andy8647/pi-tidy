@@ -142,9 +142,21 @@ interface ToolBoxInternals extends GroupedTool {
   /** Rows of a call list's body whose fill belongs to the content (a nested diff). */
   __callListFills?: ReadonlySet<number>;
   /** The boxes a wrapper's promoted calls drew last (a fabric edit's diff). */
-  __promotedBoxes?: { details: unknown; width: number; revision: number; theme: ThemeLike; rows: string[]; height: number };
+  __promotedBoxes?: {
+    details: unknown;
+    width: number;
+    revision: number;
+    theme: ThemeLike;
+    open: string;
+    rows: string[];
+    height: number;
+    /** Each box's rows within the promoted block, so a click finds its box. */
+    spans: Array<{ from: number; to: number }>;
+  };
   /** Rows this component drew itself last, before the promoted boxes were appended. */
   __lastOwnRows?: number;
+  /** Which promoted boxes the reader opened, by call index; reset on a new record. */
+  __promotedOpen?: { details: unknown; open: Set<number> };
   /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
   /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
@@ -489,13 +501,27 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
-    // The promoted boxes hang below this component's own rows and answer no
-    // click of their own: a packet on one must not fall through to the
-    // wrapper's box mouse, which would fold the list the reader is looking at.
+    // The promoted boxes hang below this component's own rows. A left click
+    // on one opens or shuts that box's body — the way a click on a native
+    // edit toggles its diff — and never falls through to the wrapper's box
+    // mouse, which would fold the list the reader is looking at.
     const promoted = this.__promotedBoxes;
     if (promoted && typeof event?.y === "number") {
       const own = this.__lastOwnRows ?? 0;
-      if (event.y >= own && event.y < own + promoted.height) return undefined;
+      const y = event.y - own;
+      if (y >= 0 && y < promoted.height) {
+        const click = event.type === "click" && (event.button === "left" || event.button === 0);
+        if (click) {
+          const index = promoted.spans.findIndex((span) => y >= span.from && y <= span.to);
+          if (index >= 0) {
+            const state = (this.__promotedOpen ??= { details: promoted.details, open: new Set() });
+            if (state.open.has(index)) state.open.delete(index);
+            else state.open.add(index);
+            this.ui?.requestRender?.();
+          }
+        }
+        return undefined;
+      }
     }
     // Before the rail is discounted and before a group gets its say: the chip is the one
     // cell range of the box that copies instead of opening, wherever the row came from.
@@ -536,6 +562,21 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
       const sections = codemodeSections(this);
       sections.script = expanded;
       sections.output = expanded;
+    }
+    // Expand-all opens the promoted boxes with the wrapper; collapse-all shuts
+    // them. A pointer click on the wrapper itself leaves them as they are:
+    // the reader opened them one at a time, and folding the list is not a
+    // statement about the diffs below it. The calls are read from the record
+    // here, not from the last frame's cache: ctrl+o can land before the first
+    // render of a restored transcript.
+    if (mergesNestedCalls(this.toolName) && pointerDepth === 0) {
+      const details = this.result?.details;
+      const count = nestedCallsOf(details).filter(isPromotedCall).length;
+      if (count > 0) {
+        const state = (this.__promotedOpen ??= { details, open: new Set() });
+        state.details = details;
+        state.open = expanded ? new Set(Array.from({ length: count }, (_v, index) => index)) : new Set();
+      }
     }
     return originalSetExpanded.call(this, expanded);
   };
@@ -896,12 +937,17 @@ function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike):
   }
   const details = tool.result?.details;
   const revision = optionsRevision();
+  // A new record resets what the reader opened: the indices name calls of the
+  // old one, and a retry can reorder them.
+  if (tool.__promotedOpen && tool.__promotedOpen.details !== details) tool.__promotedOpen = undefined;
+  const open = tool.__promotedOpen?.open ?? new Set<number>();
+  const openKey = [...open].sort((a, b) => a - b).join(",");
   const cache = tool.__promotedBoxes;
   // The details object is the record's identity: pi hands the same one back
   // until a new result lands, and the calls read from it cannot change without
   // it. Comparing the parsed calls instead would miss every time — the reader
   // builds fresh objects on every frame.
-  if (cache && cache.details === details && cache.width === w && cache.revision === revision && cache.theme === theme) {
+  if (cache && cache.details === details && cache.width === w && cache.revision === revision && cache.theme === theme && cache.open === openKey) {
     return cache.rows;
   }
   const calls = nestedCallsOf(details).filter(isPromotedCall);
@@ -911,10 +957,13 @@ function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike):
   }
   const { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
   const rows: string[] = [];
-  for (const call of calls) {
-    rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }));
-  }
-  tool.__promotedBoxes = { details, width: w, revision, theme, rows, height: rows.length };
+  const spans: Array<{ from: number; to: number }> = [];
+  calls.forEach((call, index) => {
+    const from = rows.length;
+    rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }, open.has(index)));
+    spans.push({ from, to: rows.length - 1 });
+  });
+  tool.__promotedBoxes = { details, width: w, revision, theme, open: openKey, rows, height: rows.length, spans };
   return rows;
 }
 
@@ -924,6 +973,7 @@ function promotedCallBox(
   w: number,
   theme: ThemeLike,
   options: { icons: boolean; toolColors: Record<string, string>; splitDiff: boolean; splitDiffMinWidth: number; diffLines: number },
+  expanded: boolean,
 ): string[] {
   const args = (call.args ?? {}) as Record<string, unknown>;
   const path = typeof args.path === "string" ? args.path : undefined;
@@ -932,10 +982,10 @@ function promotedCallBox(
   const inner = Math.max(2, w - 2);
 
   // The body: an edit's diff in the panes its own box uses, a write's content
-  // as the text it wrote. A failed call keeps its error instead. Each is a
-  // window of `diffLines` rows with the rest counted — nothing here opens
-  // further, so an unbounded body would own the screen for good.
-  const budget = Math.max(1, options.diffLines);
+  // as the text it wrote. A failed call keeps its error instead. Shut, each is
+  // a window of `diffLines` rows with the rest counted; a click on the box (or
+  // ctrl+o, which opens the wrapper's own sections too) draws all of it.
+  const budget = expanded ? Number.POSITIVE_INFINITY : Math.max(1, options.diffLines);
   const window = (lines: string[], paint: (line: string) => string): string[] => {
     const shown = lines.slice(0, budget).map((line) => ` ${paint(line)}`);
     if (lines.length > budget) shown.push(` ${theme.fg("dim", `… ${lines.length - budget} more line${lines.length - budget === 1 ? "" : "s"}`)}`);
@@ -947,7 +997,7 @@ function promotedCallBox(
     body = window(call.error.split("\n"), (line) => theme.fg("error", line || " "));
   } else if (call.name === "edit" && call.diff) {
     const split = options.splitDiff && inner >= options.splitDiffMinWidth
-      ? renderSplitDiff({ diff: call.diff, width: inner, theme, ...(path ? { filePath: path } : {}), maxLines: options.diffLines, hint: false })
+      ? renderSplitDiff({ diff: call.diff, width: inner, theme, ...(path ? { filePath: path } : {}), ...(expanded ? {} : { maxLines: options.diffLines }) })
       : undefined;
     if (split) {
       body = split.lines;
