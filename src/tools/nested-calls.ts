@@ -156,3 +156,18 @@ const PROMOTED_TOOLS = new Set(["edit", "write"]);
 export function isPromotedCall(call: NestedCall): boolean {
   return PROMOTED_TOOLS.has(call.name);
 }
+
+/**
+ * A promoted call's identity across records: fabric re-creates the details
+ * object on every progress tick, so the reader's open boxes cannot key on it.
+ * The ref names the call site, the path names the file it touched; together
+ * they survive a tick that appends calls, and two edits of one file in one
+ * program keep their own state by order.
+ */
+export function promotedCallKey(call: NestedCall, ordinal: number): string {
+  const args = call.args;
+  const path = args !== null && typeof args === "object" && !Array.isArray(args)
+    ? (args as Record<string, unknown>).path
+    : undefined;
+  return `${call.name}:${typeof path === "string" ? path : ""}:${ordinal}`;
+}

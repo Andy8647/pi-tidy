@@ -524,7 +524,7 @@ test("opening one promoted box leaves its neighbour shut, and spans follow the g
   assert.ok(frame(chat).join("\n").includes("more lines"), "write shut again");
 });
 
-test("a new record resets which promoted boxes are open", () => {
+test("a progress tick keeps an open box open; a different call starts shut", () => {
   resetGroups();
   const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
   const wrote = [
@@ -537,9 +537,58 @@ test("a new record resets which promoted boxes are open", () => {
   const at = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
   chat.handleMouse({ type: "click", button: "left", x: 5, y: at + 2, screenX: 5, screenY: at + 2, width: W, height: rows.length } as any);
   assert.ok(frame(chat).join("\n").includes("line 59"));
+  // fabric re-creates the details object on every tick: the same call keeps
+  // its open state, an appended one arrives shut.
+  const other = { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/other.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 3, endedAt: 4 };
   (call.component as any).updateResult(
-    { content: [{ type: "text", text: "done" }], isError: false, durationMs: 400, details: details(wrote) } as any,
+    { content: [{ type: "text", text: "done" }], isError: false, durationMs: 400, details: details([...wrote, other]) } as any,
     false,
   );
-  assert.ok(frame(chat).join("\n").includes("more lines"), "a new record starts shut");
+  rows = frame(chat);
+  const body = rows.join("\n");
+  assert.ok(body.includes("line 59"), "the opened call stays open across the tick:\n" + body.slice(0, 300));
+  const otherAt = rows.findIndex((line) => line.startsWith("╭─") && line.includes("/tmp/other.ts"));
+  assert.ok(otherAt >= 0, body);
+  assert.ok(rows.slice(otherAt, otherAt + 30).join("\n").includes("more lines"), "the new call starts shut");
+});
+
+test("moving the pointer onto a promoted box clears the wrapper's hover band", async () => {
+  const { enableHoverForTests, resetHover } = await import("../src/hover.ts");
+  resetGroups();
+  enableHoverForTests();
+  try {
+    const chat = transcript();
+    let rows = chat.render(W);
+    const plain = rows.map(strip);
+    const header = plain.findIndex((line) => /\d+ calls/.test(line));
+    chat.handleMouse({ type: "move", x: 5, y: header, screenX: 5, screenY: header, width: W, height: rows.length } as any);
+    rows = chat.render(W);
+    const band = (s: string) => /\x1b\[48;/.test(s);
+    assert.ok(rows.some(band), "the header wears the band under the pointer");
+    const at = rows.map(strip).findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
+    chat.handleMouse({ type: "move", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: rows.length } as any);
+    rows = chat.render(W);
+    // The promoted edit's own diff tint is content, not a hover band; the
+    // header's band must be gone.
+    const headerRow = rows[rows.map(strip).findIndex((line) => /\d+ calls/.test(line))]!;
+    assert.ok(!band(headerRow), "the band clears when the pointer leaves the wrapper's rows");
+  } finally {
+    resetHover();
+  }
+});
+
+test("a progress tick does not shut a box the reader opened", () => {
+  resetGroups();
+  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
+  const wrote = { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 };
+  const call = fabric({ audits: [wrote], text: "done" });
+  const chat = new Container();
+  chat.addChild(call.component);
+  const rows = frame(chat);
+  const at = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
+  chat.handleMouse({ type: "click", button: "left", x: 5, y: at + 2, screenX: 5, screenY: at + 2, width: W, height: rows.length } as any);
+  assert.ok(frame(chat).join("\n").includes("line 59"));
+  const bash = { ref: "pi.bash", tool: "bash", provider: "pi", success: true, args: { command: "echo" }, result: { ok: true, output: "x" }, startedAt: 3, endedAt: 4 };
+  (call.component as any).updateResult({ content: [], details: details([wrote, bash]) } as any, true);
+  assert.ok(frame(chat).join("\n").includes("line 59"), "the tick must not shut what the reader opened");
 });

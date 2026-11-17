@@ -30,7 +30,7 @@ import {
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
 import { composeFabricBody } from "./fabric-body.ts";
-import { isPromotedCall, mergesNestedCalls, nestedCallsOf, type NestedCall } from "./nested-calls.ts";
+import { isPromotedCall, mergesNestedCalls, nestedCallsOf, promotedCallKey, type NestedCall } from "./nested-calls.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
@@ -57,7 +57,7 @@ import {
   type CodemodeRowSpan,
   type GroupedTool,
 } from "./tool-group-view.ts";
-import { codemodeHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender } from "../hover.ts";
+import { codemodeHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender, setHover } from "../hover.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
 import { COPIED_MS, chipLabels, chipWord, repaintChip } from "../turns/code-blocks.ts";
 
@@ -151,12 +151,17 @@ interface ToolBoxInternals extends GroupedTool {
     rows: string[];
     height: number;
     /** Each box's rows within the promoted block, so a click finds its box. */
-    spans: Array<{ from: number; to: number }>;
+    spans: Array<{ from: number; to: number; key: string }>;
   };
   /** Rows this component drew itself last, before the promoted boxes were appended. */
   __lastOwnRows?: number;
-  /** Which promoted boxes the reader opened, by call index; reset on a new record. */
-  __promotedOpen?: { details: unknown; open: Set<number> };
+  /**
+   * Which promoted boxes the reader opened, by call identity (name, path,
+   * ordinal). fabric re-creates the details object on every progress tick, so
+   * the open set cannot key on it — a tick that appends a call must not shut
+   * what the reader opened.
+   */
+  __promotedOpen?: Set<string>;
   /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
   /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
@@ -512,14 +517,18 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
       if (y >= 0 && y < promoted.height) {
         const click = event.type === "click" && (event.button === "left" || event.button === 0);
         if (click) {
-          const index = promoted.spans.findIndex((span) => y >= span.from && y <= span.to);
-          if (index >= 0) {
-            const state = (this.__promotedOpen ??= { details: promoted.details, open: new Set() });
-            if (state.open.has(index)) state.open.delete(index);
-            else state.open.add(index);
+          const span = promoted.spans.find((each) => y >= each.from && y <= each.to);
+          if (span) {
+            const open = (this.__promotedOpen ??= new Set());
+            if (open.has(span.key)) open.delete(span.key);
+            else open.add(span.key);
             this.ui?.requestRender?.();
           }
         }
+        // The pointer left the wrapper's own rows: whatever band they wore is
+        // stale now. The guard returns before the group's move routing runs,
+        // so the clearing has to happen here.
+        if (event.type === "move" && setHover(null, null)) this.ui?.requestRender?.();
         return undefined;
       }
     }
@@ -570,12 +579,20 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     // here, not from the last frame's cache: ctrl+o can land before the first
     // render of a restored transcript.
     if (mergesNestedCalls(this.toolName) && pointerDepth === 0) {
-      const details = this.result?.details;
-      const count = nestedCallsOf(details).filter(isPromotedCall).length;
-      if (count > 0) {
-        const state = (this.__promotedOpen ??= { details, open: new Set() });
-        state.details = details;
-        state.open = expanded ? new Set(Array.from({ length: count }, (_v, index) => index)) : new Set();
+      const calls = nestedCallsOf(this.result?.details).filter(isPromotedCall);
+      if (calls.length > 0) {
+        if (expanded) {
+          const open = (this.__promotedOpen ??= new Set());
+          const ordinals = new Map<string, number>();
+          for (const call of calls) {
+            const base = promotedCallKey(call, 0).slice(0, -2);
+            const ordinal = ordinals.get(base) ?? 0;
+            ordinals.set(base, ordinal + 1);
+            open.add(promotedCallKey(call, ordinal));
+          }
+        } else {
+          this.__promotedOpen = new Set();
+        }
       }
     }
     return originalSetExpanded.call(this, expanded);
@@ -937,11 +954,8 @@ function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike):
   }
   const details = tool.result?.details;
   const revision = optionsRevision();
-  // A new record resets what the reader opened: the indices name calls of the
-  // old one, and a retry can reorder them.
-  if (tool.__promotedOpen && tool.__promotedOpen.details !== details) tool.__promotedOpen = undefined;
-  const open = tool.__promotedOpen?.open ?? new Set<number>();
-  const openKey = [...open].sort((a, b) => a - b).join(",");
+  const open = tool.__promotedOpen ?? new Set<string>();
+  const openKey = [...open].sort().join(",");
   const cache = tool.__promotedBoxes;
   // The details object is the record's identity: pi hands the same one back
   // until a new result lands, and the calls read from it cannot change without
@@ -957,11 +971,16 @@ function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike):
   }
   const { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
   const rows: string[] = [];
-  const spans: Array<{ from: number; to: number }> = [];
-  calls.forEach((call, index) => {
+  const spans: Array<{ from: number; to: number; key: string }> = [];
+  const ordinals = new Map<string, number>();
+  calls.forEach((call) => {
+    const base = promotedCallKey(call, 0).slice(0, -2);
+    const ordinal = ordinals.get(base) ?? 0;
+    ordinals.set(base, ordinal + 1);
+    const key = promotedCallKey(call, ordinal);
     const from = rows.length;
-    rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }, open.has(index)));
-    spans.push({ from, to: rows.length - 1 });
+    rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }, open.has(key)));
+    spans.push({ from, to: rows.length - 1, key });
   });
   tool.__promotedBoxes = { details, width: w, revision, theme, open: openKey, rows, height: rows.length, spans };
   return rows;
