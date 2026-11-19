@@ -4,6 +4,16 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+**`/skill:<name>` is drawn as your prompt.** pi showed a skill invocation as a `[skill] grill-me` box in the colours of
+an extension's notice, above the turn it started, with anything you typed after the command in a second box under it.
+It is now one user message, in your user message style (frame or rail, alignment, the time): `/skill:grill-me ▸` and the
+text you typed. A click on it, or ctrl+o, opens the skill's own text inside it. `messageBorderColors.skill` is no longer
+read: the invocation takes the `user` color.
+
 ## [0.9.8] - 2026-11-15
 
 ### Added

@@ -18,6 +18,7 @@ import { formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
+import { installSkillPrompts } from "./messages/skill-prompt.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
@@ -319,6 +320,8 @@ export default function (pi: ExtensionAPI): void {
   // before a reply starts, not at its first tool, when half its calls have
   // already joined a group. A no-op while it is still on top.
   pi.on("before_agent_start", () => installGroupBoundaries());
+  // `/skill:<name>` is the prompt that started the turn: drawn as one (skill-prompt.ts).
+  installSkillPrompts();
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {
