@@ -143,11 +143,10 @@ export function renderGroupedTool(
   // left edge instead of starting under the rail. That makes the column the
   // group's business, not the call row's, so the row itself is told to hang
   // nothing (a box of its own still hangs its lines on `$ `, see frameBox).
-  // A job row carries what the job is doing rather than a command, so its body
-  // stays at the rail's pad.
-  const aligned = plan.full && !job;
-  const bodyPadCells = aligned ? commandColumn(tool, { icons, align }) : BODY_PAD.length;
-  if (aligned && tool.rendererState) tool.rendererState.tidyCommandIndent = 0;
+  // Everything else hung under the row (a job's matched lines, the jobs a call
+  // started, a sub-agent's notice) takes the same column: one left edge per row.
+  const bodyPadCells = commandColumn(tool, { icons, align });
+  if (plan.full && tool.rendererState) tool.rendererState.tidyCommandIndent = 0;
   const bodyPad = " ".repeat(bodyPadCells);
   const body = plan.full ? frameBox(Math.max(4, width - GUTTER_CELLS - bodyPadCells), true) : undefined;
   // Compared field by field against the last frame rather than through a built
@@ -201,15 +200,15 @@ export function renderGroupedTool(
   // the group is opened, so a watcher that ticks every second costs nothing here.
   // Below the body too, so the body's click geometry stays put.
   if (job && open && !plan.full) {
-    for (const note of jobNoteRows(job, theme, `${gutter}${BODY_PAD}`)) lines.push(clipToWidth(note, width, "…"));
+    for (const note of jobNoteRows(job, theme, `${gutter}${bodyPad}`)) lines.push(clipToWidth(note, width, "…"));
   }
   // Nested starts belong to the wrapper, but do not replace its result/error.
   // Keep them below its body so the body's existing click geometry is unchanged.
   // An opened box hangs them inside the body instead: they are what the script
   // produced, on the same rail as its call rows and its output.
   const inBody = plan.full;
-  const rowPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")} ` : `${gutter}  `;
-  const detailPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")}     ` : `${gutter}      `;
+  const rowPad = inBody ? `${gutter}${bodyPad}${theme.fg("borderMuted", "│")} ` : `${gutter}${bodyPad}`;
+  const detailPad = `${rowPad}    `;
   for (const nested of jobs) {
     if (nested === job) continue;
     const details = jobDetails(nested.id);

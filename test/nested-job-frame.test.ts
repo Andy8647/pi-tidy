@@ -368,3 +368,23 @@ test("tasks without a visible owner keep their notifications, including pinned a
     }
   }
 });
+
+test("jobs a call started hang on its arguments' column, and their details four cells in", () => {
+  const h = setup();
+  h.start("p1");
+  h.start("p2");
+  h.logs.set("p1", [{ type: "stdout", text: "first job output" }]);
+  h.finish();
+  h.frame();
+  h.click("1 call");
+  h.click("process p1");
+  const lines = h.frame();
+  const call = lines.find((line) => /codemode ✓/.test(line))!;
+  const column = call.match(/codemode ✓\s+/)!.index! + call.match(/codemode ✓\s+/)![0].length;
+  for (const id of ["p1", "p2"]) {
+    const row = lines.find((line) => line.includes(`process ${id}`))!;
+    assert.equal(row.search(/[▸▾▶]/), column, `${id} hangs on the call's arguments:\n${lines.join("\n")}`);
+  }
+  const detail = lines.find((line) => line.includes("run-p1"))!;
+  assert.equal(detail.indexOf("$ run-p1"), column + 4, lines.join("\n"));
+});
