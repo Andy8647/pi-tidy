@@ -16,7 +16,8 @@ every box gets a rounded transparent frame.
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
 - **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A program is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
-- **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
+- **`/skill` is your prompt** — `/skill:grill-me fix the parser` is drawn as the user message it is, in your user message style, with what you typed after it; a click (or ctrl+o) opens the skill's own text inside it
+- **Every message box** — compaction, branch and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
@@ -245,8 +246,8 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `frameMessages` | `true` | Frames compaction, branch, skill and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by another extension's own renderer keeps its rows inside the frame and loses its fill (see below). Does not affect the rail, the final reply or tool boxes |
-| `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "skill": "accent", "custom": "warning" }` | Border color per message kind, merged over the defaults | `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `finalReplyStyle` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
+| `frameMessages` | `true` | Frames compaction, branch and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by another extension's own renderer keeps its rows inside the frame and loses its fill (see below). Does not affect the rail, the final reply or tool boxes |
+| `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "custom": "warning" }` | Border color per message kind, merged over the defaults | A `/skill` invocation is a user message and takes `user`; a `skill` key is no longer read. `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `finalReplyStyle` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
 
 ### Tool folding
 
@@ -285,7 +286,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word. Fenced blocks, inline code and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
 
 Tool boxes keep green, red and grey for a call's state, so the default message colors avoid them:
-mauve for compactions, peach for branch summaries, sky for skills and yellow for extension notices.
+mauve for compactions, peach for branch summaries and yellow for extension notices.
 
 ### Background jobs
 
@@ -306,11 +307,14 @@ mauve for compactions, peach for branch summaries, sky for skills and yellow for
 pi builds one `ToolExecutionComponent` per tool call, no matter which extension
 registered the tool. pi-tidy patches that component's `render` to frame the whole
 box — which is why MCP and subagent boxes are framed too. Message boxes (compaction, branch
-summary, skill invocation, extension custom message) never go through that
+summary, extension custom message) never go through that
 component; their own prototypes get the same treatment. Their `[compaction]` /
-`[branch]` / `[skill]` / `[type]` row is a title, so it sits in the top border
-next to the kind icon and the spacer under it is gone; a collapsed skill box
-keeps its label inline, where it shares the row with the skill's name.
+`[branch]` / `[type]` row is a title, so it sits in the top border
+next to the kind icon and the spacer under it is gone.
+
+pi draws a `/skill` invocation as two components, a `[skill]` box and the text typed after the command as a user
+message under it. As pi adds them, tidy takes the second (and the blank row before it) out of the chat and keeps it on
+the first, which then draws through a user message of its own: one prompt, in whatever style user messages have.
 
 A custom message an extension renders itself is framed around its rows: the
 rows are the extension's, so nothing here knows where a label belongs in them,

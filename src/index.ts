@@ -20,6 +20,7 @@ import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./fr
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
 import { noteHostRecord, resetHostRecords } from "./tools/nested-calls.ts";
 import { noteDelegateNotice, resetDelegateNotices } from "./turns/delegate-notices.ts";
+import { installSkillPrompts } from "./messages/skill-prompt.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
@@ -332,6 +333,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => resetDelegateNotices(ctx.sessionManager.getBranch()));
   pi.on("session_tree", (_event, ctx) => resetDelegateNotices(ctx.sessionManager.getBranch()));
   pi.on("message_start", ({ message }) => { noteDelegateNotice(message); });
+  // `/skill:<name>` is the prompt that started the turn: drawn as one (skill-prompt.ts).
+  installSkillPrompts();
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {

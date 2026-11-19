@@ -1,6 +1,6 @@
 /**
  * Rounded transparent frames for the message boxes pi draws outside tool
- * calls: compaction / branch / skill summaries, extension custom messages and
+ * calls: compaction / branch summaries, extension custom messages and
  * user messages in the "frame" style.
  *
  * Options live in global slots (see live.ts): every call updates them, and only
@@ -13,7 +13,6 @@ import {
   CompactionSummaryMessageComponent,
   CustomMessageComponent,
   getMarkdownTheme,
-  SkillInvocationMessageComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
@@ -51,14 +50,14 @@ interface MessageBoxInternals {
 
 interface MessageBoxOptions {
   enabled: boolean;
-  borderColors: { compaction: string; branch: string; skill: string };
+  borderColors: { compaction: string; branch: string };
   icons: boolean;
 }
 
 const messageOptions = liveSlot<MessageBoxOptions | undefined>("message-box-options", undefined);
 
 /**
- * Compaction, branch-summary, and skill-invocation boxes are plain `Box`es
+ * Compaction and branch-summary boxes are plain `Box`es
  * with a filled `customMessageBg` background — ToolExecutionComponent never
  * sees them, so the tool frame patch leaves them in pi's default style. They
  * get the same rounded, transparent frame here, each drawn in its own color
@@ -71,7 +70,7 @@ const messageOptions = liveSlot<MessageBoxOptions | undefined>("message-box-opti
  * nothing new.
  */
 export function patchMessageBoxes(
-  borderColors: { compaction: string; branch: string; skill: string },
+  borderColors: { compaction: string; branch: string },
   icons = false,
   enabled = true,
 ): void {
@@ -80,7 +79,6 @@ export function patchMessageBoxes(
   for (const [cls, kind] of [
     [CompactionSummaryMessageComponent, "compaction"],
     [BranchSummaryMessageComponent, "branch"],
-    [SkillInvocationMessageComponent, "skill"],
   ] as const) {
     const proto = cls.prototype as unknown as MessageBoxInternals & { __toolboxFramed?: boolean };
     if (proto.__toolboxFramed) continue;
@@ -120,10 +118,9 @@ export function patchMessageBoxes(
         )
           return cache.out;
         // pi draws the kind label on a row of its own above the body
-        // (`[branch]`, `[compaction]`, `[skill]`). That row is a title, not
+        // (`[branch]`, `[compaction]`). That row is a title, not
         // content, so it goes into the top border and the `Spacer(1)` under it
-        // goes with it — the border is the separation now. A collapsed skill
-        // box keeps its label inline: it shares the row with the skill's name.
+        // goes with it — the border is the separation now.
         const lifted = content[0] !== undefined && visibleText(content[0]).trim() === `[${kind}]`
           ? trimTrailingSpaces(content[0]).trim()
           : "";
@@ -131,7 +128,7 @@ export function patchMessageBoxes(
         const label = lifted && icons ? `${theme.fg(borderColor, icon)} ${lifted}` : lifted;
         const padded = body.map((line, i) => (icons && i === 0 && !label ? ` ${icon} ${line}` : ` ${line}`));
         // No blank row above the frame: pi puts a `Spacer(1)` in front of a
-        // compaction, branch and skill box already (interactive-mode), and the
+        // compaction and branch box already (interactive-mode), and the
         // border is a separation in itself. A second row read as a stray gap
         // (issue #29).
         const out = drawFrame(padded, w, theme, borderColor);
