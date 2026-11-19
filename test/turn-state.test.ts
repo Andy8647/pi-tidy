@@ -26,8 +26,8 @@ test("interval union counts parallel and nested execution only once", () => {
   store.toolEnd("b", undefined, 350); store.toolEnd("a", undefined, 400);
   const turn = store.current!;
   store.note({ role: "toolResult", toolCallId: "a", toolName: "codemode", timestamp: 450, isError: false,
-    nestedCalls: { calls: [{ status: "error" }] }, details: { calls: [{ status: "error" }] } });
-  assert.equal(turn.tools.get("a")?.nestedFailed, 1, "native and codemode records must not double count a nested failure");
+    details: { calls: [{ name: "bash", status: "error" }] } });
+  assert.equal(turn.tools.get("a")?.nestedFailed, 1, "a nested failure is counted once, from the tool's own record");
   store.note(reply(500)); store.settle(false, 1000);
   assert.equal(store.toolTime(turn), 300);
   assert.equal(turn.tools.size, 2);

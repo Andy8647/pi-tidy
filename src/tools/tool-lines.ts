@@ -12,6 +12,7 @@ import { paint } from "../draw/paint.ts";
 import type { ThemeLike } from "../theme-access.ts";
 import type { JobState } from "./background-jobs.ts";
 import { nestedBreakdown, type GroupSummary } from "./tool-groups.ts";
+import { nestedCallFailed, nestedCallsOf } from "./nested-calls.ts";
 
 export interface LineOptions {
   /** Prepend each tool's Nerd Font kind icon. */
@@ -70,13 +71,11 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
 
   const breakdown = summary.breakdown.map(({ name, count }) => {
     const icon = icons ? `${toolKindIcon(name)} ` : "";
-    // What the scripts here ran hangs on the entry that ran them, so `12 calls`
+    // What the programs here ran hangs on the entry that ran them, so `12 calls`
     // still counts rows and this still says what those rows did. Open, each row
     // below already names its own calls, and the header stops repeating them.
-    const nested =
-      !open && summary.nested?.owner === name
-        ? ` (${summary.nested.breakdown.map((entry) => `${entry.name}×${entry.count}`).join(" ")})`
-        : "";
+    const own = open ? undefined : summary.nested?.get(name);
+    const nested = own ? ` (${own.map((entry) => `${entry.name}×${entry.count}`).join(" ")})` : "";
     return theme.fg("muted", `${icon}${name}×${count}${nested}`);
   });
   if (breakdown.length > 0) parts.push(breakdown.join(theme.fg("muted", "  ")));
@@ -86,6 +85,9 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
   // `✗` and the count goes quiet. No glyph of its own either way: `32 calls`
   // needs no cross beside it, the colour is the signal.
   if (summary.failed > 0) parts.push(theme.fg(open ? "muted" : "error", `${summary.failed} failed`));
+  // A program that caught a failure inside it still succeeds, so nothing else on a
+  // folded line says it happened. Same colour rule as the members' own failures.
+  if (summary.nestedFailed > 0) parts.push(theme.fg(open ? "muted" : "error", `${summary.nestedFailed} nested failed`));
   if (summary.thinking || summary.thoughts > 0) {
     // Folded, this is the only sign the reply did any thinking at all: the
     // carrier messages that hold it draw nothing until the group opens. While a
@@ -277,28 +279,26 @@ function splitAtCells(text: string, cells: number): { first: string; second: str
     : { first: plain, second: text.slice(plain.length), gap: 0 };
 }
 
-/** A `codemode` script's nested calls, counted by tool. */
+/** A call's nested calls, counted by tool. */
 export interface NestedCallSummary {
-  /** `bash×3 read×1` — empty when the script called no tools. */
+  /** `bash×3 read×1` — empty when the program called no tools. */
   kinds: string;
   failed: number;
   total: number;
 }
 
 /**
- * The nested tool calls of a `codemode` script, from `result.details.calls`.
+ * The nested calls a call recorded on its result (see nested-calls.ts).
  *
- * A script's calls are not tool rows: they never reach the model as calls, so
- * pi keeps them as `{ name, status, durationMs, error }` records on the parent
- * result instead of components. Nothing else in the transcript counts them, so
- * the folded row is the only place a glance can see what a script ran.
+ * Those calls are not tool rows: they never reach the model as calls, so there
+ * is no component for them. Nothing else in the transcript counts them, so the
+ * folded row is the only place a glance can see what a program ran.
  */
 export function summarizeNestedCalls(details: unknown): NestedCallSummary {
-  const calls = (details as { calls?: unknown } | undefined)?.calls;
-  if (!Array.isArray(calls) || calls.length === 0) return { kinds: "", failed: 0, total: 0 };
-  const lost = calls as Array<{ status?: unknown }>;
+  const calls = nestedCallsOf(details);
+  if (calls.length === 0) return { kinds: "", failed: 0, total: 0 };
   const kinds = nestedBreakdown(details).map(({ name, count }) => `${name}×${count}`).join(" ");
-  const failed = lost.filter((call) => call?.status === "error" || call?.status === "cancelled").length;
+  const failed = calls.filter(nestedCallFailed).length;
   return { kinds, failed, total: calls.length };
 }
 
@@ -398,10 +398,10 @@ export function formatToolRows(tool: ToolLike, theme: ThemeLike, options: LineOp
   // on every row, whatever the name's length (see groupAlign). The kind icon is
   // the same width on every row, so only the word is padded.
   const head = rowHead(status, theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`), tool.toolName, options.align);
-  // A codemode script's “arguments” are its source, which the open box already
-  // shows. What a folded row is missing is what the script ran: the nested
-  // calls take the arguments' place instead of the script's first line.
-  const nested = tool.toolName === "codemode" ? summarizeNestedCalls(tool.result?.details) : undefined;
+  // A program's “arguments” are its source, which the open box already shows.
+  // What a folded row is missing is what the program ran: the nested calls take
+  // the arguments' place instead of the script's first line.
+  const nested = summarizeNestedCalls(tool.result?.details);
   const { text, suffix, rest } = nested?.kinds ? { text: nested.kinds, suffix: "", rest: [] } : argParts(tool.args);
 
   // `  12 lines · 0.3s` — what it produced, then how long it took.

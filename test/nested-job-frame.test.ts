@@ -175,8 +175,8 @@ test("collapsing the script does not collapse its job; global collapse closes ch
   h.click("1 call");
   h.click("codemode ✓");
   h.click("process p1");
-  assert.ok(h.frame().some((line) => line.includes("Script completed")));
-  h.click("Script completed");
+  assert.ok(h.frame().some((line) => line.includes("▸ output · 1 line")));
+  h.click("codemode ✓");
   assert.equal((h.c as any).expanded, false);
   assert.ok(h.frame().some((line) => line.includes("child stays open")));
   h.c.setExpanded(false); // pi's ctrl+o collapse-all, outside a pointer dispatch.

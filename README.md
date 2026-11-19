@@ -15,14 +15,14 @@ every box gets a rounded transparent frame.
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
-- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A codemode script is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
+- **Grouped tool calls** — the calls between two pieces of assistant text fold to `▸ 5 calls · bash×3 · 1 failed · 1.2s`: click for a row per call under a `│` gutter, click a row for its output underneath, and each row says what the call produced (`12 lines`, `3 matches`, `exit 1`). A failure is counted once in the summary; only a *running* call keeps a row. A program is counted through: `codemode×2 (bash×4 read×2)` says what those two scripts ran, and `N calls` still counts the rows you get when you open it. Edits and writes never fold — their diff is the point
 - **Every message box** — compaction, branch, skill and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
 - **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
 - **Thinking, folded in** — a step that only thinks leaves a `thinking` row inside its group (a brain, the word, one line of what the model thought, sliding over the newest words while it streams); the summary counts the runs (`🧠 5 thoughts`), and a click opens that step's thinking full length, in a framed box with `󰧑 thinking` in its border. pi's `hideThinkingBlock` is ignored on purpose: the row is the same either way, and the click is the one way to read it
 - **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, the matched log line they carried waits on a row of its own under it (open the group to read it), and a click opens the command, working directory and last 20 output lines without expanding the call
-- **codemode reads as a call list** — opened, the calls a script ran are tidy rows with a name and a duration column; the script and the output each fold to one row
+- **A program reads as a call list** — a `codemode` script, a `fabric_exec` (pi-fabric) program, or any tool that records its [nested calls](#nested-calls): opened, the calls it ran are tidy rows with a name and a duration column, a failure's text and an edit's diff under their own row; the script and the output each fold to one row. Folded, what it ran hangs on its entry (`fabric_exec×1 (bash×2 edit×1)`), and a failure inside it reads as `1 nested failed`
 - **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
@@ -83,6 +83,46 @@ below it. A run that fails with no text keeps the failure in view when it folds.
 an intermediate tool-calling message is never promoted. The border names the model that answered
 (from the message, not the current selection) with its provider glyph, clipped to `…` when it does
 not fit, and `icons: false` drops the glyph.
+
+## Nested calls
+
+Some tools run a program that calls other tools: pi's `codemode`, pi-fabric's `fabric_exec`. Those inner calls never
+reach the model as calls of their own, so the transcript has no box for them; the only trace is a record the tool
+keeps on its result. tidy reads that record, whatever the tool is called, and draws every such tool the same way:
+the folded row names what the program ran, the group and turn summaries hang it on the entry that ran it, and the
+opened box is the call list.
+
+A tool gets this by writing `details.calls` on its result (it is codemode's own shape):
+
+```ts
+return {
+  content: [{ type: "text", text: output }],
+  details: {
+    calls: [
+      { name: "bash", args: { command: "npm test" }, status: "ok", durationMs: 2100, output: "42 passing" },
+      { name: "edit", args: { path: "src/app.ts" }, status: "ok", durationMs: 4, diff: unifiedDiff },
+      { name: "read", args: { path: "src/gone.ts" }, status: "error", error: "ENOENT: no such file" },
+    ],
+  },
+};
+```
+
+| Field | Required | |
+| --- | --- | --- |
+| `name` | yes | The tool the program called |
+| `status` | yes | `ok`, `error`, `cancelled` or `running` (a list still being written) |
+| `args` | no | An object, or a JSON string (a clipped one is read back through the keys that survived) |
+| `durationMs`, `error` | no | The duration column, and the text under a failed row |
+| `output` | no | What the call produced: its first `bashResultLines` rows hang under the row |
+| `diff` | no | A unified diff: drawn under the row like an edit box's, `diffLines` rows at most |
+| `cost` | no | Dollars a model call cost; two or more add up on a row of their own |
+| `id` | no | The nested call's id: see below |
+
+The program is `args.code` on the call itself, and the output is the text the tool returned. pi-fabric's
+`details.audits` is read as well. When a nested call went through `ctx.executeTool()`, pi keeps its own record on the
+result message with the whole argument object, and an entry with the same `id` takes those arguments instead of its
+clipped ones. That record alone does not make a tool a program: a tool that calls one helper through `executeTool`
+keeps its own rendering.
 
 ## What it looks like
 
@@ -204,7 +244,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `groupTools` | `true` | Folds the tool calls between two assistant text blocks (or a user message) into one summary line. Click it for one row per call, click a row for its output, click the `▾` header to fold. `false` gives every call its own box (a `codemode` box still reads as its call list) | Always |
+| `groupTools` | `true` | Folds the tool calls between two assistant text blocks (or a user message) into one summary line. Click it for one row per call, click a row for its output, click the `▾` header to fold. `false` gives every call its own box (a program's box still reads as its call list) | Always |
 | `groupOpen` | `false` | Starts each new group open (`▾` header, one row per call). Only the level a group is born with: clicking the header or `ctrl+o`'s collapse-all stays folded, and nothing is saved | Needs `groupTools` |
 | `toolRowLines` | `1` | Rows a call in an open group may take. With `2`, a call that does not fit goes on to a second row. Calls that fit keep one | Needs `groupTools` |
 | `alwaysShowTools` | `["edit", "write"]` | Tools that never fold: they keep their own box and end the group before them. `[]` folds edits and writes like everything else | Needs `groupTools`; with it off every tool has its own box anyway. A folded turn still hides these boxes |

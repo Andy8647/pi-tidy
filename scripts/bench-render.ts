@@ -26,7 +26,13 @@ const load = (dir: string, file: string) => import(pathToFileURL(located(dir, fi
 const { patchToolBoxFrames, patchContainerBoxes } = await load("", "frame.ts");
 const { tidyEnabled, agentRunning } = await load("", "live.ts");
 const { resetGroups } = await load("tools/", "tool-groups.ts");
-const { codemodeSections } = await load("tools/", "codemode-body.ts");
+// A program's folds moved from codemode-body.ts to nested-body.ts when fabric_exec
+// joined codemode on one renderer; a base from before keeps the old name.
+const sectionsModule = existsSync(located("tools/", "nested-body.ts"))
+  ? await load("tools/", "nested-body.ts")
+  : await load("tools/", "codemode-body.ts");
+const codemodeSections: (tool: object) => { script: boolean; output: boolean } =
+  sectionsModule.nestedSections ?? sectionsModule.codemodeSections;
 // Turn folding arrived in 0.7.0: a base that predates it still has to render
 // folded and expanded, so the module is optional and only `turns` insists.
 const turnModule = existsSync(located("turns/", "turn-state.ts")) ? await load("turns/", "turn-state.ts") : undefined;

@@ -124,7 +124,7 @@ test("a framed codemode box is the call list, under the row a group would show",
   for (let i = 1; i <= 10; i++) assert.ok(body.includes(`echo ${i}`), `call ${i} is listed:\n${body}`);
   assert.ok(!body.includes("earlier calls"), "no truncation notice from pi's collapsed view");
   assert.ok(body.includes("▸ script · 14 lines"), `the whole script is counted, not pi's preview:\n${body}`);
-  assert.ok(body.includes("▸ output · 1 item"), body);
+  assert.ok(body.includes("▸ output · 1 line"), body);
   assert.ok(!body.includes("const step1"), "the script is folded away");
   assert.ok(!body.includes("all ten steps done"), "the output is folded away");
   assert.ok(!body.includes("Took 0.1s"), "the title carries the time");
@@ -137,7 +137,7 @@ test("a fold row opens its own section, in full", () => {
   const body = frame(chat).map(strip).join("\n");
   assert.ok(body.includes("▾ script · 14 lines"), body);
   assert.ok(body.includes("const step14"), "the whole script, past pi's ten-line preview");
-  assert.ok(body.includes("▸ output · 1 item"), "the output stays folded");
+  assert.ok(body.includes("▸ output · 1 line"), "the output stays folded");
 
   mouse(chat, "click", "▾ script");
   assert.ok(frame(chat).map(strip).join("\n").includes("▸ script · 14 lines"), "and shuts again");

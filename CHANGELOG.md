@@ -4,6 +4,39 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**`fabric_exec` reads as the calls its program made**, the way a `codemode` script does (#86, thanks @cmz488). pi-fabric
+keeps those calls on its own result rather than as tool rows, so tidy used to show one call where three had run, with
+the program's first line where the arguments go. Now the folded row says what the program ran (`bash×2 edit×1`), the
+group and turn summaries hang it on the entry (`fabric_exec×1 (bash×2 edit×1)`), and the opened box lists every call,
+an edit's diff under its own row. Fabric's routine `native.load` calls are left out, as its own card leaves them out.
+
+**Any tool can get the same call list.** A tool that runs a program and writes `details.calls` on its result —
+codemode's shape, with optional `output`, `diff` and `cost` per call — is drawn like codemode and fabric, whatever it is
+called. The README's new *Nested calls* section has the fields.
+
+**A failure inside a program shows on a folded group** as `1 nested failed`, in red, the way the folded turn already
+said it. A script that caught the failure and went on still succeeds, so nothing else on the line said it happened.
+
+### Changed
+
+**codemode's opened box is drawn from its record instead of from pi's rows.** It looks the same, with these
+differences:
+
+- `script · N lines` counts the script's lines, not the rows pi wrapped them into.
+- The output's fold row says `N lines` unless the script returned several values (`N items`, as before).
+- A script that called no tool still folds its script and its output, instead of showing pi's box unfolded.
+- On a narrow box a call's duration stays on its row; it used to wrap onto a row of its own or go missing.
+- A clipped argument is completed from pi's own record of the call when it has one, so a long command is no longer
+  cut at 200 characters.
+
+**Nested calls hang on the call that ran them, everywhere.** Two kinds of program in one group each keep their own
+list (`codemode×1 (bash×1) fabric_exec×1 (edit×1)`); before, the first one named took everything. `N calls` counts what
+the model called.
+
 ## [0.9.8] - 2026-11-15
 
 ### Added

@@ -31,7 +31,7 @@ import {
 } from "../hover.ts";
 import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { folded, turnFor, turnOptions } from "../turns/turn-state.ts";
-import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
+import { toggleNestedSection, type NestedSection } from "./nested-body.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "../draw/frame-draw.ts";
 import {
@@ -118,7 +118,7 @@ export function renderGroupedTool(
   if (plan.revealIn !== undefined) scheduleReveal(tool, plan.revealIn);
   if (!plan.header && !plan.gutter) {
     nestedRowSpans.delete(tool);
-    codemodeSpans.delete(tool);
+    nestedFoldSpans.delete(tool);
     return undefined;
   }
 
@@ -159,7 +159,7 @@ export function renderGroupedTool(
     cached.result === tool.result && cached.args === tool.args
   ) return cached.lines;
   nestedRowSpans.delete(tool);
-  codemodeSpans.delete(tool);
+  nestedFoldSpans.delete(tool);
 
   const lines: string[] = [];
   if (headerLine !== undefined) lines.push(headerLine);
@@ -180,17 +180,17 @@ export function renderGroupedTool(
     // would be a frame inside a frame. Only the body is drawn, hanging under
     // the row that opened it.
     const base = lines.length;
-    const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
+    const toggles = (tool as { __nestedToggles?: Array<{ row: number; section: string }> }).__nestedToggles ?? [];
     for (const [index, line] of body.entries()) {
       const out = `${gutter}${bodyPad}${line.trimEnd()}`;
       const section = toggles.find((toggle) => toggle.row === index)?.section;
-      lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
+      lines.push(section !== undefined && hovered === `fold:${section}` ? hoverBand(out, width, theme) : out);
     }
-    // A codemode body folds its script and output to one row each; those rows
+    // A call list folds its script and output to one row each; those rows
     // answer their own clicks (see routeGroupedMouse).
-    codemodeSpans.set(
+    nestedFoldSpans.set(
       tool,
-      toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as CodemodeSection })),
+      toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as NestedSection })),
     );
   }
   const spans: NestedRowSpan[] = [];
@@ -263,34 +263,34 @@ const groupedRows = new WeakMap<object, {
 interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
 
-/** A codemode body's fold labels: one clickable row each. */
-export interface CodemodeRowSpan {
+/** A call list's fold labels: one clickable row each. */
+export interface NestedFoldSpan {
   row: number;
-  section: CodemodeSection;
+  section: NestedSection;
 }
-const codemodeSpans = new WeakMap<object, CodemodeRowSpan[]>();
+const nestedFoldSpans = new WeakMap<object, NestedFoldSpan[]>();
 
 /** The fold row at `y`, if there is one. */
-export function codemodeFoldAt(rows: readonly CodemodeRowSpan[] | undefined, y: unknown): CodemodeRowSpan | undefined {
+export function nestedFoldAt(rows: readonly NestedFoldSpan[] | undefined, y: unknown): NestedFoldSpan | undefined {
   return typeof y === "number" ? rows?.find((span) => span.row === y) : undefined;
 }
 
 /**
- * A packet on a codemode fold row, grouped or framed: a click opens or shuts
+ * A packet on a call list's fold row, grouped or framed: a click opens or shuts
  * that section, motion lights the row. Presses and drags stay pi's: the row is
  * text like any other.
  */
-export function routeCodemodeFold(tool: GroupedTool, event: any, section: CodemodeSection): unknown {
+export function routeNestedFold(tool: GroupedTool, event: any, section: NestedSection): unknown {
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   if (click) {
-    toggleCodemodeSection(tool, section);
+    toggleNestedSection(tool, section);
     (tool as { invalidate?(): void }).invalidate?.();
     tool.ui?.requestRender?.();
     return { handled: true };
   }
   if (event?.type === "move" && hoverIsTracked()) {
     markHoverClaimed();
-    if (setHover(tool, `codemode:${section}`, tool.ui)) tool.ui?.requestRender?.();
+    if (setHover(tool, `fold:${section}`, tool.ui)) tool.ui?.requestRender?.();
   }
   return undefined;
 }
@@ -431,15 +431,15 @@ function groupHeaderLine(
   const key = [
     summary.count,
     summary.breakdown.map(({ name, count }) => `${name}×${count}`).join(" "),
-    // The scripts' own counts are on the line too: a codemode result arriving
-    // late has to rebuild it.
-    summary.nested?.owner ?? "",
-    summary.nested?.breakdown.map(({ name, count }) => `${name}×${count}`).join(" ") ?? "",
+    // The programs' own counts are on the line too: a result arriving late has
+    // to rebuild it.
+    [...(summary.nested ?? [])].map(([owner, own]) => `${owner}(${own.map(({ name, count }) => `${name}×${count}`).join(" ")})`).join(" "),
     summary.thoughts,
     summary.thinking,
     summary.durationMs,
     summary.running ?? "",
     summary.failed,
+    summary.nestedFailed,
     summary.jobsRunning,
     header,
     spinner,
@@ -546,9 +546,9 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   // pi-tui names buttons ("left"); accept the raw SGR code too.
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
-  // A codemode body's fold labels: the script and the output open in place.
-  const fold = codemodeFoldAt(codemodeSpans.get(tool), y);
-  if (fold) return routeCodemodeFold(tool, event, fold.section);
+  // A call list's fold labels: the script and the output open in place.
+  const fold = nestedFoldAt(nestedFoldSpans.get(tool), y);
+  if (fold) return routeNestedFold(tool, event, fold.section);
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
     if (event?.type === "move" && hoverIsTracked()) {

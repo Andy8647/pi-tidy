@@ -31,19 +31,29 @@ test("a script's entry names what the script ran, and only while the group is cl
       nested: nestedBreakdown({ calls: [{ name: "bash" }, { name: "read" }, { name: "bash" }] }),
     },
   ]);
-  assert.deepEqual(summary.nested, {
-    owner: "codemode",
-    breakdown: [
-      { name: "bash", count: 2 },
-      { name: "read", count: 1 },
-    ],
-  });
+  assert.deepEqual(summary.nested, new Map([["codemode", [
+    { name: "bash", count: 2 },
+    { name: "read", count: 1 },
+  ]]]));
   // `count` still counts rows, so `2 calls` opens to two rows.
   const closed = formatGroupLine(summary, theme, { icons: false });
   assert.match(closed, /2 calls/);
   assert.match(closed, /codemode×1 \(bash×2 read×1\)/);
   // Open, each row below names its own calls: the header stops repeating them.
   assert.ok(!formatGroupLine(summary, theme, { icons: false, open: true }).includes("("));
+});
+
+test("two kinds of program in one group each hang their own calls", () => {
+  const summary = buildGroupSummary([
+    { toolName: "codemode", isPartial: false, nested: nestedBreakdown({ calls: [{ name: "bash" }, { name: "read" }] }) },
+    { toolName: "fabric_exec", isPartial: false, nested: nestedBreakdown({ audits: [{ ref: "pi.edit", tool: "edit", success: true }] }) },
+    { toolName: "codemode", isPartial: false, nested: nestedBreakdown({ calls: [{ name: "bash" }] }) },
+  ]);
+  const line = formatGroupLine(summary, theme, { icons: false });
+  // Three rows: `3 calls` counts what the model called, never what ran inside.
+  assert.match(line, /3 calls/, line);
+  assert.match(line, /codemode×2 \(bash×2 read×1\)/, line);
+  assert.match(line, /fabric_exec×1 \(edit×1\)/, line);
 });
 
 test("nested calls count by kind, the way the summaries around them do", () => {

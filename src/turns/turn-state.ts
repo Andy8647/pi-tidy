@@ -1,6 +1,7 @@
 import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
 import { nestedBreakdown, type BreakdownEntry } from "../tools/tool-groups.ts";
+import { nestedCallFailed, nestedCallsOf } from "../tools/nested-calls.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type FinalReplyStyle = "frame" | "rail" | "rules" | "off";
@@ -17,7 +18,6 @@ export interface TurnMessage {
   toolName?: string;
   isError?: boolean;
   details?: any;
-  nestedCalls?: { calls: Array<{ status: string }> };
 }
 export interface Turn {
   messages: Map<string, TurnMessage>;
@@ -94,14 +94,16 @@ function add(turn: Turn, key: string, message: TurnMessage): void {
     }
   } else if (message.role === "toolResult" && message.toolCallId) {
     const previous = turn.tools.get(message.toolCallId);
-    const calls = message.nestedCalls?.calls ?? (message.toolName === "codemode" ? message.details?.calls : undefined);
-    const nestedFailed = Array.isArray(calls) ? calls.filter((call) => call.status === "error").length : 0;
-    const nested = message.toolName === "codemode" ? nestedBreakdown(message.details) : [];
+    // A program's own calls hang on the call that ran them (see nested-calls.ts):
+    // what they were, and how many of them failed inside a run that may well
+    // have caught the failure and gone on.
+    const calls = nestedCallsOf(message.details, message.toolCallId);
+    const nested = nestedBreakdown(message.details, message.toolCallId);
     turn.tools.set(message.toolCallId, {
       name: message.toolName ?? previous?.name ?? "tool",
       args: previous?.args,
       failed: message.isError,
-      nestedFailed,
+      nestedFailed: calls.filter(nestedCallFailed).length,
       nested: nested.length > 0 ? nested : previous?.nested,
     });
   }
