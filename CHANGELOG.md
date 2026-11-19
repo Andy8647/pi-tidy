@@ -21,6 +21,20 @@ called. The README's new *Nested calls* section has the fields.
 **A failure inside a program shows on a folded group** as `1 nested failed`, in red, the way the folded turn already
 said it. A script that caught the failure and went on still succeeds, so nothing else on the line said it happened.
 
+**A background sub-agent's notice comes home to the turn that launched it** (#59). billion-context's `acp_delegate`
+runs in the background and reports when it ends, often after you have moved on to another prompt, so the report used
+to sit in the middle of later work with nothing tying it to the call that started it. With billion-context's
+`pi.subagents.notifyStructured: true` (0.1.216 and later), each report names that call, and tidy now draws it there: a
+row under the `acp_delegate` call (`▸ ✓ researcher completed`) that opens to the full text on a click, while the turn's
+summary counts the runs once each — `1 sub-agent failed` in red next to the other failures, `sub-agents 2 completed`
+after the timings. A failure keeps its row even under a folded group. The report stays where it arrived whenever
+nothing can own it: no launching call recorded, runs from different turns, a turn compacted away, or
+`collapseTurns: "off"`. Only where it is drawn changes; the session and what the model reads are untouched, and resume
+and `/reload` rebuild the same picture from the session.
+
+**billion-context's reports are drawn as tidy's notices**, the way pi-subagents' are: the agent and how it ended in the
+border (`researcher failed`), the text as the body, one line until clicked.
+
 ### Changed
 
 **codemode's opened box is drawn from its record instead of from pi's rows.** It looks the same, with these
@@ -36,6 +50,18 @@ differences:
 **Nested calls hang on the call that ran them, everywhere.** Two kinds of program in one group each keep their own
 list (`codemode×1 (bash×1) fabric_exec×1 (edit×1)`); before, the first one named took everything. `N calls` counts what
 the model called.
+
+**`/skill:<name>` is drawn as your prompt.** pi showed a skill invocation as a `[skill] grill-me` box in the colours of
+an extension's notice, above the turn it started, with anything you typed after the command in a second box under it.
+It is now one user message, in your user message style (frame or rail, alignment, the time): `/skill:grill-me ▸` and the
+text you typed. A click on it, or ctrl+o, opens the skill's own text inside it. `messageBorderColors.skill` is no longer
+read: the invocation takes the `user` color.
+
+### Fixed
+
+**An opened thinking run inside a group lines up with its row.** Its text used to start three cells in from the rail,
+under the `thinking` label; it now starts where the row's own text does, the column an opened call's body already
+hangs on. Lists and code blocks in the reasoning keep their own indentation from there.
 
 ## [0.9.8] - 2026-11-15
 
