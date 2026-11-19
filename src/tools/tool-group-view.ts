@@ -338,6 +338,14 @@ function runningJob(jobs: JobState[]): JobState | undefined {
 }
 
 /**
+ * Where rows hung under a grouped call start: the call's arguments' column, the
+ * edge its opened body hangs on too (see renderGroupedTool).
+ */
+export function hangColumn(tool: GroupedTool, icons: boolean): number {
+  return commandColumn(tool, { icons, align: groupAlign(tool) });
+}
+
+/**
  * The note and duration columns for a group: the widest of each, so every row
  * pads to the same width and the metrics line up down the block. Recomputed
  * when the group's membership changes, not per row — `summarizeResult` walks a

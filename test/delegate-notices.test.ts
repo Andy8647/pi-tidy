@@ -146,12 +146,18 @@ test("opened, each notice hangs under its call, and a click opens what it said",
   lines = frame(chat);
   const first = lines.findIndex((line) => line.includes("acp_delegate") && line.includes("researcher"));
   assert.ok(/▸ ✓ researcher completed/.test(lines[first + 1]!), `under its own call:\n${lines.join("\n")}`);
+  // On the call's arguments' column, like everything else hung under a row.
+  assert.equal(lines[first + 1]!.indexOf("▸"), lines[first]!.indexOf("researcher"), lines.join("\n"));
   const second = lines.findIndex((line) => line.includes("acp_delegate") && line.includes("reviewer"));
   assert.ok(/▸ ✗ reviewer failed/.test(lines[second + 1]!), lines.join("\n"));
   click(/▸ ✗ reviewer failed/);
   const opened = frame(chat).join("\n");
   assert.ok(opened.includes("▾ ✗ reviewer failed"), opened);
   assert.ok(opened.includes("rate limited"), "the notice's own text, in full: " + opened);
+  const rows = opened.split("\n");
+  const head = rows.find((line) => line.includes("▾ ✗ reviewer failed"))!;
+  const text = rows.find((line) => line.includes("rate limited"))!;
+  assert.equal(text.indexOf("Error"), head.indexOf("▾") + 4, "its text sits under the agent's name:\n" + opened);
   assert.ok(!opened.includes("[acp_delegate"), "its title is the row already");
 });
 
