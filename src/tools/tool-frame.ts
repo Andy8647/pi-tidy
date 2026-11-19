@@ -46,6 +46,7 @@ import { claimNotices, noticeRows, toggleNotice } from "../turns/delegate-notice
 import { formatToolLine, groupGutter } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
+  hangColumn,
   nestedFoldAt,
   NOT_GROUPED,
   renderGroupedTool,
@@ -1014,8 +1015,12 @@ function composeFramedCallList(
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
           const rows = finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
-          // Under the call's row like a background job's rows, on the group's gutter.
-          return withNotices(rows, w, `${groupGutter(theme)}  `, !groupIsOpen(this), railed ? "" : undefined);
+          // Under the call's row, on its arguments' column like everything else
+          // hung under a row. A folded group shows no rows to line up with: its
+          // failures sit just inside the gutter, under the summary line.
+          const open = groupIsOpen(this);
+          const pad = open ? " ".repeat(hangColumn(this, icons)) : "  ";
+          return withNotices(rows, w, `${groupGutter(theme)}${pad}`, !open, railed ? "" : undefined);
         }
       }
       if (!railed) return withNotices(finishBox(this, frameBox.call(this, w, theme), theme), w, "  ", false);

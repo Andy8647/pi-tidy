@@ -22,7 +22,7 @@
  */
 
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Markdown } from "@earendil-works/pi-tui";
+import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { TOOL_ICONS } from "../draw/icons.ts";
 import { liveSlot } from "../live.ts";
@@ -231,7 +231,7 @@ export function noticeRows(
 ): NoticeRows {
   const rows: string[] = [];
   const spans: NoticeRows["spans"] = [];
-  const room = Math.max(8, options.width - options.pad.length - 4);
+  const room = Math.max(8, options.width - visibleWidth(options.pad) - 4);
   for (const notice of notices) {
     const label = noticeLabel(notice.message) ?? {};
     if (options.onlyFailures && label.tone !== "error") continue;
