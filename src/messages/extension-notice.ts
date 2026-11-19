@@ -9,11 +9,17 @@
  * and most carry structured `details`, so the label and the body can come from
  * there instead and the frame stays Tidy's.
  *
- * pi-subagents names its notices `subagent…`; `subagent-notify`'s
- * `details.runs` is documented (its `docs/extension-api.md`, "Host session
- * lifetime and completion wakes"), and the other types are read field by field
- * with a fallback — a notice that names nobody is still drawn, just with the
- * glyph alone.
+ * Two extensions send notices Tidy draws, each a row of `SOURCES` below:
+ *
+ * - pi-subagents names its notices `subagent…`; `subagent-notify`'s
+ *   `details.runs` is documented (its `docs/extension-api.md`, "Host session
+ *   lifetime and completion wakes"), and the other types are read field by
+ *   field with a fallback — a notice that names nobody is still drawn, just
+ *   with the glyph alone.
+ * - billion-context sends `billion-context:delegate-notification` when a
+ *   background `acp_delegate` run ends (with `pi.subagents.notifyStructured`
+ *   on): `details.runs` carries each run's id, status and, when known, its
+ *   agent and the tool call that launched it (see delegate-notices.ts).
  */
 
 export type NoticeTone = "success" | "error" | "warning";
@@ -34,7 +40,11 @@ interface NoticeMessage {
   details?: unknown;
 }
 
-/** pi-subagents' own `STATUS_TONES`, word for word: what a status means to a reader. */
+/**
+ * pi-subagents' own `STATUS_TONES`, word for word: what a status means to a
+ * reader. billion-context's statuses (`completed`, `failed`, `cancelled`) are
+ * the same words, plus `cancelled`.
+ */
 const STATUS_TONES: Record<string, NoticeTone> = {
   completed: "success",
   failed: "error",
@@ -58,6 +68,7 @@ const STATUS_TONES: Record<string, NoticeTone> = {
   decision: "warning",
   "interview request": "warning",
   progress_update: "warning",
+  cancelled: "warning",
 };
 
 /** Fields a notice may carry the subject of, in the order worth trying. */
@@ -67,30 +78,53 @@ const STATUS_FIELDS = ["status", "outcome", "state", "severity", "reason"];
 
 const controlNotice = "subagent_control_notice";
 const completionNotice = "subagent-notify";
+/** billion-context's notice that background `acp_delegate` runs ended. */
+export const DELEGATE_NOTICE = "billion-context:delegate-notification";
+
+/** A sender whose notices Tidy draws, and what its notices look like. */
+interface NoticeSource {
+  matches(customType: string): boolean;
+  /**
+   * The notice's first line when it is a title the label already says; a first
+   * line that does not match is part of the text and stays. Unset: the first
+   * line always goes once the label says something.
+   */
+  title?: RegExp;
+}
+
+const SOURCES: readonly NoticeSource[] = [
+  { matches: (type) => type.startsWith("subagent") },
+  // A batch can open with a recovery notice instead of its title: that line is news.
+  { matches: (type) => type === DELEGATE_NOTICE, title: /^\[acp_delegate\b/ },
+];
+
+function sourceOf(customType: unknown): NoticeSource | undefined {
+  return typeof customType === "string" ? SOURCES.find((source) => source.matches(customType)) : undefined;
+}
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
 /**
- * A notice Tidy draws itself: pi-subagents' whole namespace. Other extensions
- * keep their renderer — their message body is not known to be text.
+ * A notice Tidy draws itself (see `SOURCES`). Other extensions keep their
+ * renderer — their message body is not known to be text.
  */
 export function isNoticeType(customType: unknown): customType is string {
-  return typeof customType === "string" && customType.startsWith("subagent");
+  return sourceOf(customType) !== undefined;
 }
 
 /**
- * Every run a completion notice reports, or nothing. All or nothing: a list
- * with one unreadable entry says nothing trustworthy about the notice.
+ * Every run a notice reports, or nothing. All or nothing: a list with one
+ * unreadable entry says nothing trustworthy about the notice. A run is named by
+ * its agent, or by its id when the sender did not know the agent.
  */
-function runs(details: unknown): Array<{ agent: string; status: string }> | undefined {
+function runs(details: unknown): Array<{ name: string; status: string }> | undefined {
   const list = record(details)?.runs;
   if (!Array.isArray(list) || list.length === 0) return undefined;
   const parsed = list.flatMap((run) => {
     const entry = record(run);
-    return typeof entry?.agent === "string" && typeof entry?.status === "string"
-      ? [{ agent: entry.agent, status: entry.status }]
-      : [];
+    const name = typeof entry?.agent === "string" && entry.agent ? entry.agent : entry?.runId;
+    return typeof name === "string" && name && typeof entry?.status === "string" ? [{ name, status: entry.status }] : [];
   });
   return parsed.length === list.length ? parsed : undefined;
 }
@@ -131,12 +165,14 @@ export function noticeLabel(message: NoticeMessage | undefined): NoticeLabel | u
     return { name, status: status.replaceAll("_", " "), tone: "warning" };
   }
 
-  if (type === completionNotice) {
+  if (type === completionNotice || type === DELEGATE_NOTICE) {
     const list = runs(message?.details);
     if (!list) return {};
     if (list.length === 1) {
-      const [run] = list as [{ agent: string; status: string }];
-      return { name: run.agent, status: run.status, tone: STATUS_TONES[run.status] };
+      const [run] = list as [{ name: string; status: string }];
+      // billion-context also reports a run's usage after its result was read.
+      const usage = type === DELEGATE_NOTICE && details?.kind === "usage" ? " · usage" : "";
+      return { name: run.name, status: `${run.status}${usage}`, tone: STATUS_TONES[run.status] };
     }
     return { status: `${list.length} background runs`, tone: worstTone(list) };
   }
@@ -196,7 +232,9 @@ export function noticeText(message: NoticeMessage | undefined): string {
 export function noticeBodyText(message: NoticeMessage | undefined, label: NoticeLabel | undefined): string {
   const text = noticeText(message);
   if (!label || (!label.name && !label.status)) return text;
-  const [, ...rest] = text.split("\n");
+  const [first = "", ...rest] = text.split("\n");
+  const title = sourceOf(message?.customType)?.title;
+  if (title && !title.test(first.trim())) return text;
   const body = rest.slice(rest.findIndex((line) => line.trim() !== ""));
   if (label.name && body[0]?.trim() === `${label.name}:`) body.shift();
   while (body.length > 0 && body[0]!.trim() === "") body.shift();

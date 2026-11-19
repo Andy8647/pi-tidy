@@ -4,6 +4,24 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**A background sub-agent's notice comes home to the turn that launched it** (#59). billion-context's `acp_delegate`
+runs in the background and reports when it ends, often after you have moved on to another prompt, so the report used
+to sit in the middle of later work with nothing tying it to the call that started it. With billion-context's
+`pi.subagents.notifyStructured: true` (0.1.216 and later), each report names that call, and tidy now draws it there: a
+row under the `acp_delegate` call (`▸ ✓ researcher completed`) that opens to the full text on a click, while the turn's
+summary counts the runs once each — `1 sub-agent failed` in red next to the other failures, `sub-agents 2 completed`
+after the timings. A failure keeps its row even under a folded group. The report stays where it arrived whenever
+nothing can own it: no launching call recorded, runs from different turns, a turn compacted away, or
+`collapseTurns: "off"`. Only where it is drawn changes; the session and what the model reads are untouched, and resume
+and `/reload` rebuild the same picture from the session.
+
+**billion-context's reports are drawn as tidy's notices**, the way pi-subagents' are: the agent and how it ended in the
+border (`researcher failed`), the text as the body, one line until clicked.
+
 ## [0.9.8] - 2026-11-15
 
 ### Added

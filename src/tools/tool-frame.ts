@@ -39,8 +39,9 @@ import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { CALL_PROMPT_CELLS } from "./command-text.ts";
-import { pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
-import { formatToolLine } from "./tool-lines.ts";
+import { groupIsOpen, pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
+import { claimNotices, noticeRows, toggleNotice } from "../turns/delegate-notices.ts";
+import { formatToolLine, groupGutter } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
   codemodeFoldAt,
@@ -124,6 +125,11 @@ interface ToolBoxInternals extends GroupedTool {
   __pathCopy?: { row: number; x: number; end: number; text: string };
   /** While the chip reads `copied`, after a click. */
   __pathCopyFlashUntil?: number;
+  /**
+   * The sub-agent notices hung under this call last frame (delegate-notices.ts):
+   * the row they start at in this component's output, and each one's rows.
+   */
+  __notices?: { from: number; height: number; spans: Array<{ from: number; to: number; key: string }> };
   /** The split diff last built for this box, and what it was built from. */
   __splitCache?: {
     diff: string;
@@ -438,6 +444,16 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
+    // The sub-agent notices hung under the call: a click opens or shuts the one
+    // it lands on, and never reaches the box above them.
+    const hung = this.__notices;
+    if (hung && typeof event?.y === "number" && event.y >= hung.from && event.y < hung.from + hung.height) {
+      if (event.type !== "click" || (event.button !== "left" && event.button !== 0)) return undefined;
+      const y = event.y - hung.from;
+      const span = hung.spans.find((each) => y >= each.from && y <= each.to);
+      if (span) toggleNotice(span.key);
+      return { handled: true, render: true };
+    }
     // Before the rail is discounted and before a group gets its say: the chip is the one
     // cell range of the box that copies instead of opening, wherever the row came from.
     const chip = pathChipMouse.call(this, event);
@@ -981,10 +997,21 @@ function composeFramedCodemode(
     }
     try {
       this.__tidyTurnRendered = true;
+      this.__notices = undefined;
       if (this.hideComponent) {
         measurePathChip(this, []);
         return [];
       }
+      // The sub-agent notices this call launched hang under it, and their own
+      // components draw nothing this frame — folded or not, this turn owns them.
+      const notices = claimNotices(this.toolCallId);
+      const withNotices = (rows: string[], w: number, pad: string, onlyFailures: boolean, rail?: string): string[] => {
+        if (notices.length === 0) return rows;
+        const drawn = noticeRows(notices, theme, { width: w, pad, icons: toolOptions.get().icons, onlyFailures });
+        if (drawn.rows.length === 0) return rows;
+        this.__notices = { from: rows.length, height: drawn.rows.length, spans: drawn.spans };
+        return [...rows, ...(rail === undefined ? drawn.rows : railRows(drawn.rows, theme, rail))];
+      };
       if (hideTurnTool(this.toolCallId)) {
         // A folded turn forgets which of its calls were open, the way folding a group
         // forgets the boxes inside it (see closeGroup): reopening either starts from the
@@ -1011,16 +1038,19 @@ function composeFramedCodemode(
         );
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
-          return finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
+          const rows = finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
+          // Under the call's row like a background job's rows, on the group's gutter.
+          return withNotices(rows, w, `${groupGutter(theme)}  `, !groupIsOpen(this), railed ? "" : undefined);
         }
       }
-      if (!railed) return finishBox(this, frameBox.call(this, w, theme), theme);
+      if (!railed) return withNotices(finishBox(this, frameBox.call(this, w, theme), theme), w, "  ", false);
       this.__railCells = TURN_RAIL_BOX_CELLS;
       const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
       // On the rail a box's corner sits in its neighbouring groups' rail column. With
       // grouping off nothing has registered, so there is nothing to meet.
       const { above, below } = pinnedJoints(this);
-      return finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
+      const rows = finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
+      return withNotices(rows, Math.max(4, width - TURN_RAIL_BOX_CELLS), "  ", false, " ");
     } catch {
       this.__frameGeometry = undefined;
       measurePathChip(this, []);

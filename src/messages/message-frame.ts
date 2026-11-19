@@ -34,6 +34,7 @@ import {
 import { MESSAGE_ICONS, TOOL_ICONS } from "../draw/icons.ts";
 import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { noticeBodyText, noticeLabel, noticeText, type NoticeLabel } from "./extension-notice.ts";
+import { takeClaim } from "../turns/delegate-notices.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { installUserMessageTimes, USER_MESSAGE_TIME } from "./user-message.ts";
 
@@ -378,6 +379,13 @@ export function patchContainerBoxes(
         // not drawn — the first row of it is that label, and its
         // `(ctrl+o to expand)` was chrome on a row that is already a header.
         const message = (this as unknown as { message?: Parameters<typeof noticeLabel>[0] & { content?: unknown } }).message;
+        // A sub-agent notice the call that launched it already drew this frame
+        // (delegate-notices.ts): drawn there, it is not drawn twice.
+        if (takeClaim(message)) {
+          this.__customFrame = undefined;
+          this.__noticeFrame = undefined;
+          return [];
+        }
         const notice = noticeLabel(message);
         // A notice with nothing to say keeps its renderer: an empty frame would
         // hide whatever its rows were.
