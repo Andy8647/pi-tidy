@@ -114,13 +114,15 @@ test("folding a turn forgets which of its calls were open", () => {
 
 test("folding a turn forgets which thinking run was open", () => {
   const { chat } = fixture("afterRun", false);
+  // An opened run's row takes a tick off the rail; a folded one sits on the rail.
+  const open = () => frame(chat).some((line) => line.includes("THOUGHT_0") && line.includes("├─"));
   const thoughts = () => frame(chat).filter((line) => line.includes("THOUGHT_0")).length;
   openTurn(chat, "afterRun");
   openGroups(chat);
-  // Open a thought's box the way a reader does: a click on its row. The row takes
-  // a tick and the run's text hangs under it, so the thought is on two rows.
+  // Open a thought the way a reader does: a click on its row. The row takes a
+  // tick and the run's text starts on it.
   send(chat, "click", (line) => line.includes("THOUGHT_0"));
-  assert.equal(thoughts(), 2, frame(chat).join("\n"));
+  assert.ok(open(), frame(chat).join("\n"));
 
   send(chat, "click", summary);
   assert.ok(!frame(chat).some((line) => line.includes("THOUGHT_")), "the turn folded");
@@ -129,6 +131,7 @@ test("folding a turn forgets which thinking run was open", () => {
   // the way it forgets its boxes.
   send(chat, "click", summary);
   assert.equal(thoughts(), 1, frame(chat).join("\n"));
+  assert.ok(!open(), frame(chat).join("\n"));
 });
 
 test("a folded turn says what its scripts ran, not just how many scripts", () => {
