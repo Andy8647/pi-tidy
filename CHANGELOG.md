@@ -59,9 +59,14 @@ read: the invocation takes the `user` color.
 
 ### Fixed
 
-**An opened thinking run inside a group lines up with its row.** Its text used to start three cells in from the rail,
-under the `thinking` label; it now starts where the row's own text does, the column an opened call's body already
-hangs on. Lists and code blocks in the reasoning keep their own indentation from there.
+**An opened thinking run inside a group lines up with its row, and no longer repeats it.** Its text used to start three
+cells in from the rail, under the `thinking` label, with the row above still showing the same first sentence. It now
+starts on the row itself and continues on the row's text column, the one an opened call's body already hangs on. Lists
+and code blocks in the reasoning keep their own indentation from there.
+
+**Everything hung under a row in a group starts on that row's arguments' column.** A background job's matched lines
+(`· matched stderr: …`), an opened `process` call's body, and the jobs a script started each had a left edge of their
+own, a few cells in from the rail, so they read as loose rows rather than as part of the call above them.
 
 ## [0.9.8] - 2026-11-15
 
