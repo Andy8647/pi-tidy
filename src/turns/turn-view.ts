@@ -103,9 +103,7 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   if (!["completed", "running", "unknown"].includes(state)) add(theme.fg("error", state));
   const llmFailures = [...turn.messages.values()].filter((message) => message.role === "assistant" && message.stopReason === "error").length;
   if (llmFailures) add(theme.fg("error", `${llmFailures} LLM failed`));
-  // A merged wrapper's failed calls are failures of the run, counted with the
-  // model's own: the line says `2 failed`, not `1 failed · 1 nested failed`.
-  const failed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.failed ? 1 : 0) + (tool.mergedFailed ?? 0), 0);
+  const failed = [...turn.tools.values()].filter((tool) => tool.failed).length;
   if (failed) add(theme.fg("error", `${failed} failed`));
   const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
   if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
@@ -116,30 +114,22 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   add(theme.fg("muted", `tools ${duration(store.toolTime(turn, now))}`));
   // Open, the group headers below already count the calls.
   if (folded(turn)) {
+    add(theme.fg("toolTitle", `${turn.tools.size} calls`));
     const counts = new Map<string, number>();
-    const nested = new Map<string, number>();
-    let nestedOwner: string | undefined;
-    let total = 0;
+    const nested = new Map<string, Map<string, number>>();
     for (const tool of turn.tools.values()) {
       const kind = toolKindName(tool.name);
       counts.set(kind, (counts.get(kind) ?? 0) + 1);
-      total += 1;
-      // A merged wrapper's calls are calls of the run: `fabric_exec×1 bash×2`
-      // counts three calls, the same three the group's line counts.
-      for (const entry of tool.merged ?? []) {
-        counts.set(entry.name, (counts.get(entry.name) ?? 0) + entry.count);
-        total += entry.count;
-      }
-      for (const entry of tool.nested ?? []) {
-        nestedOwner ??= kind;
-        nested.set(entry.name, (nested.get(entry.name) ?? 0) + entry.count);
-      }
+      if (!tool.nested?.length) continue;
+      const own = nested.get(kind) ?? new Map<string, number>();
+      for (const entry of tool.nested) own.set(entry.name, (own.get(entry.name) ?? 0) + entry.count);
+      nested.set(kind, own);
     }
-    add(theme.fg("toolTitle", `${total} calls`));
     for (const [name, count] of counts) {
-      // A script's own calls hang on the entry that ran them: the count still
+      // A program's own calls hang on the entry that ran them: the count still
       // says how many calls the run made, this says what those calls did.
-      const inside = nestedOwner === name ? ` (${[...nested].map(([kind, times]) => `${kind}×${times}`).join(" ")})` : "";
+      const own = nested.get(name);
+      const inside = own ? ` (${[...own].map(([kind, times]) => `${kind}×${times}`).join(" ")})` : "";
       add(theme.fg("muted", `${name}×${count}${inside}`), theme.fg("muted", `${toolKindIcon(name)} ${name}×${count}${inside}`));
     }
     if (notes) add(theme.fg("muted", `${notes} matched`));

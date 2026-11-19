@@ -4,11 +4,10 @@
  * dispatched through pi-tui's Container the way a terminal click arrives.
  *
  * fabric records the calls its program made (`details.audits`), and tidy reads
- * them as calls of the run: the summary counts them beside the model's own
- * (`fabric_exec×1 bash×1 edit×1`, no parentheses), an edit or write the program
- * made draws as a box of its own below — folded or open, the change stays
- * visible — and opening the wrapper lists the rest, with the program and the
- * output folded to one row each.
+ * them through the same nested-calls protocol codemode goes through: the
+ * summary hangs them on the call that ran them (`fabric_exec×1 (bash×1 edit×1)`),
+ * and opening the call lists them, an edit's diff under its own row, with the
+ * program and the output folded to one row each.
  */
 
 import assert from "node:assert/strict";
@@ -172,32 +171,18 @@ function openBox(chat: Container) {
   clickRow(chat, (line) => line.includes("fabric_exec") && line.includes("✓"), "fabric_exec");
 }
 
-test("a program's calls join the run's counts, beside the model's own", () => {
+test("a program's calls hang on its entry, the way a codemode script's do", () => {
   resetGroups();
   const lines = frame(transcript());
   const line = lines.find((row) => row.includes("fabric_exec"))!;
   assert.ok(line, lines.join("\n"));
-  assert.match(line, /4 calls/, line);
-  assert.match(line, /bash×1/, line);
-  assert.match(line, /edit×1/, line);
-  assert.match(line, /read×1/, line);
-  assert.match(line, /fabric_exec×1/, line);
-  assert.ok(!line.includes("("), "no nested list on the entry: " + line);
-  assert.ok(!line.includes("await pi.bash"), "the program is not the row's argument");
+  assert.match(line, /\b1 call\b/, "the model made one call: " + line);
+  assert.match(line, /fabric_exec×1 \(bash×1 edit×1 read×1\)/, line);
   assert.ok(!line.includes("load"), "fabric's own plumbing is not counted");
+  assert.ok(!lines.join("\n").includes("world2"), "folded, nothing of the program hangs below");
 });
 
-test("an edit the program made draws as a box of its own, while the group is folded", () => {
-  resetGroups();
-  const lines = frame(transcript());
-  const body = lines.join("\n");
-  const title = lines.find((line) => line.startsWith("╭─") && line.includes("edit") && line.includes("/tmp/a.ts"));
-  assert.ok(title, "the edit has a box of its own:\n" + body);
-  assert.ok(body.includes("world2"), "the change is visible without opening anything:\n" + body);
-  assert.ok(body.includes("↳ diff"), body);
-});
-
-test("an opened fabric_exec lists its calls, with the program and the output folded", () => {
+test("an opened fabric_exec lists its calls, an edit's diff under its own row", () => {
   resetGroups();
   const chat = transcript();
   openBox(chat);
@@ -206,12 +191,13 @@ test("an opened fabric_exec lists its calls, with the program and the output fol
   assert.ok(body.includes("▸ script · 3 lines"), body);
   assert.ok(body.includes("▸ output · 1 line"), body);
   assert.ok(body.includes("echo hi"), `the call's own arguments:\n${body}`);
-  assert.ok(body.includes("/tmp/a.ts"), body);
   assert.ok(!body.includes("await pi.bash"), "the program is folded away");
   assert.ok(!body.includes("three calls, all good"), "the output is folded away");
   assert.ok(!body.includes("> load"), "fabric's card is not what these rows came from");
-  // The edit's diff draws once, in its own box — not again inside the list.
-  assert.equal(body.split("↳ diff").length - 1, 1, body);
+  const edit = lines.findIndex((line) => line.includes("✓ edit") && line.includes("/tmp/a.ts"));
+  const diff = lines.findIndex((line) => line.includes("world2"));
+  assert.ok(edit >= 0 && diff > edit, `the diff hangs under the edit's row:\n${body}`);
+  assert.ok(!lines.slice(diff).some((line) => line.startsWith("╭─")), "no box of its own below the list");
 });
 
 test("the fold rows open the program and the output in place", () => {
@@ -230,7 +216,7 @@ test("the fold rows open the program and the output in place", () => {
   assert.ok(output.includes("await pi.bash"), "the program stays open");
 });
 
-test("with grouping off, the list sits in a frame and the edit below it", () => {
+test("with grouping off, the list sits in a frame of its own", () => {
   patchToolBoxFrames({ icons: false, groupTools: false });
   try {
     const chat = new Container();
@@ -240,11 +226,9 @@ test("with grouping off, the list sits in a frame and the edit below it", () => 
     const body = lines.join("\n");
     assert.match(lines[0]!, /^╭─ ✓ fabric_exec\s+bash×1 edit×1 read×1\s+0\.4s ─+╮$/, body);
     assert.ok(body.includes("▸ script · 3 lines"), body);
-    assert.ok(body.includes("▸ output · 1 line"), body);
     assert.ok(body.includes("echo hi"), body);
-    assert.ok(!body.includes("> load"), "the card is not what these rows came from");
-    const editBox = lines.find((line) => line.startsWith("╭─") && line.includes("edit") && line.includes("/tmp/a.ts"));
-    assert.ok(editBox, "the edit's own box follows:\n" + body);
+    assert.ok(body.includes("world2"), "the diff is in the list:\n" + body);
+    assert.equal(lines.filter((line) => line.startsWith("╭─")).length, 1, "one box:\n" + body);
 
     // The fold rows are the framed body's own rows, one deeper than the border.
     click(chat, "▸ script");
@@ -257,45 +241,22 @@ test("with grouping off, the list sits in a frame and the edit below it", () => 
   }
 });
 
-test("a failed call keeps its error under its row, in red", () => {
+test("a failure inside the program reads in the folded group, and under its row when open", () => {
   resetGroups();
   const failed = [
     { ref: "pi.bash", tool: "bash", provider: "pi", success: false, error: "no such file", args: { command: "cat /nope" }, startedAt: 1, endedAt: 2 },
+    { ref: "pi.edit", tool: "edit", provider: "pi", success: false, error: "oldText not found", args: { path: "/tmp/a.ts" }, startedAt: 2, endedAt: 3 },
   ];
   const chat = transcript({ audits: failed, text: "failed" });
   const folded = frame(chat).join("\n");
-  assert.match(folded, /1 failed/, folded);
+  assert.match(folded, /2 nested failed/, "a fold never hides a failure:\n" + folded);
   openBox(chat);
   const lines = frame(chat);
   const body = lines.join("\n");
-  const row = lines.findIndex((line) => line.includes("cat /nope"));
-  assert.ok(row >= 0, body);
-  assert.ok(lines[row + 1]!.includes("no such file"), body);
-});
-
-test("a failed edit's box carries its error, in red", () => {
-  resetGroups();
-  const failed = [
-    { ref: "pi.edit", tool: "edit", provider: "pi", success: false, error: "oldText not found", args: { path: "/tmp/a.ts" }, startedAt: 1, endedAt: 2 },
-  ];
-  const lines = frame(transcript({ audits: failed, text: "failed" }));
-  const body = lines.join("\n");
-  const at = lines.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
-  assert.ok(at >= 0, body);
-  assert.ok(lines.slice(at, at + 4).join("\n").includes("oldText not found"), body);
-});
-
-test("a write the program made draws its content as a box of its own", () => {
-  resetGroups();
-  const wrote = [
-    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/n.ts", content: "hello\nworld\n" }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
-  ];
-  const lines = frame(transcript({ audits: wrote, text: "done" }));
-  const body = lines.join("\n");
-  const at = lines.findIndex((line) => line.startsWith("╭─") && line.includes("write") && line.includes("/tmp/n.ts"));
-  assert.ok(at >= 0, body);
-  assert.ok(lines.slice(at, at + 5).join("\n").includes("hello"), body);
-  assert.ok(lines.slice(at, at + 5).join("\n").includes("world"), body);
+  const bash = lines.findIndex((line) => line.includes("cat /nope"));
+  assert.ok(bash >= 0 && lines[bash + 1]!.includes("no such file"), body);
+  const edit = lines.findIndex((line) => line.includes("✗ edit"));
+  assert.ok(edit >= 0 && lines[edit + 1]!.includes("oldText not found"), body);
 });
 
 test("a long diff keeps to the diff rows, and says how many it left", () => {
@@ -313,10 +274,12 @@ test("a long diff keeps to the diff rows, and says how many it left", () => {
       endedAt: 2,
     },
   ];
-  const body = frame(transcript({ audits: big, text: "done" })).join("\n");
-  assert.match(body, /\(\d+ more lines, \d+ total,/, body);
-  // The box opens on a click now, so the footer may promise the keybinding.
-  assert.ok(body.includes("to expand"), body);
+  const chat = transcript({ audits: big, text: "done" });
+  openBox(chat);
+  const body = frame(chat).join("\n");
+  assert.match(body, /\(\d+ more lines, \d+ total\)/, body);
+  // A nested diff opens no further: a keybinding that does nothing is worse than none.
+  assert.ok(!body.includes("to expand"), body);
 });
 
 test("a call's own output keeps a row and counts the rest", () => {
@@ -353,242 +316,43 @@ test("calls fabric dropped from the record are counted without its own plumbing"
 /** Count the background fills a frame keeps: the split diff's tinted rows. */
 const tint = (rows: readonly string[]) => rows.reduce((n, row) => n + (row.match(/\x1b\[48;[0-9;]*m/g) ?? []).length, 0);
 
-test("the promoted edit's box keeps the tint of its diff", () => {
+test("a nested diff keeps its tint inside the list", () => {
   resetGroups();
   const chat = transcript();
+  openBox(chat);
   const rows = chat.render(W);
   assert.ok(tint(rows) > 0, "the changed rows keep their fill:\n" + rows.map(strip).join("\n"));
 });
 
-test("a settled promoted box comes from the cache, not a rebuild", () => {
-  resetGroups();
-  const chat = transcript();
-  chat.render(W); // settle
-  const before = (chat as any).children?.[1]?.__promotedBoxes?.rows;
-  assert.ok(before, "the wrapper cached its promoted rows");
-  chat.render(W);
-  chat.render(W);
-  const after = (chat as any).children?.[1]?.__promotedBoxes?.rows;
-  assert.equal(after, before, "the same array: a settled box costs one key check");
-});
-
-test("clicking a promoted box does not fold the wrapper it belongs to", () => {
+test("a settled list comes from the cache, not a rebuild", () => {
   resetGroups();
   const chat = transcript();
   openBox(chat);
-  const lines = frame(chat);
-  const at = lines.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
-  assert.ok(at >= 0, lines.join("\n"));
-  chat.handleMouse({ type: "click", button: "left", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: lines.length } as any);
-  const after = frame(chat).join("\n");
-  assert.ok(after.includes("▸ script"), "the wrapper's list stays open:\n" + after);
+  frame(chat);
+  const before = (chat as any).children?.[1]?.__nestedComposed?.value;
+  assert.ok(before, "the call cached its composed list");
+  chat.render(W);
+  chat.render(W);
+  assert.equal((chat as any).children?.[1]?.__nestedComposed?.value, before, "the same value: a settled list costs one key check");
 });
 
-test("on an open turn's rail, the promoted box hangs on the rail too", async () => {
-  const { TurnStore, turnOptions, turnStore, expandTurnForTool } = await import("../src/turns/turn-state.ts");
-  const { UserMessageComponent } = await import("@earendil-works/pi-coding-agent");
+test("a progress tick keeps the sections the reader opened", () => {
   resetGroups();
-  turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun", frameFinalReply: true, icons: false });
+  const chat = new Container();
+  const call = fabric();
+  chat.addChild(call.component);
+  patchToolBoxFrames({ icons: false, groupTools: false });
   try {
-    const store = new TurnStore();
-    turnStore.set(store);
-    store.begin(1000);
-    const user = { role: "user", timestamp: 1000, content: "go" } as any;
-    const call = fabric();
-    const step = { role: "assistant", timestamp: 1100, provider: "p", model: "m", stopReason: "toolUse", content: [{ type: "toolCall", id: call.id, name: "fabric_exec", arguments: {} }] } as any;
-    const result = { role: "toolResult", toolCallId: call.id, toolName: "fabric_exec", timestamp: 1200, isError: false, content: [{ type: "text", text: "out" }], details: details() } as any;
-    const final = { role: "assistant", timestamp: 1300, provider: "p", model: "m", stopReason: "stop", content: [{ type: "text", text: "done" }] } as any;
-    const chat = new Container();
-    chat.addChild(new UserMessageComponent("go"));
-    chat.addChild(new AssistantMessageComponent(step, true));
-    chat.addChild(call.component);
-    chat.addChild(new AssistantMessageComponent(final, true));
-    for (const m of [user, step, result, final]) store.note(m, true);
-    store.settle(false, 1800);
-    expandTurnForTool(call.id, true);
-    let rows: string[] = [];
-    for (let i = 0; i < 5; i++) rows = frame(chat);
-    const at = rows.findIndex((line) => line.includes("╭─") && line.includes("edit"));
-    assert.ok(at >= 0, rows.join("\n"));
-    assert.ok(rows[at]!.startsWith("│"), "the box hangs on the turn's rail:\n" + rows.join("\n"));
-    // Every row of the box, down to its bottom border.
-    const end = rows.findIndex((line, i) => i > at && line.includes("╰"));
-    for (let i = at; i <= end; i++) assert.ok(rows[i]!.startsWith("│"), rows[i]);
+    click(chat, "▸ script");
+    assert.ok(frame(chat).join("\n").includes("await pi.bash"));
+    // fabric re-creates the details object on every tick.
+    (call.component as any).updateResult(
+      { content: [{ type: "text", text: "more" }], isError: false, durationMs: 500, details: details() } as any,
+      false,
+    );
+    assert.ok(frame(chat).join("\n").includes("await pi.bash"), "the script stays open across the tick");
   } finally {
-    turnOptions.set({ ...turnOptions.get(), collapseTurns: "off" });
+    patchToolBoxFrames({ icons: false, groupTools: true });
     resetGroups();
   }
-});
-
-test("a long write is windowed and counts what it left", () => {
-  resetGroups();
-  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
-  const wrote = [
-    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
-  ];
-  const rows = frame(transcript({ audits: wrote, text: "done" }));
-  const body = rows.join("\n");
-  assert.ok(body.includes("line 0"), body);
-  assert.ok(!body.includes("line 30"), "the tail is windowed away:\n" + body);
-  assert.ok(body.includes("40 more lines"), "the window says how much it left:\n" + body);
-});
-
-test("a long error on a promoted edit is windowed too", () => {
-  resetGroups();
-  const error = Array.from({ length: 30 }, (_, i) => "error line " + i).join("\n");
-  const failed = [
-    { ref: "pi.edit", tool: "edit", provider: "pi", success: false, error, args: { path: "/tmp/e.ts" } },
-  ];
-  const rows = frame(transcript({ audits: failed, text: "failed" }));
-  const body = rows.join("\n");
-  assert.ok(body.includes("error line 0"), body);
-  assert.ok(!body.includes("error line 25"), "the tail is windowed away:\n" + body);
-  assert.ok(body.includes("more lines"), body);
-});
-
-test("clicking a promoted write box opens its whole content, and clicking again shuts it", () => {
-  resetGroups();
-  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
-  const wrote = [
-    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
-  ];
-  const chat = transcript({ audits: wrote, text: "done" });
-  const folded = frame(chat);
-  assert.ok(folded.join("\n").includes("40 more lines"), "starts windowed");
-  const at = folded.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
-  assert.ok(at >= 0, folded.join("\n"));
-  chat.handleMouse({ type: "click", button: "left", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: folded.length } as any);
-  const open = frame(chat).join("\n");
-  assert.ok(open.includes("line 59"), "the whole content is shown:\n" + open.slice(0, 400));
-  assert.ok(!open.includes("more lines"), "no window note while open");
-  // Click again: shut.
-  const openRows = frame(chat);
-  const at2 = openRows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
-  chat.handleMouse({ type: "click", button: "left", x: 10, y: at2 + 2, screenX: 10, screenY: at2 + 2, width: W, height: openRows.length } as any);
-  const shut = frame(chat).join("\n");
-  assert.ok(shut.includes("40 more lines"), "windowed again:\n" + shut.slice(0, 400));
-  assert.ok(!shut.includes("line 59"), "the tail is hidden again");
-});
-
-test("clicking a promoted edit box opens its whole diff", () => {
-  resetGroups();
-  const lines = Array.from({ length: 40 }, (_, i) => `+${i + 2} added ${i}`);
-  const big = [
-    { ref: "pi.edit", tool: "edit", provider: "pi", success: true, args: { path: "/tmp/a.ts" }, result: { ok: true, output: "ok", details: { diff: ` 1 head\n-2 gone\n${lines.join("\n")}` } }, startedAt: 1, endedAt: 2 },
-  ];
-  const chat = transcript({ audits: big, text: "done" });
-  const folded = frame(chat);
-  const at = folded.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
-  chat.handleMouse({ type: "click", button: "left", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: folded.length } as any);
-  const open = frame(chat).join("\n");
-  assert.ok(open.includes("added 39"), "the last changed line is shown:\n" + open.slice(0, 300));
-  assert.ok(!open.includes("more lines"), "no window note while open");
-});
-
-test("ctrl+o opens the promoted boxes with the wrapper, and collapse-all shuts them", () => {
-  resetGroups();
-  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
-  const wrote = [
-    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
-  ];
-  const call = fabric({ audits: wrote, text: "done" });
-  const chat = new Container();
-  chat.addChild(call.component);
-  (call.component as any).setExpanded(true);
-  const open = frame(chat).join("\n");
-  assert.ok(open.includes("line 59"), "expand-all opens the promoted box too:\n" + open.slice(0, 300));
-  (call.component as any).setExpanded(false);
-  const shut = frame(chat).join("\n");
-  assert.ok(shut.includes("40 more lines"), "collapse-all shuts it");
-});
-
-test("opening one promoted box leaves its neighbour shut, and spans follow the growth", () => {
-  resetGroups();
-  const content = Array.from({ length: 80 }, (_, i) => "line " + i).join("\n");
-  const audits = [
-    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
-    ...AUDITS.filter((a) => a.tool === "edit"),
-  ];
-  const chat = transcript({ audits, text: "done" });
-  let rows = frame(chat);
-  const wAt = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
-  chat.handleMouse({ type: "click", button: "left", x: 5, y: wAt + 2, screenX: 5, screenY: wAt + 2, width: W, height: rows.length } as any);
-  rows = frame(chat);
-  assert.ok(rows.join("\n").includes("line 79"), "write open");
-  const eAt = rows.findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
-  assert.ok(eAt > wAt, "the edit box follows the taller write box");
-  chat.handleMouse({ type: "click", button: "left", x: 5, y: eAt + 2, screenX: 5, screenY: eAt + 2, width: W, height: rows.length } as any);
-  rows = frame(chat);
-  const wAt2 = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
-  chat.handleMouse({ type: "click", button: "left", x: 5, y: wAt2, screenX: 5, screenY: wAt2, width: W, height: rows.length } as any);
-  assert.ok(frame(chat).join("\n").includes("more lines"), "write shut again");
-});
-
-test("a progress tick keeps an open box open; a different call starts shut", () => {
-  resetGroups();
-  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
-  const wrote = [
-    { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 },
-  ];
-  const call = fabric({ audits: wrote, text: "done" });
-  const chat = new Container();
-  chat.addChild(call.component);
-  let rows = frame(chat);
-  const at = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
-  chat.handleMouse({ type: "click", button: "left", x: 5, y: at + 2, screenX: 5, screenY: at + 2, width: W, height: rows.length } as any);
-  assert.ok(frame(chat).join("\n").includes("line 59"));
-  // fabric re-creates the details object on every tick: the same call keeps
-  // its open state, an appended one arrives shut.
-  const other = { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/other.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 3, endedAt: 4 };
-  (call.component as any).updateResult(
-    { content: [{ type: "text", text: "done" }], isError: false, durationMs: 400, details: details([...wrote, other]) } as any,
-    false,
-  );
-  rows = frame(chat);
-  const body = rows.join("\n");
-  assert.ok(body.includes("line 59"), "the opened call stays open across the tick:\n" + body.slice(0, 300));
-  const otherAt = rows.findIndex((line) => line.startsWith("╭─") && line.includes("/tmp/other.ts"));
-  assert.ok(otherAt >= 0, body);
-  assert.ok(rows.slice(otherAt, otherAt + 30).join("\n").includes("more lines"), "the new call starts shut");
-});
-
-test("moving the pointer onto a promoted box clears the wrapper's hover band", async () => {
-  const { enableHoverForTests, resetHover } = await import("../src/hover.ts");
-  resetGroups();
-  enableHoverForTests();
-  try {
-    const chat = transcript();
-    let rows = chat.render(W);
-    const plain = rows.map(strip);
-    const header = plain.findIndex((line) => /\d+ calls/.test(line));
-    chat.handleMouse({ type: "move", x: 5, y: header, screenX: 5, screenY: header, width: W, height: rows.length } as any);
-    rows = chat.render(W);
-    const band = (s: string) => /\x1b\[48;/.test(s);
-    assert.ok(rows.some(band), "the header wears the band under the pointer");
-    const at = rows.map(strip).findIndex((line) => line.startsWith("╭─") && line.includes("edit"));
-    chat.handleMouse({ type: "move", x: 10, y: at + 2, screenX: 10, screenY: at + 2, width: W, height: rows.length } as any);
-    rows = chat.render(W);
-    // The promoted edit's own diff tint is content, not a hover band; the
-    // header's band must be gone.
-    const headerRow = rows[rows.map(strip).findIndex((line) => /\d+ calls/.test(line))]!;
-    assert.ok(!band(headerRow), "the band clears when the pointer leaves the wrapper's rows");
-  } finally {
-    resetHover();
-  }
-});
-
-test("a progress tick does not shut a box the reader opened", () => {
-  resetGroups();
-  const content = Array.from({ length: 60 }, (_, i) => "line " + i).join("\n");
-  const wrote = { ref: "pi.write", tool: "write", provider: "pi", success: true, args: { path: "/tmp/w.ts", content }, result: { ok: true, output: "wrote" }, startedAt: 1, endedAt: 2 };
-  const call = fabric({ audits: [wrote], text: "done" });
-  const chat = new Container();
-  chat.addChild(call.component);
-  const rows = frame(chat);
-  const at = rows.findIndex((line) => line.startsWith("╭─") && line.includes("write"));
-  chat.handleMouse({ type: "click", button: "left", x: 5, y: at + 2, screenX: 5, screenY: at + 2, width: W, height: rows.length } as any);
-  assert.ok(frame(chat).join("\n").includes("line 59"));
-  const bash = { ref: "pi.bash", tool: "bash", provider: "pi", success: true, args: { command: "echo" }, result: { ok: true, output: "x" }, startedAt: 3, endedAt: 4 };
-  (call.component as any).updateResult({ content: [], details: details([wrote, bash]) } as any, true);
-  assert.ok(frame(chat).join("\n").includes("line 59"), "the tick must not shut what the reader opened");
 });

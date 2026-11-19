@@ -338,7 +338,7 @@ function wrappedLine(turn: Turn): string {
   return visibleText(summaryLine(turn, getTheme()!, 200, false, 2000));
 }
 
-test("a script's calls hang on its entry; a fabric program's join the run's counts", () => {
+test("every program's calls hang on its own entry, codemode's and fabric's alike", () => {
   const script = wrappedLine(wrappedTurn("codemode", {
     details: { calls: [{ name: "bash", status: "ok" }, { name: "read", status: "error" }] },
   }));
@@ -354,14 +354,11 @@ test("a script's calls hang on its entry; a fabric program's join the run's coun
       ],
     },
   }));
-  // The program's calls count beside the model's own: three calls, one failure,
-  // no parentheses and no separate "nested failed".
-  assert.match(program, /3 calls/, program);
-  assert.match(program, /fabric_exec×1/, program);
-  assert.match(program, /bash×1/, program);
-  assert.match(program, /read×1/, program);
-  assert.ok(!program.includes("("), "no nested list on the entry: " + program);
-  assert.match(program, /1 failed/, program);
-  assert.ok(!program.includes("nested failed"), program);
+  // One call by the model; what its program ran hangs on it, the failure inside
+  // is a nested one, and fabric's own plumbing stays out of the count.
+  assert.match(program, /\b1 calls?\b/, program);
+  assert.match(program, /fabric_exec×1 \(bash×1 read×1\)/, program);
+  assert.match(program, /1 nested failed/, program);
+  assert.ok(!/(^|[^d] )1 failed/.test(program), program);
   assert.ok(!program.includes("load×1"), "fabric's own plumbing stays out of the count");
 });

@@ -18,6 +18,7 @@ import { formatBashCallHighlighted } from "./tools/bash-highlight.ts";
 import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
+import { noteHostRecord, resetHostRecords } from "./tools/nested-calls.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
@@ -319,6 +320,12 @@ export default function (pi: ExtensionAPI): void {
   // before a reply starts, not at its first tool, when half its calls have
   // already joined a group. A no-op while it is still on top.
   pi.on("before_agent_start", () => installGroupBoundaries());
+  // pi's own record of the calls a tool made through `ctx.executeTool()` rides on
+  // the tool result message, not on the result the box is drawn from. Keep its
+  // arguments by call id: codemode's own record clips them at 200 characters.
+  pi.on("message_start", ({ message }) => noteHostRecord(message));
+  pi.on("session_start", (_event, ctx) => resetHostRecords(ctx.sessionManager.getBranch()));
+  pi.on("session_tree", (_event, ctx) => resetHostRecords(ctx.sessionManager.getBranch()));
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {

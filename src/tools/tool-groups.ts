@@ -33,7 +33,7 @@
 
 import type { JobStatus } from "./background-jobs.ts";
 import { agentRunning, groupOpen } from "../live.ts";
-import { mergesNestedCalls, nestedCallsOf, type NestedCall } from "./nested-calls.ts";
+import { nestedCallFailed, nestedCallsOf } from "./nested-calls.ts";
 
 export interface GroupMember {
   toolName: string;
@@ -46,10 +46,10 @@ export interface GroupMember {
   jobs?: Array<{ status: JobStatus; fresh: boolean }>;
   /** Running for under RUNNING_ROW_DELAY_MS: not worth announcing yet. */
   fresh?: boolean;
-  /** A script's own calls, which this row counts instead of hiding behind `codemode×N`. */
+  /** A program's own calls, which this row counts instead of hiding behind `codemode×N`. */
   nested?: BreakdownEntry[];
-  /** A wrapper whose calls join the counts around it, as calls of the run. */
-  merged?: NestedCall[];
+  /** Of those, the ones that failed: the program may have caught them and gone on. */
+  nestedFailed?: number;
 }
 
 export interface BreakdownEntry {
@@ -75,16 +75,15 @@ function sortedCounts(counts: Map<string, number>): BreakdownEntry[] {
 }
 
 /**
- * What a wrapper's own calls were, as counts.
+ * What a call's nested calls were, as counts.
  *
- * Those calls never reach the model as calls of their own: the wrapper keeps
- * them as a record on the parent's result (nested-calls.ts reads both shapes).
- * The parent row already shows them in place of its arguments, but a summary
- * that counted `codemode×2` and stopped there hid everything those scripts ran,
- * and a `fabric_exec` that ran three tools read as a single call.
+ * Those calls never reach the model as calls of their own: the tool keeps them
+ * as a record on its result (see nested-calls.ts). The call's row already shows
+ * them in place of its arguments, but a summary that counted `codemode×2` and
+ * stopped there hid everything those programs ran.
  */
-export function nestedBreakdown(details: unknown): BreakdownEntry[] {
-  const calls = nestedCallsOf(details);
+export function nestedBreakdown(details: unknown, toolCallId?: string): BreakdownEntry[] {
+  const calls = nestedCallsOf(details, toolCallId);
   if (calls.length === 0) return [];
   const counts = new Map<string, number>();
   for (const call of calls) {
@@ -99,10 +98,12 @@ export interface GroupSummary {
   /** Per-tool counts, most frequent first, ties alphabetical. */
   breakdown: BreakdownEntry[];
   /**
-   * What the scripts in this group ran, merged, and the entry that names them:
-   * the `codemode×1` count says how many rows, this says what they did.
+   * What the programs in this group ran, per entry that ran them: the
+   * `codemode×1` count says how many rows, this says what they did. Nested
+   * calls hang on their own entry, `codemode×1 (bash×2) fabric_exec×1 (edit×1)`,
+   * and never join the counts beside it: those count what the model called.
    */
-  nested?: { owner: string; breakdown: BreakdownEntry[] };
+  nested?: Map<string, BreakdownEntry[]>;
   /** Thinking runs listed inside this group (`thoughts` only when > 0). */
   thoughts: number;
   /** One of those runs is still arriving: the marker animates. */
@@ -113,6 +114,8 @@ export interface GroupSummary {
   running?: string;
   /** Members that finished with an error, or whose background job failed. */
   failed: number;
+  /** Calls inside programs that failed, apart from the members' own failures. */
+  nestedFailed: number;
   /** Background jobs still running. */
   jobsRunning: number;
 }
@@ -120,13 +123,12 @@ export interface GroupSummary {
 /** Pure: what the summary line says, independent of theme or icons. */
 export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking = false): GroupSummary {
   const counts = new Map<string, number>();
-  const nested = new Map<string, number>();
-  let nestedOwner: string | undefined;
+  const nested = new Map<string, Map<string, number>>();
   let durationMs = 0;
   let running: string | undefined;
   let failed = 0;
+  let nestedFailed = 0;
   let jobsRunning = 0;
-  let total = 0;
   for (const member of members) {
     const jobs = member.jobs ?? (member.job ? [{ status: member.job, fresh: !!member.fresh }] : []);
     const failedJobs = jobs.filter((job) => job.status === "failed").length;
@@ -134,19 +136,11 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
     jobsRunning += jobs.filter((job) => job.status === "running" && !job.fresh).length;
     const kind = toolKindName(member.toolName);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
-    total += 1;
-    // A merged wrapper's calls are calls of the run: counted beside the ones
-    // the model issued, failures included, so the line says everything that
-    // happened without opening anything.
-    for (const call of member.merged ?? []) {
-      const callKind = toolKindName(call.name);
-      counts.set(callKind, (counts.get(callKind) ?? 0) + 1);
-      total += 1;
-      if (call.status === "error" || call.status === "cancelled") failed += 1;
-    }
-    for (const entry of member.nested ?? []) {
-      nestedOwner ??= kind;
-      nested.set(entry.name, (nested.get(entry.name) ?? 0) + entry.count);
+    nestedFailed += member.nestedFailed ?? 0;
+    if (member.nested?.length) {
+      const own = nested.get(kind) ?? new Map<string, number>();
+      for (const entry of member.nested) own.set(entry.name, (own.get(entry.name) ?? 0) + entry.count);
+      nested.set(kind, own);
     }
     if (typeof member.durationMs === "number" && Number.isFinite(member.durationMs)) {
       durationMs += member.durationMs;
@@ -154,10 +148,10 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
     if (member.isPartial && !member.fresh && running === undefined) running = member.toolName;
   }
   const breakdown = sortedCounts(counts);
-  const summary: GroupSummary = { count: total, breakdown, thoughts, thinking, durationMs, running, failed, jobsRunning };
-  // A group's scripts are summed into one list: two scripts that both ran bash
-  // are one `bash×3`, and the parentheses stay one segment of the line.
-  if (nestedOwner !== undefined && nested.size > 0) summary.nested = { owner: nestedOwner, breakdown: sortedCounts(nested) };
+  const summary: GroupSummary = { count: members.length, breakdown, thoughts, thinking, durationMs, running, failed, nestedFailed, jobsRunning };
+  // Programs of one kind are summed into one list: two codemode calls that both
+  // ran bash are one `bash×3`, and the parentheses stay one segment of the line.
+  if (nested.size > 0) summary.nested = new Map([...nested].map(([owner, own]) => [owner, sortedCounts(own)]));
   return summary;
 }
 
@@ -716,8 +710,8 @@ export function summaryFor(
         isPartial: member.isPartial,
         isError: member.result?.isError === true,
         durationMs: member.isPartial ? undefined : member.result?.durationMs,
-        nested: member.isPartial || mergesNestedCalls(member.toolName) ? undefined : nestedBreakdown(member.result?.details),
-        merged: mergesNestedCalls(member.toolName) ? nestedCallsOf(member.result?.details) : undefined,
+        nested: member.isPartial ? undefined : nestedBreakdown(member.result?.details, member.toolCallId),
+        nestedFailed: member.isPartial ? 0 : nestedCallsOf(member.result?.details).filter(nestedCallFailed).length,
         jobs: jobs.map((job) => ({
           status: job.status,
           fresh: job.status === "running" && now - (job.startTime ?? now) < RUNNING_ROW_DELAY_MS,

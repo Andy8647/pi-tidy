@@ -8,31 +8,34 @@ What changed in each released version of pi-tidy (published as
 
 ### Added
 
-**A `fabric_exec` call reads as the calls it made.** pi-fabric keeps the calls a program made on its own result
-(`details.audits`) instead of drawing them as tool rows, so tidy saw one call where three had run: the folded row
-showed the program's first line, an `edit` the program made never appeared, and nothing said what it wrote. Both
-records a wrapper can keep — pi's `codemode` `details.calls` and fabric's `details.audits` — are now read as one
-list, whatever the tool is called.
+**`fabric_exec` reads as the calls its program made**, the way a `codemode` script does (#86, thanks @cmz488). pi-fabric
+keeps those calls on its own result rather than as tool rows, so tidy used to show one call where three had run, with
+the program's first line where the arguments go. Now the folded row says what the program ran (`bash×2 edit×1`), the
+group and turn summaries hang it on the entry (`fabric_exec×1 (bash×2 edit×1)`), and the opened box lists every call,
+an edit's diff under its own row. Fabric's routine `native.load` calls are left out, as its own card leaves them out.
 
-A `fabric_exec` program's calls **join the run's counts**: the group line and the folded turn read
-`5 calls · fabric_exec×1 bash×2 edit×1 write×1` — the calls beside the model's own, no parentheses, failures counted
-with the run's (`codemode` keeps its `codemode×1 (bash×2)` reading). An `edit` or `write` the program made **draws
-as a box of its own**, below the wrapper's row or box, folded or open: the diff in the same panes an `edit` box uses
-(a window of `diffLines` rows, the rest counted, tinted on the changed rows), the write's content as the text it
-wrote, a failure's error in red. A click on one of these boxes opens its whole body — the write's full content, the
-edit's full diff — and a second click shuts it again, the way a native edit box toggles; `ctrl+o` opens them with the
-wrapper, and collapse-all shuts them. Opening the wrapper lists the rest of its calls, with the program and the output
-folded to one row each; a call's own output keeps `bashResultLines` rows and counts what it left.
+**Any tool can get the same call list.** A tool that runs a program and writes `details.calls` on its result —
+codemode's shape, with optional `output`, `diff` and `cost` per call — is drawn like codemode and fabric, whatever it is
+called. The README's new *Nested calls* section has the fields.
 
-Fabric's routine internal calls (the `native.load` it uses to bring a provider's tools into scope) are left out, as
-fabric's own card leaves them out. A session reloaded from disk still lists the calls — the arguments are kept — but
-the diffs and the calls' output are gone: fabric does not persist them.
+**A failure inside a program shows on a folded group** as `1 nested failed`, in red, the way the folded turn already
+said it. A script that caught the failure and went on still succeeds, so nothing else on the line said it happened.
 
 ### Changed
 
-**A wrapper's calls are counted wherever they are recorded.** The summary line and a turn's list used to read one
-record shape and only for a tool named `codemode`; a tool that records its calls in the other shape was invisible to
-both.
+**codemode's opened box is drawn from its record instead of from pi's rows.** It looks the same, with these
+differences:
+
+- `script · N lines` counts the script's lines, not the rows pi wrapped them into.
+- The output's fold row says `N lines` unless the script returned several values (`N items`, as before).
+- A script that called no tool still folds its script and its output, instead of showing pi's box unfolded.
+- On a narrow box a call's duration stays on its row; it used to wrap onto a row of its own or go missing.
+- A clipped argument is completed from pi's own record of the call when it has one, so a long command is no longer
+  cut at 200 characters.
+
+**Nested calls hang on the call that ran them, everywhere.** Two kinds of program in one group each keep their own
+list (`codemode×1 (bash×1) fabric_exec×1 (edit×1)`); before, the first one named took everything. `N calls` counts what
+the model called.
 
 ## [0.9.8] - 2026-11-15
 
