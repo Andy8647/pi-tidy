@@ -1098,3 +1098,37 @@ test("a reloaded session: jobs pi-processes doesn't know are rebuilt from their 
   assert.ok(lines.some((line) => line.includes("│ process ⊘  lost  not running")));
   assert.ok(!lines.some((line) => /[◐◓◑◒]/.test(line)), "nothing spins");
 });
+
+test("a job's matched lines and its opened body hang on its arguments' column", () => {
+  resetJobs();
+  connectJobs(processesBus({ ticker: procInfo("ticker") }));
+  const chat = new Container();
+  const start = processStart("ticker");
+  const ls = bash("ls", "a");
+  chat.addChild(textStep("Starting.", start.id, "process"));
+  chat.addChild(start.component);
+  chat.addChild(notice("ticker", "log_match", { logMatch: { pattern: "READY", stream: "stderr", line: "READY on 8000" } }));
+  chat.addChild(step(ls.id));
+  chat.addChild(ls.component);
+  click(chat, "2 calls");
+  // Columns are the point here, so not the frame helper, which squeezes spaces.
+  const raw = () => {
+    frame(chat);
+    return chat.render(W).map(strip);
+  };
+  const column = (lines: string[]) => {
+    const row = lines.find((line) => /process [◐◓◑◒✓]/.test(line))!;
+    return row.indexOf("ticker");
+  };
+  let lines = raw();
+  const note = lines.find((line) => line.includes("matched stderr: READY on 8000"));
+  assert.ok(note, lines.join("\n"));
+  assert.equal(note.indexOf("·"), column(lines), lines.join("\n"));
+
+  click(chat, "│ process");
+  lines = raw();
+  const body = lines.find((line) => line.includes("Started process ticker"));
+  assert.ok(body, lines.join("\n"));
+  // The column every opened call's body takes: pi pads a tool's output by one cell.
+  assert.equal(body.indexOf("Started"), column(lines) + 1, lines.join("\n"));
+});
