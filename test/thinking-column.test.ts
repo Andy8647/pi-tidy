@@ -61,16 +61,18 @@ function opened(icons: boolean, width: number): { rows: string[]; raw: string[] 
 }
 
 for (const icons of [false, true]) {
-  test(`an opened thought's text starts where its row's text does, icons ${icons ? "on" : "off"}`, () => {
+  test(`an opened thought starts on its row and continues on the row's text column, icons ${icons ? "on" : "off"}`, () => {
     const { rows } = opened(icons, 100);
     const row = rows.findIndex((line) => line.includes("thinking") && line.includes("The listing"));
     assert.ok(row >= 0, rows.join("\n"));
+    assert.equal(rows.filter((line) => line.includes("The listing")).length, 1, "the first line is not repeated:\n" + rows.join("\n"));
+    assert.ok(!rows[row]!.includes("…"), "the row carries the body's first line, not a clipped preview: " + rows[row]);
     // Cells, not string indices: a Nerd Font glyph is two UTF-16 units and one cell.
     const cellOf = (line: string, needle: string) => visibleWidth(line.slice(0, line.indexOf(needle)));
     const column = cellOf(rows[row]!, "The listing");
-    const body = rows.findIndex((line, i) => i > row && line.includes("The listing"));
-    assert.ok(body > row, rows.join("\n"));
-    assert.equal(cellOf(rows[body]!, "The listing"), column, rows.join("\n"));
+    // The paragraph wraps onto the next row, on the same edge.
+    const next = rows[row + 1]!;
+    assert.equal(visibleWidth(next.slice(0, next.search(/[A-Za-z]/))), column, rows.join("\n"));
     // A list item keeps the bullet it was drawn with, on the same edge.
     const item = rows.find((line, i) => i > row && line.includes("first, the loader"))!;
     assert.equal(cellOf(item, "-"), column, item);

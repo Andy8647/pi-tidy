@@ -726,23 +726,26 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     clickMap.to = cached.lines.length - 1;
     return { lines: cached.lines };
   }
-  for (const index of runs.keys()) {
-    const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
-    // One still arriving or opened is what the reader is looking at, so it keeps its label and colour.
-    const row = formatThoughtLine(text, theme, { icons, thinkingColor, align, quiet: !plan.live && !open });
-    // Open: the row keeps its place and takes a tick, exactly like an opened
-    // call — the reasoning hangs under it instead of replacing it.
-    const line = open ? `${tickGutter(theme)}${withoutLead(row)}` : gutter + row;
-    lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
-  }
   if (open) {
-    // The reasoning hangs on the row's own text column, the way an opened call's
-    // body hangs on its command (see renderGroupedTool): the row above and the
-    // text under it share one left edge instead of starting under the rail.
+    // Open, the label row takes a tick like an opened call, and the reasoning
+    // starts on it: the row's preview would only repeat the body's first line.
+    // The rest hangs on the row's own text column, the way an opened call's body
+    // hangs on its command (see renderGroupedTool). Every run is in the body, so
+    // one label row stands for all of them.
     const column = thoughtColumn({ icons, align });
     const pad = " ".repeat(column);
-    for (const line of thinkingBody(component, Math.max(8, width - GUTTER_CELLS - column))) {
-      lines.push(clipToWidth(`${gutter}${pad}${theme.fg("thinkingText", line)}`, width, "…"));
+    const [first = "", ...rest] = thinkingBody(component, Math.max(8, width - GUTTER_CELLS - column));
+    const label = formatThoughtLine("", theme, { icons, thinkingColor, align, quiet: false });
+    const line = `${tickGutter(theme)}${withoutLead(label)}${theme.fg("thinkingText", first)}`;
+    lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
+    for (const each of rest) lines.push(clipToWidth(`${gutter}${pad}${theme.fg("thinkingText", each)}`, width, "…"));
+  } else {
+    for (const index of runs.keys()) {
+      const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
+      // One still arriving is what the reader is looking at, so it keeps its label and colour.
+      const row = formatThoughtLine(text, theme, { icons, thinkingColor, align, quiet: !plan.live });
+      const line = gutter + row;
+      lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
     }
   }
   clickMap.from = firstRow;
