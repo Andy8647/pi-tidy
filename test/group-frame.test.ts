@@ -697,7 +697,7 @@ test("thinking is a row above its own call, and clicking it opens pi's text", ()
   chat.handleMouse({ type: "click", button: "left", x: 4, y, screenX: 4, screenY: y, width: W, height: 10 } as any);
   const opened = frame(chat);
   assert.ok(
-    opened.some((line) => line.includes("结尾标记")),
+    opened.some((line) => line.includes("用来验证预览行真的会截断")),
     `the whole run is shown, not a preview:\n${opened.join("\n")}`,
   );
   assert.ok(
@@ -729,7 +729,7 @@ test("an expanded run does not take the group header's click", () => {
 
   // The step that owns the summary line is also the one whose run is open.
   assert.ok(click(chat, "先确认一下这个目录"));
-  assert.ok(frame(chat).some((line) => line.includes("结尾标记")), "the run is open");
+  assert.ok(frame(chat).some((line) => line.includes("用来验证预览行真的会截断")), "the run is open");
 
   // The header keeps its own click: this closes the group rather than folding
   // the run that happens to sit next to it.

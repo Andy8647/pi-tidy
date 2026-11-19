@@ -4,6 +4,14 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**An opened thinking run inside a group lines up with its row.** Its text used to start three cells in from the rail,
+under the `thinking` label; it now starts where the row's own text does, the column an opened call's body already
+hangs on. Lists and code blocks in the reasoning keep their own indentation from there.
+
 ## [0.9.8] - 2026-11-15
 
 ### Added

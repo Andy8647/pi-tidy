@@ -545,15 +545,30 @@ export function formatThoughtLine(text: string, theme: ThemeLike, options: LineO
   const labelText = `${icon}thinking`;
   const label = paint(theme, color, labelText);
   const body = theme.fg(options.quiet ? "dim" : "thinkingText", text);
-  // Inside a group the label sits in the same column as the tool names, so the
-  // thought's text starts where the arguments do (see formatToolLine).
-  const name = options.align?.name;
-  const gap =
-    name === undefined
-      ? 2
-      : Math.max(2, (options.icons === false ? 0 : 2) + name + 4 - visibleWidth(labelText));
-  const row = ` ${label}${" ".repeat(gap)}${body}`;
+  const row = ` ${label}${" ".repeat(thoughtGap(labelText, options))}${body}`;
   return theme.italic ? theme.italic(row) : row;
+}
+
+/**
+ * Cells between the `thinking` label and the thought. Inside a group the label
+ * sits in the same column as the tool names, so the thought's text starts where
+ * the arguments do (see formatToolLine).
+ */
+function thoughtGap(labelText: string, options: LineOptions): number {
+  const name = options.align?.name;
+  if (name === undefined) return 2;
+  return Math.max(2, (options.icons === false ? 0 : 2) + name + 4 - visibleWidth(labelText));
+}
+
+/**
+ * Cells between a thought row's left edge and its text: what an opened run's
+ * body hangs on, so the reasoning under the row starts where the row's own
+ * text does — the column a call's body hangs on too (see commandColumn).
+ */
+export function thoughtColumn(options: LineOptions = {}): number {
+  const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
+  const labelText = `${glyph ? `${glyph} ` : ""}thinking`;
+  return 1 + visibleWidth(labelText) + thoughtGap(labelText, options);
 }
 
 /**
