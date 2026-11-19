@@ -33,9 +33,10 @@ import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "../tur
 import { folded, turnFor, turnOptions } from "../turns/turn-state.ts";
 import { toggleNestedSection, type NestedSection } from "./nested-body.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
-import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "../draw/frame-draw.ts";
+import { clipToWidth, drawFrame, labeledTopBorder, rawIndexOfVisible, trimBlankEdges, visibleText } from "../draw/frame-draw.ts";
 import {
   commandColumn,
+  thoughtColumn,
   formatGroupLine,
   formatThoughtLabel,
   formatThoughtLine,
@@ -394,8 +395,6 @@ function withoutLead(row: string): string {
   return row.replace(/^((?:\x1b\[[0-9;]*m)*) /, "$1");
 }
 
-/** Cells an opened call's body is pushed in by, under its row: the rail plus three. */
-const BODY_INDENT = GUTTER_CELLS + 3;
 const BODY_PAD = "   ";
 
 /**
@@ -737,8 +736,14 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
   }
   if (open) {
-    const body = trimBlankEdges(renderThinkingBody(component, iconBodyWidth(width)));
-    for (const line of body) lines.push(`${gutter}${BODY_PAD}${theme.fg("thinkingText", line)}`);
+    // The reasoning hangs on the row's own text column, the way an opened call's
+    // body hangs on its command (see renderGroupedTool): the row above and the
+    // text under it share one left edge instead of starting under the rail.
+    const column = thoughtColumn({ icons, align });
+    const pad = " ".repeat(column);
+    for (const line of thinkingBody(component, Math.max(8, width - GUTTER_CELLS - column))) {
+      lines.push(clipToWidth(`${gutter}${pad}${theme.fg("thinkingText", line)}`, width, "…"));
+    }
   }
   clickMap.from = firstRow;
   clickMap.to = lines.length - 1;
@@ -759,9 +764,28 @@ const settledCarriers = new WeakMap<object, {
   lines: string[];
 }>();
 
-/** The width an opened thinking run's text is laid out at, inside its indent. */
-function iconBodyWidth(width: number): number {
-  return Math.max(8, width - BODY_INDENT);
+/**
+ * An opened run's rows at `width` cells, without the padding pi's thinking
+ * component puts on their left: the column they hang on is the group's
+ * business. Rows indented further than the rest (a list, a code block) keep
+ * what they have beyond that.
+ */
+/** Escape sequences only: what a cut keeps of the cells it drops. */
+const ESCAPES_ONLY = /\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)/g;
+
+function thinkingBody(component: any, width: number): string[] {
+  // pi pads the rows by a cell; laid out one wider, the text keeps `width`.
+  const rows = trimBlankEdges(renderThinkingBody(component, width + 1));
+  let lead = Infinity;
+  for (const row of rows) {
+    const plain = visibleText(row);
+    if (plain.trim()) lead = Math.min(lead, plain.length - plain.trimStart().length);
+  }
+  if (!Number.isFinite(lead) || lead === 0) return rows;
+  return rows.map((row) => {
+    const at = rawIndexOfVisible(row, lead);
+    return at < 0 ? row : (row.slice(0, at).match(ESCAPES_ONLY)?.join("") ?? "") + row.slice(at);
+  });
 }
 
 /**
