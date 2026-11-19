@@ -63,6 +63,14 @@ notification with no row to absorb it stay visible. A reply with no
 hidden process gets no summary. A folded run whose jobs matched log lines says
 so (`· 2 matched`), because the rows carrying those lines are inside the group.
 
+A background sub-agent's notice comes home to the turn that launched it. billion-context's `acp_delegate` sends
+`billion-context:delegate-notification` when a run ends (set `pi.subagents.notifyStructured: true` in its config), often
+after a later prompt. tidy hangs it under the `acp_delegate` call that launched the run, as a row you can click open
+(`▸ ✗ reviewer failed`), and the turn's summary counts the runs once each: `1 sub-agent failed` with the other failures,
+`sub-agents 2 completed` after the timings. A failure keeps its row under a folded group. A notice stays where it
+arrived when nothing can own it: no launching call recorded, runs launched in different turns, a turn compacted away,
+or `collapseTurns: "off"`. Only where the notice is drawn moves; the session and what the model reads are unchanged.
+
 `took` is wall time. `LLM` is the main agent's model requests, including response wait. `tools` is
 the union of top-level tool intervals (codemode and MCP waits included, parallel and nested calls
 not counted twice). Retries and overlap mean the parts need not sum to the total; missing historical

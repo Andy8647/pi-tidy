@@ -19,6 +19,7 @@ import { cleanCopy, installCleanCopy } from "./clean-copy.ts";
 import { patchContainerBoxes, patchMessageBoxes, patchToolBoxFrames } from "./frame.ts";
 import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-preview.ts";
 import { noteHostRecord, resetHostRecords } from "./tools/nested-calls.ts";
+import { noteDelegateNotice, resetDelegateNotices } from "./turns/delegate-notices.ts";
 import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
@@ -326,6 +327,11 @@ export default function (pi: ExtensionAPI): void {
   pi.on("message_start", ({ message }) => noteHostRecord(message));
   pi.on("session_start", (_event, ctx) => resetHostRecords(ctx.sessionManager.getBranch()));
   pi.on("session_tree", (_event, ctx) => resetHostRecords(ctx.sessionManager.getBranch()));
+  // Sub-agent notices hang on the call that launched them (delegate-notices.ts):
+  // index them from the session and as they arrive.
+  pi.on("session_start", (_event, ctx) => resetDelegateNotices(ctx.sessionManager.getBranch()));
+  pi.on("session_tree", (_event, ctx) => resetDelegateNotices(ctx.sessionManager.getBranch()));
+  pi.on("message_start", ({ message }) => { noteDelegateNotice(message); });
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {

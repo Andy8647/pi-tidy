@@ -11,6 +11,7 @@ import { jobNoteCount } from "../tools/background-jobs.ts";
 import { toolKindName } from "../tools/tool-groups.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
 import { closeThinking } from "../tools/tool-group-view.ts";
+import { delegateCounts, delegateRevision } from "./delegate-notices.ts";
 
 const NATIVE_VIEW = Symbol.for("pi-toolbox:message-view");
 export const TURN_LAYOUT = Symbol.for("pi-tidy:turn-layout");
@@ -71,15 +72,17 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
   // A job's notifications hang on rows inside its group. Folded, those rows are
   // not drawn at all, so the count is the only sign they arrived.
   const notes = isFolded ? noteTotal(turn) : 0;
+  // A sub-agent's notice arrives long after its turn settled, without touching it.
+  const delegates = delegateRevision();
   const cached = summaryCache.get(turn);
-  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color && cached.notes === notes) {
+  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color && cached.notes === notes && cached.delegates === delegates) {
     return cached.line;
   }
   const line = buildSummaryLine(turn, theme, width, hovered, now, notes);
-  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, notes, line });
+  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, notes, delegates, line });
   return line;
 }
-const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; notes: number; line: string }>();
+const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; notes: number; delegates: number; line: string }>();
 
 /** Everything the turn's own calls' jobs have reported, as one number. */
 function noteTotal(turn: Turn): number {
@@ -107,11 +110,21 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   if (failed) add(theme.fg("error", `${failed} failed`));
   const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
   if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
+  // Background sub-agents this turn launched, as their notices reported them
+  // (delegate-notices.ts). A failure goes with the other failures: early on the
+  // line, so a narrow row clips the counts after it first.
+  const delegates = delegateCounts(turn);
+  if (delegates.failed) add(theme.fg("error", `${delegates.failed} sub-agent${delegates.failed === 1 ? "" : "s"} failed`));
   // The glyph is the one the reply's border uses, so both lines name the same vendor.
   const answer = turn.messages.get(turn.final ?? turn.lastAssistant ?? "");
   const llm = `LLM ${duration(store.llmTime(turn, now))}`;
   add(theme.fg("muted", llm), theme.fg("muted", `${providerIcon(answer?.provider)} ${llm}`));
   add(theme.fg("muted", `tools ${duration(store.toolTime(turn, now))}`));
+  const ended = [
+    delegates.completed ? `${delegates.completed} completed` : "",
+    delegates.other ? `${delegates.other} cancelled` : "",
+  ].filter(Boolean);
+  if (ended.length) add(theme.fg("muted", `sub-agents ${ended.join(", ")}`));
   // Open, the group headers below already count the calls.
   if (folded(turn)) {
     add(theme.fg("toolTitle", `${turn.tools.size} calls`));
