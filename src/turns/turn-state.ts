@@ -1,6 +1,7 @@
 import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
-import { nestedBreakdown, type BreakdownEntry } from "../tools/tool-groups.ts";
+import { nestedBreakdown, toolKindName, type BreakdownEntry } from "../tools/tool-groups.ts";
+import { mergesNestedCalls, nestedCallsOf } from "../tools/nested-calls.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type FinalReplyStyle = "frame" | "rail" | "rules" | "off";
@@ -21,7 +22,17 @@ export interface TurnMessage {
 }
 export interface Turn {
   messages: Map<string, TurnMessage>;
-  tools: Map<string, { name: string; args: unknown; failed?: boolean; nestedFailed?: number; nested?: BreakdownEntry[] }>;
+  tools: Map<string, {
+    name: string;
+    args: unknown;
+    failed?: boolean;
+    nestedFailed?: number;
+    nested?: BreakdownEntry[];
+    /** A merged wrapper's calls, counted beside the model's own (fabric_exec). */
+    merged?: BreakdownEntry[];
+    /** Of those, the ones that failed: counted with the run's failures. */
+    mergedFailed?: number;
+  }>;
   root?: string;
   firstAssistant?: string;
   latestText?: string;
@@ -90,19 +101,38 @@ function add(turn: Turn, key: string, message: TurnMessage): void {
         failed: previous?.failed,
         nestedFailed: previous?.nestedFailed,
         nested: previous?.nested,
+        merged: previous?.merged,
+        mergedFailed: previous?.mergedFailed,
       });
     }
   } else if (message.role === "toolResult" && message.toolCallId) {
     const previous = turn.tools.get(message.toolCallId);
-    const calls = message.nestedCalls?.calls ?? (message.toolName === "codemode" ? message.details?.calls : undefined);
-    const nestedFailed = Array.isArray(calls) ? calls.filter((call) => call.status === "error").length : 0;
-    const nested = message.toolName === "codemode" ? nestedBreakdown(message.details) : [];
+    const toolName = message.toolName ?? previous?.name ?? "tool";
+    const calls = nestedCallsOf(message.details);
+    // A merged wrapper's calls join the run's own counts; the rest keep the
+    // nested reading, where a failure inside a successful script is the only
+    // red the summary carries.
+    const merged = mergesNestedCalls(toolName);
+    const recorded = message.nestedCalls?.calls;
+    const nestedFailed = merged ? 0 : Array.isArray(recorded)
+      ? recorded.filter((call) => call.status === "error").length
+      : calls.filter((call) => call.status === "error").length;
+    const mergedFailed = merged ? calls.filter((call) => call.status === "error" || call.status === "cancelled").length : 0;
+    const breakdown = merged || calls.length === 0 ? [] : nestedBreakdown(message.details);
+    const mergedCounts = new Map<string, number>();
+    if (merged) for (const call of calls) {
+      const kind = toolKindName(call.name);
+      mergedCounts.set(kind, (mergedCounts.get(kind) ?? 0) + 1);
+    }
+    const mergedEntries = [...mergedCounts].map(([name, count]) => ({ name, count }));
     turn.tools.set(message.toolCallId, {
-      name: message.toolName ?? previous?.name ?? "tool",
+      name: toolName,
       args: previous?.args,
       failed: message.isError,
       nestedFailed,
-      nested: nested.length > 0 ? nested : previous?.nested,
+      nested: breakdown.length > 0 ? breakdown : previous?.nested,
+      merged: mergedEntries.length > 0 ? mergedEntries : previous?.merged,
+      mergedFailed: mergedFailed > 0 ? mergedFailed : previous?.mergedFailed,
     });
   }
 }

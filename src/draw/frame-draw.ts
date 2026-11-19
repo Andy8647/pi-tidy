@@ -4,9 +4,16 @@
  * border itself. Pure string work — no pi components.
  */
 
+import { homedir } from "node:os";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "../theme-access.ts";
 import { paint } from "./paint.ts";
+
+/** `$HOME` as `~`, the form a box shows a path in. */
+export function shortenPath(path: string): string {
+  const home = homedir();
+  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
 
 // Solid background fills: truecolor/256 "48;…" sequences and the standard
 // 40-47 / 100-107 bg colors. pi's shell and some built-in renderers (edit)

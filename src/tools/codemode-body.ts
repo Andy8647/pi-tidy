@@ -306,15 +306,7 @@ function decorateRows(
   // One column for the durations: as far right as the longest arguments reach,
   // plus two cells of air — but never so far that the longest duration would sit
   // past the row.
-  let target = 0;
-  let widestDuration = 0;
-  for (const index of callRows) {
-    target = Math.max(target, argumentsWidth(built[index]!));
-    const plain = visibleText(built[index]!).trimEnd();
-    const match = DURATION_TAIL.exec(plain);
-    if (match) widestDuration = Math.max(widestDuration, visibleWidth(match[1]!));
-  }
-  if (width) target = Math.min(target, Math.max(8, width - DURATION_GAP - widestDuration));
+  const target = durationColumn([...callRows].map((index) => built[index]!), width);
   return built.map((row, index) => {
     if (!callRows.has(index)) return row;
     const aligned = alignDuration(row, target, DURATION_GAP);
@@ -339,6 +331,37 @@ function clipRow(line: string, width: number): string {
   const tail = trimTrailingSpaces(line.slice(from));
   const room = Math.max(8, width - visibleWidth(visibleText(tail)) - 2);
   return `${clipToWidth(line.slice(0, from).trimEnd(), room, "…")}  ${tail}`;
+}
+
+/**
+ * The column the durations of `rows` share: as far right as the longest
+ * arguments reach, plus two cells of air, but never so far that the longest
+ * duration would sit past the row.
+ */
+function durationColumn(rows: readonly string[], width: number | undefined): number {
+  let target = 0;
+  let widestDuration = 0;
+  for (const row of rows) {
+    target = Math.max(target, argumentsWidth(row));
+    const match = DURATION_TAIL.exec(visibleText(row).trimEnd());
+    if (match) widestDuration = Math.max(widestDuration, visibleWidth(match[1]!));
+  }
+  if (!width) return target;
+  return Math.min(target, Math.max(8, width - DURATION_GAP - widestDuration));
+}
+
+/**
+ * Line a block of call rows up on one duration column and clip each to `width`.
+ *
+ * Every row handed here is a call row. The fabric body builds its rows from the
+ * calls a program made, so it needs the same column the rows pi drew are given.
+ */
+export function alignCallRows(rows: readonly string[], width: number | undefined): string[] {
+  const target = durationColumn(rows, width);
+  return rows.map((row) => {
+    const aligned = alignDuration(row, target, DURATION_GAP);
+    return width ? clipRow(aligned, width) : aligned;
+  });
 }
 
 /** Cells the call rows' name column may take before the arguments stop paying. */
@@ -436,6 +459,12 @@ export interface CodemodeToggle {
   section: CodemodeSection;
 }
 
+/** A row that carries its own background fill — a split diff's tinted rows. */
+export interface CodemodeBodyFill {
+  /** Index in the composed lines. */
+  row: number;
+}
+
 const TIMER_ROW = /^\s*(?:Took|Elapsed)\s+\d/;
 const CONTINUATION = /^\s{4,}\S/;
 const TEXT_ITEM = /^==> text \d+\/\d+ <==$/;
@@ -476,7 +505,7 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
   if (calls.length === 0) {
     const start = plain.findIndex((row) => OUTPUT_START.test(row.trim()));
     if (start < 0) return undefined;
-    return finishRegions(lines, plain, -1, start, toolName);
+    return finishRegions(lines, -1, start, toolName);
   }
   if (first < 0 || last < 0) return undefined;
   // pi's box wraps an argument longer than the row onto the rows below it; those
@@ -486,13 +515,12 @@ function splitRegions(lines: readonly string[], calls: readonly NestedCall[], to
   // What hangs under a call: its error text, indented by the renderer.
   while (end < lines.length && (plain[end]!.trim() === "" || CONTINUATION.test(plain[end]!))) end++;
   while (end > first && plain[end - 1]!.trim() === "") end--;
-  return finishRegions(lines, plain, first, end, toolName);
+  return finishRegions(lines, first, end, toolName);
 }
 
 /** Cut the three regions out of the body once `start`/`end` of the calls are known. */
 function finishRegions(
   lines: readonly string[],
-  plain: readonly string[],
   first: number,
   end: number,
   toolName: string,
@@ -513,7 +541,7 @@ function finishRegions(
  * `▸ script · 13 lines` / `▾ output · 4 items`. The leading cell matches the
  * pad pi's own rows carry, so the fold glyph lines up under a call's status.
  */
-function foldRow(open: boolean, hovered: boolean, label: string, meta: string, theme: ThemeLike): string {
+export function foldRow(open: boolean, hovered: boolean, label: string, meta: string, theme: ThemeLike): string {
   // Same three signals as the group's rows: open, hovered, neither.
   const glyph = theme.fg("accent", open ? "▾" : hovered ? "▶" : "▸");
   const rest = `${theme.fg("muted", label)}${theme.fg("dim", ` · ${meta}`)}`;
@@ -525,11 +553,14 @@ function itemCount(output: readonly string[]): number {
   return items > 0 ? items : 1;
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** `1 line`, `3 lines`: a fold row's count. */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export interface ComposedCodemodeBody {
   lines: string[];
   toggles: CodemodeToggle[];
+  /** Rows whose fill belongs to the content, so the frame keeps it. */
+  fills?: CodemodeBodyFill[];
 }
 
 /**
@@ -579,7 +610,7 @@ export function composeCodemodeBody(
 }
 
 /** A dim rule across the body, so the sections read as sections. */
-function ruleRow(theme: ThemeLike, width: number | undefined): string | undefined {
+export function ruleRow(theme: ThemeLike, width: number | undefined): string | undefined {
   if (!width || width < 6) return undefined;
   return ` ${theme.fg("borderMuted", "─".repeat(Math.max(1, width - 1)))}`;
 }

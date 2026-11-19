@@ -311,3 +311,57 @@ test("a settled carrier hands back the same rows until something on them changes
   carrier.lastMessage.content[0].thinking = "A_NEW_THOUGHT";
   assert.match(visibleText(carrier.render(W).join("\n")), /A_NEW_THOUGHT/, "new text is drawn, not served from the last frame");
 });
+
+/**
+ * A wrapper that records its own calls is counted through the same way whichever
+ * record it keeps: pi's `codemode` list, or pi-fabric's audits.
+ */
+function wrappedTurn(toolName: string, result: Record<string, unknown>): Turn {
+  const store = new TurnStore();
+  turnStore.set(store);
+  store.begin(1000);
+  const step = {
+    role: "assistant", timestamp: 1100, provider: "test", model: "test", stopReason: "toolUse",
+    content: [{ type: "toolCall", id: "wrapped", name: toolName, arguments: {} }],
+  } as any;
+  const done = { role: "assistant", timestamp: 1300, provider: "test", model: "test", stopReason: "stop", content: [{ type: "text", text: "Done" }] } as any;
+  store.note({ role: "user", timestamp: 1000, content: "Go" } as any, true);
+  store.note(step, true);
+  store.note({ role: "toolResult", toolCallId: "wrapped", toolName, timestamp: 1200, isError: false, content: [{ type: "text", text: "ok" }], ...result } as any, true);
+  store.note(done, true);
+  const turn = store.byTool.get("wrapped")!;
+  store.settle(false, 1800);
+  return turn;
+}
+
+function wrappedLine(turn: Turn): string {
+  return visibleText(summaryLine(turn, getTheme()!, 200, false, 2000));
+}
+
+test("a script's calls hang on its entry; a fabric program's join the run's counts", () => {
+  const script = wrappedLine(wrappedTurn("codemode", {
+    details: { calls: [{ name: "bash", status: "ok" }, { name: "read", status: "error" }] },
+  }));
+  assert.match(script, /codemode×1 \(bash×1 read×1\)/, script);
+  assert.match(script, /1 nested failed/, script);
+
+  const program = wrappedLine(wrappedTurn("fabric_exec", {
+    details: {
+      audits: [
+        { ref: "pi.bash", tool: "bash", success: true, args: {}, result: { ok: true, output: "x" } },
+        { ref: "pi.read", tool: "read", success: false, error: "nope", args: {} },
+        { ref: "native.load", tool: "load", success: true, args: {}, result: { ok: true } },
+      ],
+    },
+  }));
+  // The program's calls count beside the model's own: three calls, one failure,
+  // no parentheses and no separate "nested failed".
+  assert.match(program, /3 calls/, program);
+  assert.match(program, /fabric_exec×1/, program);
+  assert.match(program, /bash×1/, program);
+  assert.match(program, /read×1/, program);
+  assert.ok(!program.includes("("), "no nested list on the entry: " + program);
+  assert.match(program, /1 failed/, program);
+  assert.ok(!program.includes("nested failed"), program);
+  assert.ok(!program.includes("load×1"), "fabric's own plumbing stays out of the count");
+});

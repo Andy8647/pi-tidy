@@ -20,7 +20,7 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, shortenPath, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
 import {
   composeCodemodeBody,
   codemodeSections,
@@ -29,10 +29,13 @@ import {
   type CodemodeToggle,
   type ComposedCodemodeBody,
 } from "./codemode-body.ts";
+import { composeFabricBody } from "./fabric-body.ts";
+import { isPromotedCall, mergesNestedCalls, nestedCallsOf, promotedCallKey, type NestedCall } from "./nested-calls.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
+import { DEFAULT_BASH_RESULT_LINES } from "../config.ts";
 import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-state.ts";
 import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
@@ -54,7 +57,7 @@ import {
   type CodemodeRowSpan,
   type GroupedTool,
 } from "./tool-group-view.ts";
-import { codemodeHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender } from "../hover.ts";
+import { codemodeHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender, setHover } from "../hover.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
 import { COPIED_MS, chipLabels, chipWord, repaintChip } from "../turns/code-blocks.ts";
 
@@ -134,11 +137,34 @@ interface ToolBoxInternals extends GroupedTool {
     call: string[];
     value: { raw: string[]; bgRows: ReadonlySet<number> } | undefined;
   };
-  /** Row indices of the codemode fold labels in the last framed body. */
+  /** Row indices of a call list's fold labels in the last framed body. */
   __codemodeToggles?: CodemodeToggle[];
-  /** A framed codemode box's fold rows, in its own output rows; unset for every other box. */
+  /** Rows of a call list's body whose fill belongs to the content (a nested diff). */
+  __callListFills?: ReadonlySet<number>;
+  /** The boxes a wrapper's promoted calls drew last (a fabric edit's diff). */
+  __promotedBoxes?: {
+    details: unknown;
+    width: number;
+    revision: number;
+    theme: ThemeLike;
+    open: string;
+    rows: string[];
+    height: number;
+    /** Each box's rows within the promoted block, so a click finds its box. */
+    spans: Array<{ from: number; to: number; key: string }>;
+  };
+  /** Rows this component drew itself last, before the promoted boxes were appended. */
+  __lastOwnRows?: number;
+  /**
+   * Which promoted boxes the reader opened, by call identity (name, path,
+   * ordinal). fabric re-creates the details object on every progress tick, so
+   * the open set cannot key on it — a tick that appends a call must not shut
+   * what the reader opened.
+   */
+  __promotedOpen?: Set<string>;
+  /** A framed call list's fold rows, in its own output rows; unset for every other box. */
   __codemodeFolds?: CodemodeRowSpan[];
-  /** The last composed codemode body, and what it was composed from. */
+  /** The last composed codemode body, and what it was composed from. fabric keeps its own below. */
   __codemodeComposed?: {
     body: string[];
     details: unknown;
@@ -150,8 +176,27 @@ interface ToolBoxInternals extends GroupedTool {
     sample: string;
     value: ComposedCodemodeBody;
   };
+  /** The last composed fabric body, and what it was composed from. */
+  __fabricComposed?: {
+    args: unknown;
+    details: unknown;
+    output: string;
+    script: boolean;
+    outputOpen: boolean;
+    icons: boolean;
+    revision: number;
+    width: number | undefined;
+    hovered: string | undefined;
+    sample: string;
+    value: ComposedCodemodeBody;
+  };
   /** The framed list built on the last composed body. */
-  __codemodeList?: { composed: ComposedCodemodeBody; w: number; revision: number; value: { title: string; lines: string[]; toggles: CodemodeToggle[] } };
+  __codemodeList?: {
+    composed: ComposedCodemodeBody;
+    w: number;
+    revision: number;
+    value: { title: string; lines: string[]; toggles: CodemodeToggle[]; fills: ReadonlySet<number> };
+  };
   /** The expanded rendering a framed codemode box composes from, and what it was built from. */
   __codemodeFull?: {
     args: unknown;
@@ -207,6 +252,11 @@ export interface ToolFrameOptions {
   highlightBash?: boolean;
   /** Rows a group's call may take: 2 lets one that does not fit go on to a second. */
   toolRowLines?: number;
+  /**
+   * Rows of a nested call's own output a call list keeps under its row, the way
+   * a bash box keeps this many of its own (default 1).
+   */
+  bashResultLines?: number;
 }
 
 interface ResolvedToolFrameOptions {
@@ -221,6 +271,7 @@ interface ResolvedToolFrameOptions {
   thinkingColor: string;
   highlightBash: boolean;
   toolRowLines: number;
+  bashResultLines: number;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -235,15 +286,10 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   thinkingColor: "warning",
   highlightBash: true,
   toolRowLines: 1,
+  bashResultLines: DEFAULT_BASH_RESULT_LINES,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
-
-/** `$HOME` as `~`, the form a title shows its path in. */
-function shortenPath(path: string): string {
-  const home = homedir();
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
-}
 
 /**
  * A file box's path chip, in its lit states: lit under the pointer, a tick for a moment
@@ -285,9 +331,29 @@ function finishBox(box: ToolBoxInternals, rows: string[], theme: ThemeLike): str
   return withCopyChip(box, rows, theme);
 }
 
-/** A codemode box drawn in a frame of its own: grouping off, or codemode in `alwaysShowTools`. */
-const framedCodemode = (tool: ToolBoxInternals) =>
+/** A call-list box drawn in a frame of its own: grouping off, or its tool in `alwaysShowTools`. */
+const framedCallList = (tool: ToolBoxInternals) =>
   tidyEnabled.get() && (!toolOptions.get().groupTools || toolOptions.get().alwaysShow.has(tool.toolName));
+
+/** A tool whose body is the calls it made, and which record those calls are in. */
+type CallListKind = "codemode" | "fabric";
+
+const CALL_LIST_TOOLS = new Map<string, CallListKind>([
+  ["codemode", "codemode"],
+  ["fabric_exec", "fabric"],
+]);
+
+/**
+ * Whether this box reads as a call list, and which body draws it.
+ *
+ * `codemode` was the first: pi draws a script's calls as rows inside the result,
+ * so tidy decorates that text. pi-fabric's `fabric_exec` keeps its calls in
+ * `details.audits` and draws nothing for tidy here, so its body is built from the
+ * record instead (fabric-body.ts) — including the diff of a nested `edit`.
+ */
+function callListKind(tool: ToolBoxInternals): CallListKind | undefined {
+  return CALL_LIST_TOOLS.get(tool.toolName);
+}
 
 /** The component pi routes a box's clicks through (its result MouseRegions live inside). */
 function mouseTarget(tool: ToolBoxInternals): MouseTarget | undefined {
@@ -310,6 +376,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor = "warning",
     highlightBash = true,
     toolRowLines = 1,
+    bashResultLines = DEFAULT_BASH_RESULT_LINES,
   } = options;
   toolOptions.set({
     icons,
@@ -323,6 +390,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor,
     highlightBash,
     toolRowLines,
+    bashResultLines,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
   // Value, not a closure: the patch runs again on `/reload`, which is what
@@ -438,6 +506,32 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
+    // The promoted boxes hang below this component's own rows. A left click
+    // on one opens or shuts that box's body — the way a click on a native
+    // edit toggles its diff — and never falls through to the wrapper's box
+    // mouse, which would fold the list the reader is looking at.
+    const promoted = this.__promotedBoxes;
+    if (promoted && typeof event?.y === "number") {
+      const own = this.__lastOwnRows ?? 0;
+      const y = event.y - own;
+      if (y >= 0 && y < promoted.height) {
+        const click = event.type === "click" && (event.button === "left" || event.button === 0);
+        if (click) {
+          const span = promoted.spans.find((each) => y >= each.from && y <= each.to);
+          if (span) {
+            const open = (this.__promotedOpen ??= new Set());
+            if (open.has(span.key)) open.delete(span.key);
+            else open.add(span.key);
+            this.ui?.requestRender?.();
+          }
+        }
+        // The pointer left the wrapper's own rows: whatever band they wore is
+        // stale now. The guard returns before the group's move routing runs,
+        // so the clearing has to happen here.
+        if (event.type === "move" && setHover(null, null)) this.ui?.requestRender?.();
+        return undefined;
+      }
+    }
     // Before the rail is discounted and before a group gets its say: the chip is the one
     // cell range of the box that copies instead of opening, wherever the row came from.
     const chip = pathChipMouse.call(this, event);
@@ -469,14 +563,37 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
       }
       noteSetExpanded(this, expanded, pointerDepth > 0);
     }
-    // A framed codemode box draws its call list whatever pi's flag says (see
-    // fullCodemodeBody), so what expanding opens there is the script and the
+    // A framed call list draws its rows whatever pi's flag says (see
+    // fullCodemodeBody), so what expanding opens there is the program and the
     // output: ctrl+o shows everything, and a click on the box does the same for
     // that one box. Its fold rows still open one section at a time.
-    if (this.toolName === "codemode" && framedCodemode(this)) {
+    if (callListKind(this) && framedCallList(this)) {
       const sections = codemodeSections(this);
       sections.script = expanded;
       sections.output = expanded;
+    }
+    // Expand-all opens the promoted boxes with the wrapper; collapse-all shuts
+    // them. A pointer click on the wrapper itself leaves them as they are:
+    // the reader opened them one at a time, and folding the list is not a
+    // statement about the diffs below it. The calls are read from the record
+    // here, not from the last frame's cache: ctrl+o can land before the first
+    // render of a restored transcript.
+    if (mergesNestedCalls(this.toolName) && pointerDepth === 0) {
+      const calls = nestedCallsOf(this.result?.details).filter(isPromotedCall);
+      if (calls.length > 0) {
+        if (expanded) {
+          const open = (this.__promotedOpen ??= new Set());
+          const ordinals = new Map<string, number>();
+          for (const call of calls) {
+            const base = promotedCallKey(call, 0).slice(0, -2);
+            const ordinal = ordinals.get(base) ?? 0;
+            ordinals.set(base, ordinal + 1);
+            open.add(promotedCallKey(call, ordinal));
+          }
+        } else {
+          this.__promotedOpen = new Set();
+        }
+      }
     }
     return originalSetExpanded.call(this, expanded);
   };
@@ -709,28 +826,101 @@ function composedCodemode(
   return value;
 }
 
+/** The text blocks of a result, joined: what the model was handed. */
+function resultText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: "text"; text: string } => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n");
+}
+
 /**
- * A framed codemode box as a call list: the row a group would show for it
- * (`✓ codemode bash×2 read×1 · 0.1s`) in place of pi's title, then the calls,
- * with the script and the output folded to one row each. The row is handed
+ * `composeFabricBody`, kept per box. Same reason as the codemode body: every
+ * open box is composed on every frame, and a nested diff re-highlights every
+ * changed line of itself when it is rebuilt.
+ */
+function composedFabric(tool: ToolBoxInternals, theme: ThemeLike, options: CodemodeBodyOptions): ComposedCodemodeBody {
+  const state = codemodeSections(tool);
+  const details = tool.result?.details;
+  const output = resultText(tool.result?.content);
+  const sample = theme.fg("accent", "x");
+  const revision = optionsRevision();
+  const cache = tool.__fabricComposed;
+  if (
+    cache &&
+    cache.args === tool.args &&
+    cache.details === details &&
+    cache.output === output &&
+    cache.script === state.script &&
+    cache.outputOpen === state.output &&
+    cache.icons === options.icons &&
+    cache.revision === revision &&
+    cache.width === options.width &&
+    cache.hovered === options.hovered &&
+    cache.sample === sample
+  ) {
+    return cache.value;
+  }
+  const { bashResultLines, diffLines } = toolOptions.get();
+  const value = composeFabricBody({
+    args: tool.args,
+    details,
+    output,
+    diffLines,
+    outputLines: bashResultLines,
+    state,
+    theme,
+    options,
+  });
+  tool.__fabricComposed = {
+    args: tool.args,
+    details,
+    output,
+    script: state.script,
+    outputOpen: state.output,
+    icons: options.icons,
+    revision,
+    width: options.width,
+    hovered: options.hovered,
+    sample,
+    value,
+  };
+  return value;
+}
+
+/**
+ * A framed call list: the row a group would show for the call
+ * (`✓ codemode bash×2 read×1 · 0.1s`) in place of pi's title, then its rows,
+ * with the program and the output folded to one row each. The row is handed
  * back apart from the body: every other framed tool puts its title in the top
  * border, and this one had no title of its own to put there. Undefined keeps
  * pi's layout: no renderer to draw it again, or nothing to fold yet (the
  * script is still streaming, or the output cannot be told from the calls).
  */
-function composeFramedCodemode(
+function composeFramedCallList(
   tool: ToolBoxInternals,
+  kind: CallListKind,
   w: number,
   theme: ThemeLike,
   icons: boolean,
-): { title: string; lines: string[]; toggles: CodemodeToggle[] } | undefined {
+): { title: string; lines: string[]; toggles: CodemodeToggle[]; fills: ReadonlySet<number> } | undefined {
   const width = w - 2;
-  const body = fullCodemodeBody(tool, width, theme);
-  if (!body) return undefined;
   // The rules and the title stop a cell short of the right border: pi's rows
   // keep a cell of padding there, as they do on the left.
-  const composed = composedCodemode(tool, body, theme, { icons, width: width - 1, hovered: codemodeHover(tool) });
-  if (composed.toggles.length === 0) return undefined;
+  const options = { icons, width: width - 1, hovered: codemodeHover(tool) };
+  let composed: ComposedCodemodeBody;
+  if (kind === "fabric") {
+    composed = composedFabric(tool, theme, options);
+  } else {
+    const body = fullCodemodeBody(tool, width, theme);
+    if (!body) return undefined;
+    composed = composedCodemode(tool, body, theme, options);
+  }
+  // A codemode list is only worth drawing once its script can be told from its
+  // output; fabric's rows are built from the record, so they stand on their own.
+  if (kind === "codemode" && composed.toggles.length === 0) return undefined;
+  if (composed.lines.length === 0) return undefined;
   // The title reads the result, which the body was drawn from: a new result is
   // a new body, and so a new composition.
   const revision = optionsRevision();
@@ -740,9 +930,127 @@ function composeFramedCodemode(
   // `╭─ ` and ` ─╮` cells before the body does: laid out at the full width it
   // would be clipped there, and the clip takes the duration first.
   const title = formatToolLine(tool, theme, { icons, width: Math.max(1, w - 6) });
-  const value = { title, lines: composed.lines, toggles: composed.toggles };
+  const value = {
+    title,
+    lines: composed.lines,
+    toggles: composed.toggles,
+    fills: new Set((composed.fills ?? []).map((fill) => fill.row)),
+  };
   tool.__codemodeList = { composed, w, revision, value };
   return value;
+}
+
+/**
+ * The boxes a wrapper's promoted calls draw below its own: a fabric edit's
+ * diff, a write's content — the change itself, as a box of its own, the way a
+ * model-issued edit draws. The rows are the frame's own (title in the border,
+ * split panes for a diff), built from the audit, so they need no component of
+ * their own and no click of their own either.
+ */
+function promotedCallBoxes(tool: ToolBoxInternals, w: number, theme: ThemeLike): string[] {
+  if (!mergesNestedCalls(tool.toolName)) {
+    tool.__promotedBoxes = undefined;
+    return [];
+  }
+  const details = tool.result?.details;
+  const revision = optionsRevision();
+  const open = tool.__promotedOpen ?? new Set<string>();
+  const openKey = [...open].sort().join(",");
+  const cache = tool.__promotedBoxes;
+  // The details object is the record's identity: pi hands the same one back
+  // until a new result lands, and the calls read from it cannot change without
+  // it. Comparing the parsed calls instead would miss every time — the reader
+  // builds fresh objects on every frame.
+  if (cache && cache.details === details && cache.width === w && cache.revision === revision && cache.theme === theme && cache.open === openKey) {
+    return cache.rows;
+  }
+  const calls = nestedCallsOf(details).filter(isPromotedCall);
+  if (calls.length === 0) {
+    tool.__promotedBoxes = undefined;
+    return [];
+  }
+  const { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
+  const rows: string[] = [];
+  const spans: Array<{ from: number; to: number; key: string }> = [];
+  const ordinals = new Map<string, number>();
+  calls.forEach((call) => {
+    const base = promotedCallKey(call, 0).slice(0, -2);
+    const ordinal = ordinals.get(base) ?? 0;
+    ordinals.set(base, ordinal + 1);
+    const key = promotedCallKey(call, ordinal);
+    const from = rows.length;
+    rows.push(...promotedCallBox(call, w, theme, { icons, toolColors, splitDiff, splitDiffMinWidth, diffLines }, open.has(key)));
+    spans.push({ from, to: rows.length - 1, key });
+  });
+  tool.__promotedBoxes = { details, width: w, revision, theme, open: openKey, rows, height: rows.length, spans };
+  return rows;
+}
+
+/** One promoted call as a framed box: title in the border, the change below. */
+function promotedCallBox(
+  call: NestedCall,
+  w: number,
+  theme: ThemeLike,
+  options: { icons: boolean; toolColors: Record<string, string>; splitDiff: boolean; splitDiffMinWidth: number; diffLines: number },
+  expanded: boolean,
+): string[] {
+  const args = (call.args ?? {}) as Record<string, unknown>;
+  const path = typeof args.path === "string" ? args.path : undefined;
+  const failed = call.status === "error";
+  const color = failed ? "error" : options.toolColors[call.name] || "accent";
+  const inner = Math.max(2, w - 2);
+
+  // The body: an edit's diff in the panes its own box uses, a write's content
+  // as the text it wrote. A failed call keeps its error instead. Shut, each is
+  // a window of `diffLines` rows with the rest counted; a click on the box (or
+  // ctrl+o, which opens the wrapper's own sections too) draws all of it.
+  const budget = expanded ? Number.POSITIVE_INFINITY : Math.max(1, options.diffLines);
+  const window = (lines: string[], paint: (line: string) => string): string[] => {
+    const shown = lines.slice(0, budget).map((line) => ` ${paint(line)}`);
+    if (lines.length > budget) shown.push(` ${theme.fg("dim", `… ${lines.length - budget} more line${lines.length - budget === 1 ? "" : "s"}`)}`);
+    return shown;
+  };
+  let body: string[] = [];
+  let bgRows: ReadonlySet<number> | undefined;
+  if (failed && call.error) {
+    body = window(call.error.split("\n"), (line) => theme.fg("error", line || " "));
+  } else if (call.name === "edit" && call.diff) {
+    const split = options.splitDiff && inner >= options.splitDiffMinWidth
+      ? renderSplitDiff({ diff: call.diff, width: inner, theme, ...(path ? { filePath: path } : {}), ...(expanded ? {} : { maxLines: options.diffLines }) })
+      : undefined;
+    if (split) {
+      body = split.lines;
+      bgRows = new Set(split.bgRows);
+    } else {
+      body = window(call.diff.split("\n"), (line) =>
+        theme.fg(line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "toolDiffContext", line || " "),
+      );
+    }
+  } else if (call.name === "write" && typeof args.content === "string") {
+    // A cell of padding, the way pi's own shell pads a box's body.
+    body = window(args.content.replace(/\s+$/, "").split("\n"), (line) => theme.fg("toolOutput", line || " "));
+  } else if (call.output) {
+    body = window(call.output.split("\n"), (line) => theme.fg("toolOutput", line || " "));
+  }
+
+  // The title is the row a group would draw for the call, in the border.
+  const title = formatToolLine(
+    {
+      toolName: call.name,
+      args: path ? { ...args, path: shortenPath(path) } : args,
+      isPartial: call.status === "running",
+      result: {
+        isError: failed,
+        ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
+        content: call.output === undefined ? [] : [{ type: "text" as const, text: call.output }],
+      },
+    },
+    theme,
+    { icons: options.icons, width: Math.max(1, w - 6) },
+  );
+  const framed = drawFrame(body, w, theme, color, bgRows);
+  framed[0] = labeledTopBorder(w, theme, color, clipToWidth(title.trim(), Math.max(1, w - 6), "…"));
+  return framed;
 }
 
 /** The rounded box at width `w` (what pi would draw, reframed). */
@@ -781,32 +1089,37 @@ function composeFramedCodemode(
     // fold to one row each (they open on click, see tool-group-view.ts), and
     // every row sits one rail deeper than the call it belongs to. In a frame of
     // its own it is the same list, under the row a group would show for it.
-    const codemode = this.toolName === "codemode";
-    const collapse = codemode && unframed;
-    const listed = codemode && !unframed ? composeFramedCodemode(this, w, theme, icons) : undefined;
+    const kind = callListKind(this);
+    const collapse = kind !== undefined && unframed;
+    const listed = kind !== undefined && !unframed ? composeFramedCallList(this, kind, w, theme, icons) : undefined;
     const railCells = collapse ? 2 : 0;
     const codemodeRows: CodemodeToggle[] = [];
+    const listOptions: CodemodeBodyOptions = { icons, width: sourceWidth - railCells, hovered: codemodeHover(this) };
     let raw: string[];
+    let listFills: ReadonlySet<number> | undefined;
     if (collapse) {
-      const body = source.render(sourceWidth - railCells);
-      const composed = composedCodemode(this, body, theme, {
-        icons,
-        width: sourceWidth - railCells,
-        hovered: codemodeHover(this),
-      });
+      // fabric's rows are built from the record it kept, so pi's never have to
+      // be drawn; codemode's are pi's own rows, so they are drawn a second time
+      // at full length (see fullCodemodeBody).
+      const composed = kind === "fabric"
+        ? composedFabric(this, theme, listOptions)
+        : composedCodemode(this, source.render(sourceWidth - railCells), theme, listOptions);
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
       codemodeRows.push(...composed.toggles);
+      listFills = new Set((composed.fills ?? []).map((fill) => fill.row));
     } else if (listed) {
       raw = listed.lines;
+      listFills = listed.fills;
     } else {
-      raw = codemode
+      raw = kind === "codemode"
         ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons, width: sourceWidth })
         : split
           ? split.raw
           : source.render(sourceWidth);
     }
     this.__codemodeToggles = codemodeRows;
+    this.__callListFills = listFills;
     // The framed list's fold rows, as rows of this box's output: the top border
     // is row 0 and the body starts under it, so every row is one deeper.
     this.__codemodeFolds = listed?.toggles.map((toggle) => ({ row: toggle.row + 1, section: toggle.section }));
@@ -921,9 +1234,15 @@ function composeFramedCodemode(
       const splitBg = split && edges.start > 0
         ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
         : split?.bgRows;
-      const bgRows = banded ?? (splitBg && titleShift
-        ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
-        : splitBg);
+      // A call list's own tinted rows (a nested diff) are indexed in the body it
+      // drew; the same trimming that moved everything else moved them.
+      const listBg = this.__callListFills && edges.start > 0
+        ? new Set([...this.__callListFills].map((row) => row - edges.start).filter((row) => row >= 0))
+        : this.__callListFills;
+      const contentBg = splitBg && listBg ? new Set([...splitBg, ...listBg]) : (splitBg ?? listBg);
+      const bgRows = banded ?? (contentBg && titleShift
+        ? new Set([...contentBg].map((row) => row - titleShift).filter((row) => row >= 0))
+        : contentBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
       // A border that names a file carries a chip: the path is the one thing a reader
       // wants out of a write or edit box, and dragging its border for it is not obvious.
@@ -1000,6 +1319,16 @@ function composeFramedCodemode(
       }
       const railed = railTurnTool(this.toolCallId);
       const w = Math.max(4, railed ? width - TURN_RAIL_CELLS : width);
+      // A wrapper's promoted calls draw as boxes of their own, below whatever
+      // this box drew — folded or open, the change itself stays visible. On a
+      // turn's rail they hang on it too: the rail runs down everything the run
+      // drew, and a box outside it would read as a stranger's.
+      const withPromoted = (rows: string[], boxWidth: number, railPad?: string): string[] => {
+        this.__lastOwnRows = rows.length;
+        const promoted = promotedCallBoxes(this, boxWidth, theme);
+        if (promoted.length === 0) return rows;
+        return [...rows, ...(railPad === undefined ? promoted : railRows(promoted, theme, railPad))];
+      };
       if (grouping()) {
         const { icons, alwaysShow, highlightBash, toolRowLines } = toolOptions.get();
         const grouped = renderGroupedTool(
@@ -1011,16 +1340,17 @@ function composeFramedCodemode(
         );
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
-          return finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
+          return finishBox(this, railed ? withPromoted(railRows(grouped, theme), w, "") : withPromoted(grouped, w), theme);
         }
       }
-      if (!railed) return finishBox(this, frameBox.call(this, w, theme), theme);
+      if (!railed) return finishBox(this, withPromoted(frameBox.call(this, w, theme), w), theme);
       this.__railCells = TURN_RAIL_BOX_CELLS;
-      const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
+      const boxWidth = Math.max(4, width - TURN_RAIL_BOX_CELLS);
+      const box = frameBox.call(this, boxWidth, theme);
       // On the rail a box's corner sits in its neighbouring groups' rail column. With
       // grouping off nothing has registered, so there is nothing to meet.
       const { above, below } = pinnedJoints(this);
-      return finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
+      return finishBox(this, withPromoted(railRows(joinBoxCorners(box, above, below), theme, " "), boxWidth, " "), theme);
     } catch {
       this.__frameGeometry = undefined;
       measurePathChip(this, []);

@@ -33,6 +33,7 @@
 
 import type { JobStatus } from "./background-jobs.ts";
 import { agentRunning, groupOpen } from "../live.ts";
+import { mergesNestedCalls, nestedCallsOf, type NestedCall } from "./nested-calls.ts";
 
 export interface GroupMember {
   toolName: string;
@@ -47,6 +48,8 @@ export interface GroupMember {
   fresh?: boolean;
   /** A script's own calls, which this row counts instead of hiding behind `codemode×N`. */
   nested?: BreakdownEntry[];
+  /** A wrapper whose calls join the counts around it, as calls of the run. */
+  merged?: NestedCall[];
 }
 
 export interface BreakdownEntry {
@@ -72,20 +75,20 @@ function sortedCounts(counts: Map<string, number>): BreakdownEntry[] {
 }
 
 /**
- * What a script's own calls were, as counts.
+ * What a wrapper's own calls were, as counts.
  *
- * A `codemode` call's nested calls never reach the model as calls of their own:
- * pi keeps them as `{ name, status }` records on the parent's result. The parent
- * row already shows them in place of its arguments, but a summary that counted
- * `codemode×2` and stopped there hid everything those two scripts ran.
+ * Those calls never reach the model as calls of their own: the wrapper keeps
+ * them as a record on the parent's result (nested-calls.ts reads both shapes).
+ * The parent row already shows them in place of its arguments, but a summary
+ * that counted `codemode×2` and stopped there hid everything those scripts ran,
+ * and a `fabric_exec` that ran three tools read as a single call.
  */
 export function nestedBreakdown(details: unknown): BreakdownEntry[] {
-  const calls = (details as { calls?: unknown } | undefined)?.calls;
-  if (!Array.isArray(calls) || calls.length === 0) return [];
+  const calls = nestedCallsOf(details);
+  if (calls.length === 0) return [];
   const counts = new Map<string, number>();
-  for (const call of calls as Array<{ name?: unknown }>) {
-    const name = typeof call?.name === "string" && call.name ? call.name : "call";
-    const kind = toolKindName(name);
+  for (const call of calls) {
+    const kind = toolKindName(call.name);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   return sortedCounts(counts);
@@ -123,6 +126,7 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
   let running: string | undefined;
   let failed = 0;
   let jobsRunning = 0;
+  let total = 0;
   for (const member of members) {
     const jobs = member.jobs ?? (member.job ? [{ status: member.job, fresh: !!member.fresh }] : []);
     const failedJobs = jobs.filter((job) => job.status === "failed").length;
@@ -130,6 +134,16 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
     jobsRunning += jobs.filter((job) => job.status === "running" && !job.fresh).length;
     const kind = toolKindName(member.toolName);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    total += 1;
+    // A merged wrapper's calls are calls of the run: counted beside the ones
+    // the model issued, failures included, so the line says everything that
+    // happened without opening anything.
+    for (const call of member.merged ?? []) {
+      const callKind = toolKindName(call.name);
+      counts.set(callKind, (counts.get(callKind) ?? 0) + 1);
+      total += 1;
+      if (call.status === "error" || call.status === "cancelled") failed += 1;
+    }
     for (const entry of member.nested ?? []) {
       nestedOwner ??= kind;
       nested.set(entry.name, (nested.get(entry.name) ?? 0) + entry.count);
@@ -140,7 +154,7 @@ export function buildGroupSummary(members: GroupMember[], thoughts = 0, thinking
     if (member.isPartial && !member.fresh && running === undefined) running = member.toolName;
   }
   const breakdown = sortedCounts(counts);
-  const summary: GroupSummary = { count: members.length, breakdown, thoughts, thinking, durationMs, running, failed, jobsRunning };
+  const summary: GroupSummary = { count: total, breakdown, thoughts, thinking, durationMs, running, failed, jobsRunning };
   // A group's scripts are summed into one list: two scripts that both ran bash
   // are one `bash×3`, and the parentheses stay one segment of the line.
   if (nestedOwner !== undefined && nested.size > 0) summary.nested = { owner: nestedOwner, breakdown: sortedCounts(nested) };
@@ -702,7 +716,8 @@ export function summaryFor(
         isPartial: member.isPartial,
         isError: member.result?.isError === true,
         durationMs: member.isPartial ? undefined : member.result?.durationMs,
-        nested: member.isPartial ? undefined : nestedBreakdown(member.result?.details),
+        nested: member.isPartial || mergesNestedCalls(member.toolName) ? undefined : nestedBreakdown(member.result?.details),
+        merged: mergesNestedCalls(member.toolName) ? nestedCallsOf(member.result?.details) : undefined,
         jobs: jobs.map((job) => ({
           status: job.status,
           fresh: job.status === "running" && now - (job.startTime ?? now) < RUNNING_ROW_DELAY_MS,
