@@ -1,5 +1,5 @@
 import { TuiAltScreen } from "@earendil-works/pi-tui";
-import type { CodemodeSection } from "./tools/codemode-body.ts";
+import type { NestedSection } from "./tools/nested-body.ts";
 import { padToWidth } from "./draw/frame-draw.ts";
 import type { ThemeLike } from "./theme-access.ts";
 
@@ -13,7 +13,7 @@ import type { ThemeLike } from "./theme-access.ts";
 // requested directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HoverRow = "header" | "turn-header" | "row" | "title" | `job:${string}` | `codemode:${CodemodeSection}`;
+export type HoverRow = "header" | "turn-header" | "row" | "title" | `job:${string}` | `fold:${NestedSection}`;
 
 /**
  * `ui` is kept as the object, not its `requestRender`: pi's TUI is a class, so
@@ -97,11 +97,11 @@ export function isRowHovered(target: object, row: HoverRow): boolean {
   return hoverState.tool === target && hoverState.row === row;
 }
 
-/** A codemode body's fold row the pointer is on, if that is where it is. */
-export function codemodeHover(tool: object): CodemodeSection | undefined {
+/** A call list's fold row the pointer is on, if that is where it is. */
+export function nestedFoldHover(tool: object): NestedSection | undefined {
   if (hoverState.tool !== tool) return undefined;
   const row = hoverState.row;
-  return row?.startsWith("codemode:") ? (row.slice("codemode:".length) as CodemodeSection) : undefined;
+  return row?.startsWith("fold:") ? (row.slice("fold:".length) as NestedSection) : undefined;
 }
 
 /** A full-width band behind the row: the whole row is the click target. */

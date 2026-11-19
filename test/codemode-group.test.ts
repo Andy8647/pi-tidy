@@ -132,7 +132,7 @@ test("an opened codemode call shows its call rows, with the script and output fo
   const lines = frame(chat);
   const body = lines.join("\n");
   assert.ok(body.includes("▸ script · 1 line"), body);
-  assert.ok(body.includes("▸ output · 1 item"), body);
+  assert.ok(body.includes("▸ output · 1 line"), body);
   assert.ok(body.includes("bash"), "call row kept");
   assert.ok(body.includes("read"), "call row kept");
   assert.ok(!body.includes("const a = await"), "script folded away");
@@ -161,7 +161,7 @@ test("clicking the output row opens the items, without pi's markers", () => {
   openBox(chat);
   click(chat, "▸ output");
   const body = frame(chat).join("\n");
-  assert.ok(body.includes("▾ output · 1 item"), body);
+  assert.ok(body.includes("▾ output · 1 line"), body);
   assert.ok(body.includes('#0 ok exit=0 "/tmp"'), "the item is shown");
   assert.ok(!body.includes("==> text 1/1 <=="), "the marker became the count on the row");
 });

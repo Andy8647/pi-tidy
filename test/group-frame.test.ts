@@ -697,7 +697,7 @@ test("thinking is a row above its own call, and clicking it opens pi's text", ()
   chat.handleMouse({ type: "click", button: "left", x: 4, y, screenX: 4, screenY: y, width: W, height: 10 } as any);
   const opened = frame(chat);
   assert.ok(
-    opened.some((line) => line.includes("结尾标记")),
+    opened.some((line) => line.includes("用来验证预览行真的会截断")),
     `the whole run is shown, not a preview:\n${opened.join("\n")}`,
   );
   assert.ok(
@@ -729,7 +729,7 @@ test("an expanded run does not take the group header's click", () => {
 
   // The step that owns the summary line is also the one whose run is open.
   assert.ok(click(chat, "先确认一下这个目录"));
-  assert.ok(frame(chat).some((line) => line.includes("结尾标记")), "the run is open");
+  assert.ok(frame(chat).some((line) => line.includes("用来验证预览行真的会截断")), "the run is open");
 
   // The header keeps its own click: this closes the group rather than folding
   // the run that happens to sit next to it.
@@ -1097,4 +1097,38 @@ test("a reloaded session: jobs pi-processes doesn't know are rebuilt from their 
   assert.ok(lines.some((line) => /│ process ⊘ {2}ticker {2}killed SIGTERM/.test(line)), lines.join("\n"));
   assert.ok(lines.some((line) => line.includes("│ process ⊘  lost  not running")));
   assert.ok(!lines.some((line) => /[◐◓◑◒]/.test(line)), "nothing spins");
+});
+
+test("a job's matched lines and its opened body hang on its arguments' column", () => {
+  resetJobs();
+  connectJobs(processesBus({ ticker: procInfo("ticker") }));
+  const chat = new Container();
+  const start = processStart("ticker");
+  const ls = bash("ls", "a");
+  chat.addChild(textStep("Starting.", start.id, "process"));
+  chat.addChild(start.component);
+  chat.addChild(notice("ticker", "log_match", { logMatch: { pattern: "READY", stream: "stderr", line: "READY on 8000" } }));
+  chat.addChild(step(ls.id));
+  chat.addChild(ls.component);
+  click(chat, "2 calls");
+  // Columns are the point here, so not the frame helper, which squeezes spaces.
+  const raw = () => {
+    frame(chat);
+    return chat.render(W).map(strip);
+  };
+  const column = (lines: string[]) => {
+    const row = lines.find((line) => /process [◐◓◑◒✓]/.test(line))!;
+    return row.indexOf("ticker");
+  };
+  let lines = raw();
+  const note = lines.find((line) => line.includes("matched stderr: READY on 8000"));
+  assert.ok(note, lines.join("\n"));
+  assert.equal(note.indexOf("·"), column(lines), lines.join("\n"));
+
+  click(chat, "│ process");
+  lines = raw();
+  const body = lines.find((line) => line.includes("Started process ticker"));
+  assert.ok(body, lines.join("\n"));
+  // The column every opened call's body takes: pi pads a tool's output by one cell.
+  assert.equal(body.indexOf("Started"), column(lines) + 1, lines.join("\n"));
 });

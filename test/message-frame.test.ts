@@ -23,7 +23,6 @@ const {
   BranchSummaryMessageComponent,
   CompactionSummaryMessageComponent,
   CustomMessageComponent,
-  SkillInvocationMessageComponent,
   UserMessageComponent,
 } = await import("@earendil-works/pi-coding-agent");
 const { Box, Text, visibleWidth } = await import("@earendil-works/pi-tui");
@@ -69,7 +68,6 @@ function fakeMessage() {
 for (const [name, Component, arg, color, icon] of [
   ["compaction", CompactionSummaryMessageComponent, fakeMessage(), COLORS.compaction, "\u{f066}"],
   ["branch summary", BranchSummaryMessageComponent, fakeMessage(), COLORS.branch, "\u{f126}"],
-  ["skill invocation", SkillInvocationMessageComponent, { name: "demo", content: "skill text" }, COLORS.skill, "\u{f0d0}"],
 ] as const) {
   test(`${name} box gets a rounded transparent frame in its own color`, () => {
     patchMessageBoxes(COLORS, true);
@@ -119,22 +117,6 @@ test("the kind label moves into the top border and its spacer row goes away", ()
       const widths = lines.map((line) => visibleWidth(line));
       assert.ok(widths.every((width) => width === widths[0]), "every row the frame's width");
     }
-  });
-});
-
-test("an expanded skill box lifts its label; a collapsed one keeps it inline with the name", () => {
-  withAnsiTheme(() => {
-    patchMessageBoxes(COLORS, true);
-    const expanded = new SkillInvocationMessageComponent({ name: "demo", content: "skill text" } as any);
-    expanded.setExpanded(true);
-    const expandedRows = expanded.render(50).map(plainRow);
-    assert.match(expandedRows[0]!, /^╭─ .*\[skill\] ─+╮$/, "label in the border when it stands alone");
-    assert.ok(expandedRows[1]!.includes("demo"), "the skill name leads the body");
-
-    // Collapsed, the label shares its row with the name, so it is body, not title.
-    const collapsedRows = new SkillInvocationMessageComponent({ name: "demo", content: "skill text" } as any).render(50).map(plainRow);
-    assert.match(collapsedRows[0]!, /^╭─+╮$/, "plain border");
-    assert.ok(collapsedRows[1]!.includes("[skill]"), "label stays on the row with the name");
   });
 });
 

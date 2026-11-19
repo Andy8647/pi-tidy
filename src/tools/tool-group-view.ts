@@ -31,11 +31,12 @@ import {
 } from "../hover.ts";
 import { messageOnRail, presentTurn, TURN_LAYOUT, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { folded, turnFor, turnOptions } from "../turns/turn-state.ts";
-import { toggleCodemodeSection, type CodemodeSection } from "./codemode-body.ts";
+import { toggleNestedSection, type NestedSection } from "./nested-body.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
-import { clipToWidth, drawFrame, labeledTopBorder, trimBlankEdges } from "../draw/frame-draw.ts";
+import { clipToWidth, drawFrame, labeledTopBorder, rawIndexOfVisible, trimBlankEdges, visibleText } from "../draw/frame-draw.ts";
 import {
   commandColumn,
+  thoughtColumn,
   formatGroupLine,
   formatThoughtLabel,
   formatThoughtLine,
@@ -118,7 +119,7 @@ export function renderGroupedTool(
   if (plan.revealIn !== undefined) scheduleReveal(tool, plan.revealIn);
   if (!plan.header && !plan.gutter) {
     nestedRowSpans.delete(tool);
-    codemodeSpans.delete(tool);
+    nestedFoldSpans.delete(tool);
     return undefined;
   }
 
@@ -142,11 +143,10 @@ export function renderGroupedTool(
   // left edge instead of starting under the rail. That makes the column the
   // group's business, not the call row's, so the row itself is told to hang
   // nothing (a box of its own still hangs its lines on `$ `, see frameBox).
-  // A job row carries what the job is doing rather than a command, so its body
-  // stays at the rail's pad.
-  const aligned = plan.full && !job;
-  const bodyPadCells = aligned ? commandColumn(tool, { icons, align }) : BODY_PAD.length;
-  if (aligned && tool.rendererState) tool.rendererState.tidyCommandIndent = 0;
+  // Everything else hung under the row (a job's matched lines, the jobs a call
+  // started, a sub-agent's notice) takes the same column: one left edge per row.
+  const bodyPadCells = commandColumn(tool, { icons, align });
+  if (plan.full && tool.rendererState) tool.rendererState.tidyCommandIndent = 0;
   const bodyPad = " ".repeat(bodyPadCells);
   const body = plan.full ? frameBox(Math.max(4, width - GUTTER_CELLS - bodyPadCells), true) : undefined;
   // Compared field by field against the last frame rather than through a built
@@ -159,7 +159,7 @@ export function renderGroupedTool(
     cached.result === tool.result && cached.args === tool.args
   ) return cached.lines;
   nestedRowSpans.delete(tool);
-  codemodeSpans.delete(tool);
+  nestedFoldSpans.delete(tool);
 
   const lines: string[] = [];
   if (headerLine !== undefined) lines.push(headerLine);
@@ -180,17 +180,17 @@ export function renderGroupedTool(
     // would be a frame inside a frame. Only the body is drawn, hanging under
     // the row that opened it.
     const base = lines.length;
-    const toggles = (tool as { __codemodeToggles?: Array<{ row: number; section: string }> }).__codemodeToggles ?? [];
+    const toggles = (tool as { __nestedToggles?: Array<{ row: number; section: string }> }).__nestedToggles ?? [];
     for (const [index, line] of body.entries()) {
       const out = `${gutter}${bodyPad}${line.trimEnd()}`;
       const section = toggles.find((toggle) => toggle.row === index)?.section;
-      lines.push(section !== undefined && hovered === `codemode:${section}` ? hoverBand(out, width, theme) : out);
+      lines.push(section !== undefined && hovered === `fold:${section}` ? hoverBand(out, width, theme) : out);
     }
-    // A codemode body folds its script and output to one row each; those rows
+    // A call list folds its script and output to one row each; those rows
     // answer their own clicks (see routeGroupedMouse).
-    codemodeSpans.set(
+    nestedFoldSpans.set(
       tool,
-      toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as CodemodeSection })),
+      toggles.map((toggle) => ({ row: base + toggle.row, section: toggle.section as NestedSection })),
     );
   }
   const spans: NestedRowSpan[] = [];
@@ -200,15 +200,15 @@ export function renderGroupedTool(
   // the group is opened, so a watcher that ticks every second costs nothing here.
   // Below the body too, so the body's click geometry stays put.
   if (job && open && !plan.full) {
-    for (const note of jobNoteRows(job, theme, `${gutter}${BODY_PAD}`)) lines.push(clipToWidth(note, width, "…"));
+    for (const note of jobNoteRows(job, theme, `${gutter}${bodyPad}`)) lines.push(clipToWidth(note, width, "…"));
   }
   // Nested starts belong to the wrapper, but do not replace its result/error.
   // Keep them below its body so the body's existing click geometry is unchanged.
   // An opened box hangs them inside the body instead: they are what the script
   // produced, on the same rail as its call rows and its output.
   const inBody = plan.full;
-  const rowPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")} ` : `${gutter}  `;
-  const detailPad = inBody ? `${gutter}${BODY_PAD}${theme.fg("borderMuted", "│")}     ` : `${gutter}      `;
+  const rowPad = inBody ? `${gutter}${bodyPad}${theme.fg("borderMuted", "│")} ` : `${gutter}${bodyPad}`;
+  const detailPad = `${rowPad}    `;
   for (const nested of jobs) {
     if (nested === job) continue;
     const details = jobDetails(nested.id);
@@ -263,34 +263,34 @@ const groupedRows = new WeakMap<object, {
 interface NestedRowSpan { id: string; from: number; to: number }
 const nestedRowSpans = new WeakMap<object, NestedRowSpan[]>();
 
-/** A codemode body's fold labels: one clickable row each. */
-export interface CodemodeRowSpan {
+/** A call list's fold labels: one clickable row each. */
+export interface NestedFoldSpan {
   row: number;
-  section: CodemodeSection;
+  section: NestedSection;
 }
-const codemodeSpans = new WeakMap<object, CodemodeRowSpan[]>();
+const nestedFoldSpans = new WeakMap<object, NestedFoldSpan[]>();
 
 /** The fold row at `y`, if there is one. */
-export function codemodeFoldAt(rows: readonly CodemodeRowSpan[] | undefined, y: unknown): CodemodeRowSpan | undefined {
+export function nestedFoldAt(rows: readonly NestedFoldSpan[] | undefined, y: unknown): NestedFoldSpan | undefined {
   return typeof y === "number" ? rows?.find((span) => span.row === y) : undefined;
 }
 
 /**
- * A packet on a codemode fold row, grouped or framed: a click opens or shuts
+ * A packet on a call list's fold row, grouped or framed: a click opens or shuts
  * that section, motion lights the row. Presses and drags stay pi's: the row is
  * text like any other.
  */
-export function routeCodemodeFold(tool: GroupedTool, event: any, section: CodemodeSection): unknown {
+export function routeNestedFold(tool: GroupedTool, event: any, section: NestedSection): unknown {
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   if (click) {
-    toggleCodemodeSection(tool, section);
+    toggleNestedSection(tool, section);
     (tool as { invalidate?(): void }).invalidate?.();
     tool.ui?.requestRender?.();
     return { handled: true };
   }
   if (event?.type === "move" && hoverIsTracked()) {
     markHoverClaimed();
-    if (setHover(tool, `codemode:${section}`, tool.ui)) tool.ui?.requestRender?.();
+    if (setHover(tool, `fold:${section}`, tool.ui)) tool.ui?.requestRender?.();
   }
   return undefined;
 }
@@ -335,6 +335,14 @@ function closeGroupJobDetails(component: object): void {
 
 function runningJob(jobs: JobState[]): JobState | undefined {
   return jobs.filter((job) => job.status === "running").sort((a, b) => (a.startTime ?? Infinity) - (b.startTime ?? Infinity))[0];
+}
+
+/**
+ * Where rows hung under a grouped call start: the call's arguments' column, the
+ * edge its opened body hangs on too (see renderGroupedTool).
+ */
+export function hangColumn(tool: GroupedTool, icons: boolean): number {
+  return commandColumn(tool, { icons, align: groupAlign(tool) });
 }
 
 /**
@@ -394,10 +402,6 @@ function withoutLead(row: string): string {
   return row.replace(/^((?:\x1b\[[0-9;]*m)*) /, "$1");
 }
 
-/** Cells an opened call's body is pushed in by, under its row: the rail plus three. */
-const BODY_INDENT = GUTTER_CELLS + 3;
-const BODY_PAD = "   ";
-
 /**
  * The group's summary line. Carried by the first member — or by a leading
  * carrier, which renders before that member does (see `carrierPlan`).
@@ -431,15 +435,15 @@ function groupHeaderLine(
   const key = [
     summary.count,
     summary.breakdown.map(({ name, count }) => `${name}×${count}`).join(" "),
-    // The scripts' own counts are on the line too: a codemode result arriving
-    // late has to rebuild it.
-    summary.nested?.owner ?? "",
-    summary.nested?.breakdown.map(({ name, count }) => `${name}×${count}`).join(" ") ?? "",
+    // The programs' own counts are on the line too: a result arriving late has
+    // to rebuild it.
+    [...(summary.nested ?? [])].map(([owner, own]) => `${owner}(${own.map(({ name, count }) => `${name}×${count}`).join(" ")})`).join(" "),
     summary.thoughts,
     summary.thinking,
     summary.durationMs,
     summary.running ?? "",
     summary.failed,
+    summary.nestedFailed,
     summary.jobsRunning,
     header,
     spinner,
@@ -546,9 +550,9 @@ export function routeGroupedMouse(tool: GroupedTool, event: any, routing: MouseR
   // pi-tui names buttons ("left"); accept the raw SGR code too.
   const click = event?.type === "click" && (event.button === "left" || event.button === 0);
   let y = event?.y;
-  // A codemode body's fold labels: the script and the output open in place.
-  const fold = codemodeFoldAt(codemodeSpans.get(tool), y);
-  if (fold) return routeCodemodeFold(tool, event, fold.section);
+  // A call list's fold labels: the script and the output open in place.
+  const fold = nestedFoldAt(nestedFoldSpans.get(tool), y);
+  if (fold) return routeNestedFold(tool, event, fold.section);
   const nested = typeof y === "number" ? nestedRowSpans.get(tool)?.find((span) => y >= span.from && y <= span.to) : undefined;
   if (nested) {
     if (event?.type === "move" && hoverIsTracked()) {
@@ -727,18 +731,27 @@ function renderCarrier(component: any, width: number): BoundaryDraw {
     clickMap.to = cached.lines.length - 1;
     return { lines: cached.lines };
   }
-  for (const index of runs.keys()) {
-    const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
-    // One still arriving or opened is what the reader is looking at, so it keeps its label and colour.
-    const row = formatThoughtLine(text, theme, { icons, thinkingColor, align, quiet: !plan.live && !open });
-    // Open: the row keeps its place and takes a tick, exactly like an opened
-    // call — the reasoning hangs under it instead of replacing it.
-    const line = open ? `${tickGutter(theme)}${withoutLead(row)}` : gutter + row;
-    lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
-  }
   if (open) {
-    const body = trimBlankEdges(renderThinkingBody(component, iconBodyWidth(width)));
-    for (const line of body) lines.push(`${gutter}${BODY_PAD}${theme.fg("thinkingText", line)}`);
+    // Open, the label row takes a tick like an opened call, and the reasoning
+    // starts on it: the row's preview would only repeat the body's first line.
+    // The rest hangs on the row's own text column, the way an opened call's body
+    // hangs on its command (see renderGroupedTool). Every run is in the body, so
+    // one label row stands for all of them.
+    const column = thoughtColumn({ icons, align });
+    const pad = " ".repeat(column);
+    const [first = "", ...rest] = thinkingBody(component, Math.max(8, width - GUTTER_CELLS - column));
+    const label = formatThoughtLine("", theme, { icons, thinkingColor, align, quiet: false });
+    const line = `${tickGutter(theme)}${withoutLead(label)}${theme.fg("thinkingText", first)}`;
+    lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
+    for (const each of rest) lines.push(clipToWidth(`${gutter}${pad}${theme.fg("thinkingText", each)}`, width, "…"));
+  } else {
+    for (const index of runs.keys()) {
+      const text = liveTexts?.[index] ?? settledRowText(runs, width - context)[index];
+      // One still arriving is what the reader is looking at, so it keeps its label and colour.
+      const row = formatThoughtLine(text, theme, { icons, thinkingColor, align, quiet: !plan.live });
+      const line = gutter + row;
+      lines.push(hovered ? hoverBand(line, width, theme) : clipToWidth(line, width, "…"));
+    }
   }
   clickMap.from = firstRow;
   clickMap.to = lines.length - 1;
@@ -759,9 +772,28 @@ const settledCarriers = new WeakMap<object, {
   lines: string[];
 }>();
 
-/** The width an opened thinking run's text is laid out at, inside its indent. */
-function iconBodyWidth(width: number): number {
-  return Math.max(8, width - BODY_INDENT);
+/**
+ * An opened run's rows at `width` cells, without the padding pi's thinking
+ * component puts on their left: the column they hang on is the group's
+ * business. Rows indented further than the rest (a list, a code block) keep
+ * what they have beyond that.
+ */
+/** Escape sequences only: what a cut keeps of the cells it drops. */
+const ESCAPES_ONLY = /\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)/g;
+
+function thinkingBody(component: any, width: number): string[] {
+  // pi pads the rows by a cell; laid out one wider, the text keeps `width`.
+  const rows = trimBlankEdges(renderThinkingBody(component, width + 1));
+  let lead = Infinity;
+  for (const row of rows) {
+    const plain = visibleText(row);
+    if (plain.trim()) lead = Math.min(lead, plain.length - plain.trimStart().length);
+  }
+  if (!Number.isFinite(lead) || lead === 0) return rows;
+  return rows.map((row) => {
+    const at = rawIndexOfVisible(row, lead);
+    return at < 0 ? row : (row.slice(0, at).match(ESCAPES_ONLY)?.join("") ?? "") + row.slice(at);
+  });
 }
 
 /**

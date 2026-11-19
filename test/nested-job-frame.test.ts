@@ -175,8 +175,8 @@ test("collapsing the script does not collapse its job; global collapse closes ch
   h.click("1 call");
   h.click("codemode ✓");
   h.click("process p1");
-  assert.ok(h.frame().some((line) => line.includes("Script completed")));
-  h.click("Script completed");
+  assert.ok(h.frame().some((line) => line.includes("▸ output · 1 line")));
+  h.click("codemode ✓");
   assert.equal((h.c as any).expanded, false);
   assert.ok(h.frame().some((line) => line.includes("child stays open")));
   h.c.setExpanded(false); // pi's ctrl+o collapse-all, outside a pointer dispatch.
@@ -367,4 +367,24 @@ test("tasks without a visible owner keep their notifications, including pinned a
       assert.ok(h.frame().some((line) => line.includes('"ticker"')), JSON.stringify(config));
     }
   }
+});
+
+test("jobs a call started hang on its arguments' column, and their details four cells in", () => {
+  const h = setup();
+  h.start("p1");
+  h.start("p2");
+  h.logs.set("p1", [{ type: "stdout", text: "first job output" }]);
+  h.finish();
+  h.frame();
+  h.click("1 call");
+  h.click("process p1");
+  const lines = h.frame();
+  const call = lines.find((line) => /codemode ✓/.test(line))!;
+  const column = call.match(/codemode ✓\s+/)!.index! + call.match(/codemode ✓\s+/)![0].length;
+  for (const id of ["p1", "p2"]) {
+    const row = lines.find((line) => line.includes(`process ${id}`))!;
+    assert.equal(row.search(/[▸▾▶]/), column, `${id} hangs on the call's arguments:\n${lines.join("\n")}`);
+  }
+  const detail = lines.find((line) => line.includes("run-p1"))!;
+  assert.equal(detail.indexOf("$ run-p1"), column + 4, lines.join("\n"));
 });

@@ -11,7 +11,6 @@ export interface MessageBorderColors {
   user: string;
   compaction: string;
   branch: string;
-  skill: string;
   custom: string;
 }
 
@@ -203,7 +202,6 @@ const DEFAULTS: TidyConfig = {
     user: "toolTitle",
     compaction: "customMessageLabel",
     branch: "mdCode",
-    skill: "accent",
     custom: "warning",
   },
   toolColors: DEFAULT_TOOL_COLORS,

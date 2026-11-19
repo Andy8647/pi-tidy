@@ -18,43 +18,47 @@
 
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { Box, Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
+import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, shortenPath, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
 import {
-  composeCodemodeBody,
-  codemodeSections,
-  decorateCodemodeBody,
-  type CodemodeBodyOptions,
-  type CodemodeToggle,
-  type ComposedCodemodeBody,
-} from "./codemode-body.ts";
+  composeNestedBody,
+  hasNestedBody,
+  nestedSections,
+  type ComposedNestedBody,
+  type NestedBodyOptions,
+  type NestedToggle,
+} from "./nested-body.ts";
+import { hostRecord, nestedRunOf, type NestedRun } from "./nested-calls.ts";
 import { sliceByColumn } from "@earendil-works/pi-tui";
 import { clipToWidth } from "../draw/frame-draw.ts";
 import { fileIcon, PATH_ARG_TOOLS, toolKindIcon } from "../draw/icons.ts";
 import { closeJobDetails, jobsForTool, setJobOptions } from "./background-jobs.ts";
+import { DEFAULT_BASH_RESULT_LINES } from "../config.ts";
 import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-state.ts";
 import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { renderSplitDiff } from "./split-diff.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { CALL_PROMPT_CELLS } from "./command-text.ts";
-import { pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
-import { formatToolLine } from "./tool-lines.ts";
+import { groupIsOpen, pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
+import { claimNotices, noticeRows, toggleNotice } from "../turns/delegate-notices.ts";
+import { formatToolLine, groupGutter } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
-  codemodeFoldAt,
+  hangColumn,
+  nestedFoldAt,
   NOT_GROUPED,
   renderGroupedTool,
-  routeCodemodeFold,
+  routeNestedFold,
   routeGroupedMouse,
   setGroupingActive,
   setIconsEnabled,
   setThinkingColor,
-  type CodemodeRowSpan,
+  type NestedFoldSpan,
   type GroupedTool,
 } from "./tool-group-view.ts";
-import { codemodeHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender } from "../hover.ts";
+import { nestedFoldHover, claimHover, hoverBand, installHoverTracking, isRowHovered, requestHoverRender } from "../hover.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
 import { COPIED_MS, chipLabels, chipWord, repaintChip } from "../turns/code-blocks.ts";
 
@@ -105,7 +109,7 @@ interface ToolBoxInternals extends GroupedTool {
     /** `optionsRevision()` when it was built: every option a frame reads, in one number. */
     revision: number;
     unframed: boolean;
-    /** The framed codemode fold row wearing the hover band ("" for none). */
+    /** The framed call list's fold row wearing the hover band ("" for none). */
     hovered: string;
     raw: string[];
     out: string[];
@@ -124,6 +128,11 @@ interface ToolBoxInternals extends GroupedTool {
   __pathCopy?: { row: number; x: number; end: number; text: string };
   /** While the chip reads `copied`, after a click. */
   __pathCopyFlashUntil?: number;
+  /**
+   * The sub-agent notices hung under this call last frame (delegate-notices.ts):
+   * the row they start at in this component's output, and each one's rows.
+   */
+  __notices?: { from: number; height: number; spans: Array<{ from: number; to: number; key: string }> };
   /** The split diff last built for this box, and what it was built from. */
   __splitCache?: {
     diff: string;
@@ -134,40 +143,35 @@ interface ToolBoxInternals extends GroupedTool {
     call: string[];
     value: { raw: string[]; bgRows: ReadonlySet<number> } | undefined;
   };
-  /** Row indices of the codemode fold labels in the last framed body. */
-  __codemodeToggles?: CodemodeToggle[];
-  /** A framed codemode box's fold rows, in its own output rows; unset for every other box. */
-  __codemodeFolds?: CodemodeRowSpan[];
-  /** The last composed codemode body, and what it was composed from. */
-  __codemodeComposed?: {
-    body: string[];
+  /** Row indices of a call list's fold labels in the last framed body. */
+  __nestedToggles?: NestedToggle[];
+  /** Rows of a call list's body whose fill belongs to the content (a nested diff). */
+  __callListFills?: ReadonlySet<number>;
+  /** A framed call list's fold rows, in its own output rows; unset for every other box. */
+  __nestedFolds?: NestedFoldSpan[];
+  /** The last composed call list, and what it was composed from. */
+  __nestedComposed?: {
+    args: unknown;
     details: unknown;
+    host: unknown;
+    content: unknown;
+    isError: boolean;
     script: boolean;
     output: boolean;
+    icons: boolean;
     revision: number;
     width: number | undefined;
     hovered: string | undefined;
-    sample: string;
-    value: ComposedCodemodeBody;
+    theme: ThemeLike;
+    value: ComposedNestedBody;
   };
   /** The framed list built on the last composed body. */
-  __codemodeList?: { composed: ComposedCodemodeBody; w: number; revision: number; value: { title: string; lines: string[]; toggles: CodemodeToggle[] } };
-  /** The expanded rendering a framed codemode box composes from, and what it was built from. */
-  __codemodeFull?: {
-    args: unknown;
-    result: unknown;
-    isPartial: boolean;
-    sample: string;
-    body: Component | undefined;
+  __nestedList?: {
+    composed: ComposedNestedBody;
+    w: number;
+    revision: number;
+    value: { title: string; lines: string[]; toggles: NestedToggle[]; fills: ReadonlySet<number> };
   };
-  /** pi's own fields, read to draw the body a second time at `expanded: true`. */
-  toolDefinition?: {
-    renderCall?(args: unknown, theme: unknown, context: unknown): Component;
-    renderResult?(result: unknown, options: unknown, theme: unknown, context: unknown): Component;
-  };
-  cwd?: string;
-  outputPad?: number;
-  argsComplete?: boolean;
 }
 
 export interface ToolFrameOptions {
@@ -207,6 +211,11 @@ export interface ToolFrameOptions {
   highlightBash?: boolean;
   /** Rows a group's call may take: 2 lets one that does not fit go on to a second. */
   toolRowLines?: number;
+  /**
+   * Rows of a nested call's own output a call list keeps under its row, the way
+   * a bash box keeps this many of its own (default 1).
+   */
+  bashResultLines?: number;
 }
 
 interface ResolvedToolFrameOptions {
@@ -221,6 +230,7 @@ interface ResolvedToolFrameOptions {
   thinkingColor: string;
   highlightBash: boolean;
   toolRowLines: number;
+  bashResultLines: number;
 }
 
 const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
@@ -235,15 +245,10 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   thinkingColor: "warning",
   highlightBash: true,
   toolRowLines: 1,
+  bashResultLines: DEFAULT_BASH_RESULT_LINES,
 });
 
 const grouping = () => tidyEnabled.get() && toolOptions.get().groupTools;
-
-/** `$HOME` as `~`, the form a title shows its path in. */
-function shortenPath(path: string): string {
-  const home = homedir();
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
-}
 
 /**
  * A file box's path chip, in its lit states: lit under the pointer, a tick for a moment
@@ -285,9 +290,29 @@ function finishBox(box: ToolBoxInternals, rows: string[], theme: ThemeLike): str
   return withCopyChip(box, rows, theme);
 }
 
-/** A codemode box drawn in a frame of its own: grouping off, or codemode in `alwaysShowTools`. */
-const framedCodemode = (tool: ToolBoxInternals) =>
+/** A call-list box drawn in a frame of its own: grouping off, or its tool in `alwaysShowTools`. */
+const framedCallList = (tool: ToolBoxInternals) =>
   tidyEnabled.get() && (!toolOptions.get().groupTools || toolOptions.get().alwaysShow.has(tool.toolName));
+
+/** The text blocks of a result, joined: what the model was handed. */
+function resultText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: "text"; text: string } => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+/**
+ * What this box's program did, when its result records nested calls and there
+ * is something to list (see nested-calls.ts): the box then reads as a call
+ * list, whatever the tool is called. Undefined keeps the tool's own body — an
+ * ordinary tool, or a program still being written.
+ */
+function nestedRun(tool: ToolBoxInternals): NestedRun | undefined {
+  const run = nestedRunOf(tool.result?.details, tool.toolCallId);
+  return run && hasNestedBody(run, resultText(tool.result?.content)) ? run : undefined;
+}
 
 /** The component pi routes a box's clicks through (its result MouseRegions live inside). */
 function mouseTarget(tool: ToolBoxInternals): MouseTarget | undefined {
@@ -310,6 +335,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor = "warning",
     highlightBash = true,
     toolRowLines = 1,
+    bashResultLines = DEFAULT_BASH_RESULT_LINES,
   } = options;
   toolOptions.set({
     icons,
@@ -323,6 +349,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     thinkingColor,
     highlightBash,
     toolRowLines,
+    bashResultLines,
   });
   setJobOptions({ enabled: backgroundJobs, hideNotifications: hideJobNotifications });
   // Value, not a closure: the patch runs again on `/reload`, which is what
@@ -397,12 +424,12 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
    * so clicks landed on the wrong row or — for edit and MCP boxes — nowhere.
    */
   function boxMouse(this: ToolBoxInternals, event: any, dx = 0, dy = 0): unknown {
-    // A framed codemode call list is tidy's own rows, not pi's layout: its fold
+    // A framed call list is tidy's own rows, not the tool's layout: its fold
     // rows open their section, and every other cell is the box's expand switch.
-    const folds = this.__codemodeFolds;
+    const folds = this.__nestedFolds;
     if (folds) {
-      const fold = codemodeFoldAt(folds, event?.y - dy);
-      if (fold) return routeCodemodeFold(this, event, fold.section);
+      const fold = nestedFoldAt(folds, event?.y - dy);
+      if (fold) return routeNestedFold(this, event, fold.section);
       const click = event?.type === "click" && (event.button === "left" || event.button === 0);
       if (!click) return undefined;
       asPointer(() => this.setExpanded(!this.expanded));
@@ -438,6 +465,16 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   anyProto.handleMouse = function (this: ToolBoxInternals, event: any) {
     if (!tidyEnabled.get()) return originalHandleMouse?.call(this, event);
     if (hideTurnTool(this.toolCallId)) return undefined;
+    // The sub-agent notices hung under the call: a click opens or shuts the one
+    // it lands on, and never reaches the box above them.
+    const hung = this.__notices;
+    if (hung && typeof event?.y === "number" && event.y >= hung.from && event.y < hung.from + hung.height) {
+      if (event.type !== "click" || (event.button !== "left" && event.button !== 0)) return undefined;
+      const y = event.y - hung.from;
+      const span = hung.spans.find((each) => y >= each.from && y <= each.to);
+      if (span) toggleNotice(span.key);
+      return { handled: true, render: true };
+    }
     // Before the rail is discounted and before a group gets its say: the chip is the one
     // cell range of the box that copies instead of opening, wherever the row came from.
     const chip = pathChipMouse.call(this, event);
@@ -469,12 +506,12 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
       }
       noteSetExpanded(this, expanded, pointerDepth > 0);
     }
-    // A framed codemode box draws its call list whatever pi's flag says (see
-    // fullCodemodeBody), so what expanding opens there is the script and the
-    // output: ctrl+o shows everything, and a click on the box does the same for
-    // that one box. Its fold rows still open one section at a time.
-    if (this.toolName === "codemode" && framedCodemode(this)) {
-      const sections = codemodeSections(this);
+    // A framed call list draws its rows whatever pi's flag says, so what
+    // expanding opens there is the program and the output: ctrl+o shows
+    // everything, and a click on the box does the same for that one box. Its
+    // fold rows still open one section at a time.
+    if (framedCallList(this) && nestedRun(this)) {
+      const sections = nestedSections(this);
       sections.script = expanded;
       sections.output = expanded;
     }
@@ -580,7 +617,7 @@ function splitEditBody(
   // long session crawl; the panes only change with these inputs. getTheme()
   // returns the actual instance, which pi replaces on theme switches/reloads.
   // Compare it directly: different themes may share the same added-text colour.
-  // Unlike the codemode path below, which renders components and compares coloured
+  // Unlike a cache over rendered rows, which compares coloured
   // body rows, this cache starts from an uncoloured diff, so it must track the theme.
   const cache = tool.__splitCache;
   if (
@@ -604,144 +641,98 @@ function splitEditBody(
 }
 
 /**
- * A codemode box's body as pi draws it expanded, without expanding the box.
- *
- * Collapsed, pi's renderer keeps ten script lines, the last eight calls and five
- * output lines, so a call list folded from that would drop calls and miscount
- * both sections. The framed call list is composed from a second rendering by
- * the same renderers at `expanded: true`, with components and state of its own:
- * pi's box, and anything another renderer keeps on its state, are never touched.
- * `executionStarted: false` keeps pi's timer out of it (it would arm an interval
- * on that state); the timer row is dropped from the composed body anyway.
+ * `composeNestedBody`, kept per box. Every framed call list in the history is
+ * composed on every frame, and every grouped one once it is open (all of them
+ * after ctrl+o); a nested diff re-highlights each changed line when rebuilt.
  */
-function fullCodemodeBody(tool: ToolBoxInternals, width: number, theme: ThemeLike): string[] | undefined {
-  const definition = tool.toolDefinition;
-  if (typeof definition?.renderCall !== "function") return undefined;
-  const sample = theme.fg("toolTitle", "x");
-  let cache = tool.__codemodeFull;
-  if (
-    !cache ||
-    cache.args !== tool.args ||
-    cache.result !== tool.result ||
-    cache.isPartial !== tool.isPartial ||
-    cache.sample !== sample
-  ) {
-    const state = {};
-    const context = {
-      args: tool.args,
-      toolCallId: tool.toolCallId,
-      invalidate: () => {
-        tool.__codemodeFull = undefined;
-        tool.ui?.requestRender?.();
-      },
-      lastComponent: undefined,
-      state,
-      cwd: tool.cwd,
-      executionStarted: false,
-      argsComplete: tool.argsComplete,
-      isPartial: tool.isPartial,
-      expanded: true,
-      showImages: false,
-      isError: tool.result?.isError ?? false,
-      durationMs: tool.isPartial ? undefined : tool.result?.durationMs,
-      outputPad: tool.outputPad ?? 1,
-    };
-    let body: Component | undefined;
-    try {
-      // The same shell pi draws into, so the rows line up with what it would show.
-      const shell = tool.getRenderShell() === "self" ? new Container() : new Box(tool.outputPad ?? 1, 1);
-      shell.addChild(definition.renderCall(tool.args, theme, context));
-      if (tool.result && typeof definition.renderResult === "function") {
-        const { content, details } = tool.result;
-        shell.addChild(definition.renderResult({ content, details }, { expanded: true, isPartial: tool.isPartial }, theme, context));
-      }
-      body = shell;
-    } catch {
-      body = undefined;
-    }
-    cache = { args: tool.args, result: tool.result, isPartial: tool.isPartial, sample, body };
-    tool.__codemodeFull = cache;
-  }
-  return cache.body?.render(width);
-}
-
-/**
- * `composeCodemodeBody`, kept per box. Every framed codemode box in the history
- * is composed on every frame, and every grouped one once it is open (all of
- * them after ctrl+o); splitting a body walks the text of each of its rows.
- */
-function composedCodemode(
-  tool: ToolBoxInternals,
-  body: string[],
-  theme: ThemeLike,
-  options: CodemodeBodyOptions,
-): ComposedCodemodeBody {
-  const state = codemodeSections(tool);
+function composedNested(tool: ToolBoxInternals, run: NestedRun, theme: ThemeLike, options: NestedBodyOptions): ComposedNestedBody {
+  const state = nestedSections(tool);
   const details = tool.result?.details;
-  const sample = theme.fg("accent", "x");
+  const content = tool.result?.content;
+  const isError = tool.result?.isError === true;
+  const host = hostRecord(tool.toolCallId);
   const revision = optionsRevision();
-  const cache = tool.__codemodeComposed;
+  const cache = tool.__nestedComposed;
   if (
     cache &&
+    cache.args === tool.args &&
     cache.details === details &&
+    cache.host === host &&
+    cache.content === content &&
+    cache.isError === isError &&
     cache.script === state.script &&
     cache.output === state.output &&
+    cache.icons === options.icons &&
     cache.revision === revision &&
     cache.width === options.width &&
     cache.hovered === options.hovered &&
-    cache.sample === sample &&
-    sameLines(cache.body, body)
+    cache.theme === theme
   ) {
     return cache.value;
   }
-  const value = composeCodemodeBody(body, details, state, theme, options);
-  tool.__codemodeComposed = {
-    body,
+  const { bashResultLines, diffLines, splitDiff, splitDiffMinWidth } = toolOptions.get();
+  const failure = (details as { error?: unknown } | undefined)?.error;
+  const value = composeNestedBody({
+    args: tool.args,
+    run,
+    output: resultText(content),
+    ...(typeof failure === "string" && failure ? { failure } : {}),
+    isError,
+    diffLines,
+    splitDiff,
+    splitDiffMinWidth,
+    outputLines: bashResultLines,
+    state,
+    theme,
+    options,
+  });
+  tool.__nestedComposed = {
+    args: tool.args,
     details,
+    host,
+    content,
+    isError,
     script: state.script,
     output: state.output,
+    icons: options.icons,
     revision,
     width: options.width,
     hovered: options.hovered,
-    sample,
+    theme,
     value,
   };
   return value;
 }
 
 /**
- * A framed codemode box as a call list: the row a group would show for it
- * (`✓ codemode bash×2 read×1 · 0.1s`) in place of pi's title, then the calls,
- * with the script and the output folded to one row each. The row is handed
- * back apart from the body: every other framed tool puts its title in the top
- * border, and this one had no title of its own to put there. Undefined keeps
- * pi's layout: no renderer to draw it again, or nothing to fold yet (the
- * script is still streaming, or the output cannot be told from the calls).
+ * A framed call list: the row a group would show for the call
+ * (`✓ codemode bash×2 read×1 · 0.1s`) in place of the tool's title, then its
+ * rows, with the program and the output folded to one row each. The row is
+ * handed back apart from the body: every other framed tool puts its title in
+ * the top border, and this one had no title of its own to put there.
  */
-function composeFramedCodemode(
+function composeFramedCallList(
   tool: ToolBoxInternals,
+  run: NestedRun,
   w: number,
   theme: ThemeLike,
   icons: boolean,
-): { title: string; lines: string[]; toggles: CodemodeToggle[] } | undefined {
-  const width = w - 2;
-  const body = fullCodemodeBody(tool, width, theme);
-  if (!body) return undefined;
-  // The rules and the title stop a cell short of the right border: pi's rows
-  // keep a cell of padding there, as they do on the left.
-  const composed = composedCodemode(tool, body, theme, { icons, width: width - 1, hovered: codemodeHover(tool) });
-  if (composed.toggles.length === 0) return undefined;
+): { title: string; lines: string[]; toggles: NestedToggle[]; fills: ReadonlySet<number> } | undefined {
+  // The rules and the title stop a cell short of the right border, as a box's
+  // body keeps a cell of padding on the left.
+  const composed = composedNested(tool, run, theme, { icons, width: w - 3, hovered: nestedFoldHover(tool) });
+  if (composed.lines.length === 0) return undefined;
   // The title reads the result, which the body was drawn from: a new result is
   // a new body, and so a new composition.
   const revision = optionsRevision();
-  const cache = tool.__codemodeList;
+  const cache = tool.__nestedList;
   if (cache && cache.composed === composed && cache.w === w && cache.revision === revision) return cache.value;
   // The row goes into the top border, so it has to pay for the border's own
   // `╭─ ` and ` ─╮` cells before the body does: laid out at the full width it
   // would be clipped there, and the clip takes the duration first.
   const title = formatToolLine(tool, theme, { icons, width: Math.max(1, w - 6) });
-  const value = { title, lines: composed.lines, toggles: composed.toggles };
-  tool.__codemodeList = { composed, w, revision, value };
+  const value = { title, lines: composed.lines, toggles: composed.toggles, fills: new Set(composed.fills) };
+  tool.__nestedList = { composed, w, revision, value };
   return value;
 }
 
@@ -777,41 +768,36 @@ function composeFramedCodemode(
     // before asking for the body (see renderGroupedTool), so only this path resets.
     if (!unframed && this.rendererState) this.rendererState.tidyCommandIndent = CALL_PROMPT_CELLS;
     const split = splitEditBody(this, w - 2, sourceWidth, theme);
-    // Inside a group a codemode body is a call list: the script and the output
+    // Inside a group a program's body is a call list: the script and the output
     // fold to one row each (they open on click, see tool-group-view.ts), and
     // every row sits one rail deeper than the call it belongs to. In a frame of
     // its own it is the same list, under the row a group would show for it.
-    const codemode = this.toolName === "codemode";
-    const collapse = codemode && unframed;
-    const listed = codemode && !unframed ? composeFramedCodemode(this, w, theme, icons) : undefined;
+    const run = nestedRun(this);
+    const collapse = run !== undefined && unframed;
+    const listed = run !== undefined && !unframed ? composeFramedCallList(this, run, w, theme, icons) : undefined;
     const railCells = collapse ? 2 : 0;
-    const codemodeRows: CodemodeToggle[] = [];
+    const nestedRows: NestedToggle[] = [];
     let raw: string[];
+    let listFills: ReadonlySet<number> | undefined;
     if (collapse) {
-      const body = source.render(sourceWidth - railCells);
-      const composed = composedCodemode(this, body, theme, {
-        icons,
-        width: sourceWidth - railCells,
-        hovered: codemodeHover(this),
-      });
+      const composed = composedNested(this, run, theme, { icons, width: sourceWidth - railCells, hovered: nestedFoldHover(this) });
       const rail = `${theme.fg("borderMuted", "│")} `;
       raw = composed.lines.map((line) => rail + line);
-      codemodeRows.push(...composed.toggles);
+      nestedRows.push(...composed.toggles);
+      listFills = new Set(composed.fills);
     } else if (listed) {
       raw = listed.lines;
+      listFills = listed.fills;
     } else {
-      raw = codemode
-        ? decorateCodemodeBody(split ? split.raw : source.render(sourceWidth), this.result?.details, { icons, width: sourceWidth })
-        : split
-          ? split.raw
-          : source.render(sourceWidth);
+      raw = split ? split.raw : source.render(sourceWidth);
     }
-    this.__codemodeToggles = codemodeRows;
+    this.__nestedToggles = nestedRows;
+    this.__callListFills = listFills;
     // The framed list's fold rows, as rows of this box's output: the top border
     // is row 0 and the body starts under it, so every row is one deeper.
-    this.__codemodeFolds = listed?.toggles.map((toggle) => ({ row: toggle.row + 1, section: toggle.section }));
+    this.__nestedFolds = listed?.toggles.map((toggle) => ({ row: toggle.row + 1, section: toggle.section }));
     // An open fold row reads the same hovered or not; only the band tells.
-    const hovered = listed ? (codemodeHover(this) ?? "") : "";
+    const hovered = listed ? (nestedFoldHover(this) ?? "") : "";
 
     // The whole returned array is cached, not just the framed body.
     // pi-powerline-footer's compositor re-renders the entire root on every
@@ -849,8 +835,8 @@ function composeFramedCodemode(
     // `Text` hands back its own cached array — never write into `raw`.
     const edges = blankEdges(raw);
     let content = edges.start === 0 && edges.end === raw.length ? raw : raw.slice(edges.start, edges.end);
-    // The kind icon prefixes the call row that pi drew first. A composed codemode
-    // body has no call row: its first row is the script's fold label, which the
+    // The kind icon prefixes the call row that pi drew first. A composed call
+    // list has no call row: its first row is the script's fold label, which the
     // row above already introduces, and prefixing it pushed that row off the
     // body's rail (issue #31 review).
     if (icons && content.length > 0 && !collapse && !listed) {
@@ -880,7 +866,7 @@ function composeFramedCodemode(
     }
     // Unframed means the call row is already the row above it: the body is the
     // output, not the command again. The blank row that separated them goes too.
-    // A composed codemode body has already dropped pi's call row, and its first
+    // A composed call list has no call row of its own, and its first
     // row is the script's fold label, which is the body's to keep.
     if (unframed && content.length > 0 && !collapse) {
       content = content.slice(1);
@@ -888,7 +874,7 @@ function composeFramedCodemode(
       content = rest.start === 0 && rest.end === content.length ? content : content.slice(rest.start, rest.end);
     }
     // A file tool's call row is a title (`󰛦 󰈔 path`), not body: the frame's top
-    // border is where a title belongs. So is a framed codemode list's summary
+    // border is where a title belongs. So is a framed call list's summary
     // row, which a group draws above the box — the same row, one line up. Only
     // framed boxes have a border; inside a group the row above already carries
     // the call.
@@ -921,9 +907,15 @@ function composeFramedCodemode(
       const splitBg = split && edges.start > 0
         ? new Set([...split.bgRows].map((row) => row - edges.start).filter((row) => row >= 0))
         : split?.bgRows;
-      const bgRows = banded ?? (splitBg && titleShift
-        ? new Set([...splitBg].map((row) => row - titleShift).filter((row) => row >= 0))
-        : splitBg);
+      // A call list's own tinted rows (a nested diff) are indexed in the body it
+      // drew; the same trimming that moved everything else moved them.
+      const listBg = this.__callListFills && edges.start > 0
+        ? new Set([...this.__callListFills].map((row) => row - edges.start).filter((row) => row >= 0))
+        : this.__callListFills;
+      const contentBg = splitBg && listBg ? new Set([...splitBg, ...listBg]) : (splitBg ?? listBg);
+      const bgRows = banded ?? (contentBg && titleShift
+        ? new Set([...contentBg].map((row) => row - titleShift).filter((row) => row >= 0))
+        : contentBg);
       const framed = drawFrame(content, w, theme, color, bgRows);
       // A border that names a file carries a chip: the path is the one thing a reader
       // wants out of a write or edit box, and dragging its border for it is not obvious.
@@ -981,10 +973,21 @@ function composeFramedCodemode(
     }
     try {
       this.__tidyTurnRendered = true;
+      this.__notices = undefined;
       if (this.hideComponent) {
         measurePathChip(this, []);
         return [];
       }
+      // The sub-agent notices this call launched hang under it, and their own
+      // components draw nothing this frame — folded or not, this turn owns them.
+      const notices = claimNotices(this.toolCallId);
+      const withNotices = (rows: string[], w: number, pad: string, onlyFailures: boolean, rail?: string): string[] => {
+        if (notices.length === 0) return rows;
+        const drawn = noticeRows(notices, theme, { width: w, pad, icons: toolOptions.get().icons, onlyFailures });
+        if (drawn.rows.length === 0) return rows;
+        this.__notices = { from: rows.length, height: drawn.rows.length, spans: drawn.spans };
+        return [...rows, ...(rail === undefined ? drawn.rows : railRows(drawn.rows, theme, rail))];
+      };
       if (hideTurnTool(this.toolCallId)) {
         // A folded turn forgets which of its calls were open, the way folding a group
         // forgets the boxes inside it (see closeGroup): reopening either starts from the
@@ -1011,16 +1014,23 @@ function composeFramedCodemode(
         );
         if (grouped) {
           this.__railCells = TURN_RAIL_CELLS;
-          return finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
+          const rows = finishBox(this, railed ? railRows(grouped, theme) : grouped, theme);
+          // Under the call's row, on its arguments' column like everything else
+          // hung under a row. A folded group shows no rows to line up with: its
+          // failures sit just inside the gutter, under the summary line.
+          const open = groupIsOpen(this);
+          const pad = open ? " ".repeat(hangColumn(this, icons)) : "  ";
+          return withNotices(rows, w, `${groupGutter(theme)}${pad}`, !open, railed ? "" : undefined);
         }
       }
-      if (!railed) return finishBox(this, frameBox.call(this, w, theme), theme);
+      if (!railed) return withNotices(finishBox(this, frameBox.call(this, w, theme), theme), w, "  ", false);
       this.__railCells = TURN_RAIL_BOX_CELLS;
       const box = frameBox.call(this, Math.max(4, width - TURN_RAIL_BOX_CELLS), theme);
       // On the rail a box's corner sits in its neighbouring groups' rail column. With
       // grouping off nothing has registered, so there is nothing to meet.
       const { above, below } = pinnedJoints(this);
-      return finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
+      const rows = finishBox(this, railRows(joinBoxCorners(box, above, below), theme, " "), theme);
+      return withNotices(rows, Math.max(4, width - TURN_RAIL_BOX_CELLS), "  ", false, " ");
     } catch {
       this.__frameGeometry = undefined;
       measurePathChip(this, []);

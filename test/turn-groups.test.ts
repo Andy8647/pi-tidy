@@ -114,13 +114,15 @@ test("folding a turn forgets which of its calls were open", () => {
 
 test("folding a turn forgets which thinking run was open", () => {
   const { chat } = fixture("afterRun", false);
+  // An opened run's row takes a tick off the rail; a folded one sits on the rail.
+  const open = () => frame(chat).some((line) => line.includes("THOUGHT_0") && line.includes("├─"));
   const thoughts = () => frame(chat).filter((line) => line.includes("THOUGHT_0")).length;
   openTurn(chat, "afterRun");
   openGroups(chat);
-  // Open a thought's box the way a reader does: a click on its row. The row takes
-  // a tick and the run's text hangs under it, so the thought is on two rows.
+  // Open a thought the way a reader does: a click on its row. The row takes a
+  // tick and the run's text starts on it.
   send(chat, "click", (line) => line.includes("THOUGHT_0"));
-  assert.equal(thoughts(), 2, frame(chat).join("\n"));
+  assert.ok(open(), frame(chat).join("\n"));
 
   send(chat, "click", summary);
   assert.ok(!frame(chat).some((line) => line.includes("THOUGHT_")), "the turn folded");
@@ -129,6 +131,7 @@ test("folding a turn forgets which thinking run was open", () => {
   // the way it forgets its boxes.
   send(chat, "click", summary);
   assert.equal(thoughts(), 1, frame(chat).join("\n"));
+  assert.ok(!open(), frame(chat).join("\n"));
 });
 
 test("a folded turn says what its scripts ran, not just how many scripts", () => {
@@ -310,4 +313,55 @@ test("a settled carrier hands back the same rows until something on them changes
 
   carrier.lastMessage.content[0].thinking = "A_NEW_THOUGHT";
   assert.match(visibleText(carrier.render(W).join("\n")), /A_NEW_THOUGHT/, "new text is drawn, not served from the last frame");
+});
+
+/**
+ * A wrapper that records its own calls is counted through the same way whichever
+ * record it keeps: pi's `codemode` list, or pi-fabric's audits.
+ */
+function wrappedTurn(toolName: string, result: Record<string, unknown>): Turn {
+  const store = new TurnStore();
+  turnStore.set(store);
+  store.begin(1000);
+  const step = {
+    role: "assistant", timestamp: 1100, provider: "test", model: "test", stopReason: "toolUse",
+    content: [{ type: "toolCall", id: "wrapped", name: toolName, arguments: {} }],
+  } as any;
+  const done = { role: "assistant", timestamp: 1300, provider: "test", model: "test", stopReason: "stop", content: [{ type: "text", text: "Done" }] } as any;
+  store.note({ role: "user", timestamp: 1000, content: "Go" } as any, true);
+  store.note(step, true);
+  store.note({ role: "toolResult", toolCallId: "wrapped", toolName, timestamp: 1200, isError: false, content: [{ type: "text", text: "ok" }], ...result } as any, true);
+  store.note(done, true);
+  const turn = store.byTool.get("wrapped")!;
+  store.settle(false, 1800);
+  return turn;
+}
+
+function wrappedLine(turn: Turn): string {
+  return visibleText(summaryLine(turn, getTheme()!, 200, false, 2000));
+}
+
+test("every program's calls hang on its own entry, codemode's and fabric's alike", () => {
+  const script = wrappedLine(wrappedTurn("codemode", {
+    details: { calls: [{ name: "bash", status: "ok" }, { name: "read", status: "error" }] },
+  }));
+  assert.match(script, /codemode×1 \(bash×1 read×1\)/, script);
+  assert.match(script, /1 nested failed/, script);
+
+  const program = wrappedLine(wrappedTurn("fabric_exec", {
+    details: {
+      audits: [
+        { ref: "pi.bash", tool: "bash", success: true, args: {}, result: { ok: true, output: "x" } },
+        { ref: "pi.read", tool: "read", success: false, error: "nope", args: {} },
+        { ref: "native.load", tool: "load", success: true, args: {}, result: { ok: true } },
+      ],
+    },
+  }));
+  // One call by the model; what its program ran hangs on it, the failure inside
+  // is a nested one, and fabric's own plumbing stays out of the count.
+  assert.match(program, /\b1 calls?\b/, program);
+  assert.match(program, /fabric_exec×1 \(bash×1 read×1\)/, program);
+  assert.match(program, /1 nested failed/, program);
+  assert.ok(!/(^|[^d] )1 failed/.test(program), program);
+  assert.ok(!program.includes("load×1"), "fabric's own plumbing stays out of the count");
 });
