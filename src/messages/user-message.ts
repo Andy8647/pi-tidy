@@ -16,6 +16,8 @@
  */
 
 import { InteractiveMode, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { Spacer } from "@earendil-works/pi-tui";
+import { GAP_RUN } from "../draw/rhythm.ts";
 import {
   formatMessageTime,
   type HeaderStyle,
@@ -103,6 +105,39 @@ export function installUserMessageTimes(): void {
     return result;
   };
   (wrapped as any)[USER_TIME_PATCH] = true;
+  proto.addMessageToChat = wrapped;
+}
+
+/**
+ * The blank row pi puts in front of your message, widened to the gap between two runs
+ * (turn-view.ts holds the scale). A Spacer still, so code that looks for pi's blank in
+ * front of a message finds it.
+ */
+class RunGap extends Spacer {
+  override render(width: number): string[] {
+    return tidyEnabled.get() ? Array.from({ length: GAP_RUN }, () => "") : super.render(width);
+  }
+}
+
+const RUN_GAP_PATCH = Symbol.for("pi-tidy:run-gap-patch");
+
+/**
+ * Your message starts a run, so the blank in front of it is the gap between the run
+ * before and this one. pi adds it as the first child of the message it appends.
+ */
+export function installRunGaps(): void {
+  const proto = (InteractiveMode as any)?.prototype;
+  const original = proto?.addMessageToChat;
+  if (typeof original !== "function" || original[RUN_GAP_PATCH]) return;
+  const wrapped = function (this: any, message: any, options?: any) {
+    const chat = this?.chatContainer;
+    const before = Array.isArray(chat?.children) ? chat.children.length : -1;
+    const result = original.call(this, message, options);
+    const first = before >= 0 ? chat.children[before] : undefined;
+    if (message?.role === "user" && first instanceof Spacer && !(first instanceof RunGap)) chat.children[before] = new RunGap(1);
+    return result;
+  };
+  (wrapped as any)[RUN_GAP_PATCH] = true;
   proto.addMessageToChat = wrapped;
 }
 

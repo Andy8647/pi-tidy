@@ -190,9 +190,11 @@ test("a railed reply joins the rules to its rail", () => {
   assert.ok(plain[open]!.endsWith("─"), plain[open]);
 });
 
-test("every rule row is exactly the terminal width", () => {
+test("every drawn row is exactly the terminal width", () => {
   const { rows } = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n\n\`\`\`diff\n${DIFF}\n\`\`\`\n`);
-  assert.ok(rows.every((row) => visibleWidth(row) === W), rows.map((row) => `${visibleWidth(row)}:${visibleText(row).slice(0, 12)}`).join("\n"));
+  // The gap in front of a run is pi's kind of blank row: nothing drawn, so no width.
+  const drawn = rows.filter((row) => visibleText(row) !== "");
+  assert.ok(drawn.length > 0 && drawn.every((row) => visibleWidth(row) === W), rows.map((row) => `${visibleWidth(row)}:${visibleText(row).slice(0, 12)}`).join("\n"));
 });
 
 test("a pi whose Markdown has no renderToken reports no code blocks", () => {
@@ -317,9 +319,11 @@ test("the chip on a reply with no frame lights up and takes the hand", () => {
   disableHoverForTests();
 });
 
-test("a reply with no chip and no frame keeps the fast path", () => {
+test("a reply with no chip and no frame is its gap and its text", () => {
   const fx = turnFixture("Done, nothing to copy.", { frame: false });
-  assert.equal((fx.answer as any)[TURN_LAYOUT], undefined, "no layout, no mouse wrapper, nothing to measure");
+  const layout = (fx.answer as any)[TURN_LAYOUT];
+  assert.equal(layout?.spans.length, 0, "nothing to click");
+  assert.equal(layout?.header, false, "and no summary");
   assert.ok(!fx.plain.some((line) => line.includes("─")), fx.plain.join("\n"));
 });
 
