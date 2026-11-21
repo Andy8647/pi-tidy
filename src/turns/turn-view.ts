@@ -542,8 +542,10 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   if (framed) {
     // The rail comes down into the reply's corner and carries on as its left border.
     const flat = options.replyStyle !== "frame";
+    // A rule's own lead is its only `─` before the label, so the rail's joint goes in
+    // front of it rather than over it: `├─ model`, not `├ model`.
     const top = flat
-      ? labeledRule(width, theme, color, label, "left", lead).replace("─", railOpen ? "├" : "─")
+      ? railOpen ? paint(theme, color, "├") + labeledRule(width - 1, theme, color, label, "left", lead) : labeledRule(width, theme, color, label, "left", lead)
       : labeledTopBorder(width, theme, color, label, "left", lead).replace("╭", railOpen ? "├" : "╭");
     view.addChild(new Text(top, 0, 0));
     if (options.replyStyle === "rules") view.addChild(source);

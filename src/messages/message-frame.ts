@@ -197,7 +197,10 @@ export interface ContainerBoxOptions {
   timeFormat?: string;
   /** `tidy.messageHeaderStyle`. */
   headerStyle?: HeaderStyle;
-  /** False turns installed patches into pass-throughs and installs nothing new. */
+  /**
+   * `frameMessages`: false turns the installed patches into pass-throughs for every
+   * kind but the user message, which `includeUser` decides alone.
+   */
   enabled?: boolean;
 }
 
@@ -352,7 +355,7 @@ export function patchContainerBoxes(
 ): void {
   const { icons = false, includeUser = false, enabled = true, userAlign = "left", userMaxWidth = "auto", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
   containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userMaxWidth, userTime, timeFormat, headerStyle });
-  if (!enabled) return;
+  if (!enabled && !includeUser) return;
   if (includeUser) installUserMessageTimes();
 
   const patch = (cls: { prototype: unknown }, kind: "user" | "custom") => {
@@ -367,7 +370,7 @@ export function patchContainerBoxes(
     proto.render = function (this: ContainerBoxInternals, width: number): string[] {
       const live = containerOptions.get();
       const theme = getTheme();
-      if (!theme || !live?.enabled || !tidyEnabled.get() || (isUserMessage && !live.includeUser)) {
+      if (!theme || !framing(live, isUserMessage) || !tidyEnabled.get()) {
         return originalRender.call(this, width);
       }
       try {
@@ -489,7 +492,7 @@ export function patchContainerBoxes(
     const inheritedMouse = (proto as unknown as { handleMouse?: (event: any) => unknown }).handleMouse;
     (proto as unknown as Record<string, unknown>).handleMouse = function (this: ContainerBoxInternals, event: any) {
       const live = containerOptions.get();
-      if (!live?.enabled || !tidyEnabled.get()) return inheritedMouse?.call(this, event);
+      if (!framing(live, isUserMessage) || !tidyEnabled.get()) return inheritedMouse?.call(this, event);
       // A notice Tidy drew has no component under the pointer: the whole frame
       // is the switch, and the rows are its own.
       const notice = this.__noticeFrame;
@@ -516,5 +519,13 @@ export function patchContainerBoxes(
   };
 
   if (includeUser) patch(UserMessageComponent, "user");
-  patch(CustomMessageComponent, "custom");
+  if (enabled) patch(CustomMessageComponent, "custom");
+}
+
+/**
+ * Whether this kind is framed now. A user message's frame is its own style's choice
+ * (`userMessageStyle: "frame"`), as a rail is; `frameMessages` frames everything else.
+ */
+function framing(live: ResolvedContainerOptions | undefined, user: boolean): live is ResolvedContainerOptions {
+  return !!live && (user ? live.includeUser : live.enabled);
 }

@@ -753,3 +753,16 @@ test("the reply's name is the one accent, and its edges are the chrome grey", ()
   const summary = rows.find((row) => visibleText(row).includes("took"))!;
   assert.ok(!summary.includes(sgr(theme.fg("accent", "x"))!), "nothing on a settled run's summary is accent");
 });
+
+test("an open run's rail joins an open reply's top rule in front of its lead", () => {
+  for (const replyStyle of ["rules", "rail"] as const) {
+    const { chat } = fixture();
+    turnOptions.set({ ...turnOptions.get(), replyStyle });
+    click(chat, (line) => line.includes("took"));
+    const rows = frame(chat);
+    const top = rows.find((line) => line.includes("claude-sonnet-4-5"))!;
+    assert.ok(top.startsWith("├─ "), `${replyStyle}: ${top}`);
+    assert.equal(visibleWidth(top), W);
+  }
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+});
