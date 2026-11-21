@@ -359,6 +359,7 @@ export default function (pi: ExtensionAPI): void {
       splitDiff: config.splitDiff,
       splitDiffMinWidth: config.splitDiffMinWidth,
       diffLines: config.diffLines,
+      diffContext: config.diffContext,
       thinkingColor: config.thinkingColor,
       highlightBash: config.highlightBash,
       toolRowLines: config.toolRowLines,

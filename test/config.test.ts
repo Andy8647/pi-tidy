@@ -164,6 +164,12 @@ test("user message max width takes a fraction or a column count, and falls back 
   }
 });
 
+test("diffContext takes whole lines from 0 to pi's 4, and anything else keeps pi's 4", () => {
+  for (const [value, expected] of [[undefined, 4], [0, 0], [2, 2], [4, 4], [9, 4], [-1, 4], [1.5, 4], ["2", 4]] as const) {
+    withSettings({ tidy: { diffContext: value } }, () => assert.equal(loadConfig().diffContext, expected, JSON.stringify(value)));
+  }
+});
+
 test("the README documents every key, under its real default", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf-8");
   const section = readme.slice(readme.indexOf("## Configuration\n"), readme.indexOf("## How it works\n"));

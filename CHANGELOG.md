@@ -6,6 +6,16 @@ What changed in each released version of pi-tidy (published as
 
 ## [0.11.0] - 2026-11-21
 
+### Added
+
+**`diffContext`: how much unchanged code an edit's diff keeps around each change** (0 to 4, default 4). pi writes
+four lines on each side of every change and has no setting for it, so a small edit in a long file could still take a
+dozen rows. Fewer lines are cut out of pi's diff text and the rest fold into one `...` row, in the two panes, in the
+unified diff and in an edit inside a program's call list. Asked for by a viewer of the 0.10 demo. The unified diff
+(`splitDiff: false`, or a box too narrow for panes) is now laid out by tidy from that text with pi's own renderer, as
+the panes are: its path sits in the top border the way every other box's does, and its rows line up with the panes'
+instead of sitting a cell further in.
+
 ### Changed
 
 **One style for everything: `tidy.style`, `frame` or `rail`** (#65). A screen used to mix three looks: an opened run

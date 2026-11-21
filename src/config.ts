@@ -108,6 +108,12 @@ export interface TidyConfig {
    */
   diffLines: number;
   /**
+   * Unchanged lines an edit's diff keeps on each side of a change, `0` to `4`. pi
+   * writes four and folds the rest into `...`; fewer are cut out of that, in the
+   * panes and in pi's unified diff alike, and more cannot be put back.
+   */
+  diffContext: number;
+  /**
    * Put a `copy` chip on a reply's fenced code blocks, and give a language pi's
    * highlighter has no grammar for (fish) the closest one it does. A `diff` block
    * goes side by side instead, per `splitDiff`.
@@ -189,6 +195,7 @@ const DEFAULTS: TidyConfig = {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
+  diffContext: 4,
   codeBlocks: true,
   hexSwatches: true,
   renderMarkdown: true,
@@ -228,6 +235,11 @@ function finalReplyStyle(toolbox: any, style: Style): FinalReplyStyle {
   if (own) return own;
   if (typeof toolbox?.frameFinalReply === "boolean") return toolbox.frameFinalReply ? "frame" : "off";
   return style;
+}
+
+// A whole number of lines, at most the four pi writes; anything else keeps pi's four.
+function diffContext(value: unknown): number {
+  return Number.isInteger(value) && (value as number) >= 0 ? Math.min(value as number, DEFAULTS.diffContext) : DEFAULTS.diffContext;
 }
 
 function readSettings(): any {
@@ -278,6 +290,7 @@ export function loadConfig(): TidyConfig {
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
+      diffContext: diffContext(toolbox?.diffContext),
       codeBlocks: typeof toolbox?.codeBlocks === "boolean" ? toolbox.codeBlocks : DEFAULTS.codeBlocks,
       hexSwatches: typeof toolbox?.hexSwatches === "boolean" ? toolbox.hexSwatches : DEFAULTS.hexSwatches,
       renderMarkdown: typeof toolbox?.renderMarkdown === "boolean" ? toolbox.renderMarkdown : DEFAULTS.renderMarkdown,
