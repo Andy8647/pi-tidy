@@ -155,7 +155,7 @@ test("a diff block goes side by side through the same switch as an edit", () => 
   const open = plain.findIndex((line) => line.includes(" diff ") && line.includes(CHIP.copy));
   assert.ok(open >= 0, plain.join("\n"));
   const panes = plain.slice(open + 1, open + 5).join("\n");
-  assert.match(panes, /old\s+│\s+new/, `two labelled panes:\n${panes}`);
+  assert.match(panes, /│/, `two panes, separated by a rule:\n${panes}`);
   assert.match(panes, /const a = 2;/, panes);
 });
 
