@@ -45,3 +45,15 @@ test("right alignment preserves narrow, wide-character and multiline content", (
     assert.ok(right.every((line) => visibleWidth(line) === width));
   }
 });
+
+test("a framed user message does not wait on frameMessages", () => {
+  // `frameMessages: false` unframes compactions, branches and notices; the user's own
+  // style is its own setting, as a rail is.
+  patchContainerBoxes(colors, { ...options, enabled: false });
+  const plain = new UserMessageComponent("hello there").render(60).map(visibleText);
+  assert.ok(plain[0]!.startsWith("╭─ \u{f007} "), plain.join("\n"));
+  assert.match(plain[1]!, /^│ hello there │/);
+  patchContainerBoxes(colors, { ...options, includeUser: false, enabled: true });
+  assert.ok(!new UserMessageComponent("hello there").render(60).map(visibleText).some((line) => line.includes("╭")), "and not framed when its style is not frame");
+  patchContainerBoxes(colors, options);
+});

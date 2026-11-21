@@ -173,10 +173,10 @@ const DEFAULTS: TidyConfig = {
   userMessageMaxWidth: "auto",
   userMessageTime: true,
   collapseTurns: "afterRun",
-  finalReplyStyle: "frame",
+  finalReplyStyle: "rules",
   messageTimeFormat: "auto",
   messageHeaderStyle: "inline",
-  userMessagePaddingY: 1,
+  userMessagePaddingY: 0,
   userMessageColors: { rail: "border", rule: "border" },
   icons: true,
   bashResultLines: DEFAULT_BASH_RESULT_LINES,
@@ -229,7 +229,8 @@ const FINAL_REPLY_STYLES: readonly FinalReplyStyle[] = ["frame", "rail", "rules"
 // `frameFinalReply` from before 0.9 keeps working: `true` is "frame", `false` is "off".
 function finalReplyStyle(toolbox: any): FinalReplyStyle {
   if (FINAL_REPLY_STYLES.includes(toolbox?.finalReplyStyle)) return toolbox.finalReplyStyle;
-  return toolbox?.frameFinalReply === false ? "off" : DEFAULTS.finalReplyStyle;
+  if (typeof toolbox?.frameFinalReply === "boolean") return toolbox.frameFinalReply ? "frame" : "off";
+  return DEFAULTS.finalReplyStyle;
 }
 
 function stringEntries(value: unknown): Record<string, string> {
@@ -247,6 +248,7 @@ export function loadConfig(): TidyConfig {
     // `tidy` since the rename from pi-toolbox; the old key keeps working.
     const settings = readSettings();
     const toolbox = settings?.tidy ?? settings?.toolbox;
+    const messageBorderColors: MessageBorderColors = { ...DEFAULTS.messageBorderColors, ...toolbox?.messageBorderColors };
     return {
       enabled: toolbox?.enabled ?? DEFAULTS.enabled,
       highlightBash: toolbox?.highlightBash ?? DEFAULTS.highlightBash,
@@ -266,8 +268,11 @@ export function loadConfig(): TidyConfig {
         Number.isInteger(toolbox?.userMessagePaddingY) && toolbox.userMessagePaddingY >= 0
           ? Math.min(3, toolbox.userMessagePaddingY)
           : DEFAULTS.userMessagePaddingY,
+      // One colour source per surface: unset, a rail's `│` and rules take the colour
+      // the same message's frame would (`messageBorderColors.user`).
       userMessageColors: {
-        ...DEFAULTS.userMessageColors,
+        rail: messageBorderColors.user,
+        rule: messageBorderColors.user,
         ...stringEntries(toolbox?.userMessageColors),
       },
       icons: toolbox?.icons ?? DEFAULTS.icons,
@@ -293,10 +298,7 @@ export function loadConfig(): TidyConfig {
       renderMarkdown: typeof toolbox?.renderMarkdown === "boolean" ? toolbox.renderMarkdown : DEFAULTS.renderMarkdown,
       renderLatex: typeof toolbox?.renderLatex === "boolean" ? toolbox.renderLatex : DEFAULTS.renderLatex,
       thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
-      messageBorderColors: {
-        ...DEFAULTS.messageBorderColors,
-        ...toolbox?.messageBorderColors,
-      },
+      messageBorderColors,
       // Replace, not merge: removing a tool's color must be expressible.
       toolColors: toolbox?.toolColors ?? DEFAULTS.toolColors,
     };
