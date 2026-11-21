@@ -25,10 +25,10 @@ import { connectTurns } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
 import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES, type TidyConfig } from "./config.ts";
-import { agentRunning, tidyEnabled } from "./live.ts";
+import { agentRunning, chromeStyle, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
 import { patchErrorLines } from "./messages/error-lines.ts";
-import { installRunGaps, patchUserMessages } from "./messages/user-message.ts";
+import { installRunGaps } from "./messages/user-message.ts";
 import { restoreColor, withHexSwatchesCached } from "./messages/hex-swatches.ts";
 import { transformLatexEnvironmentsCached } from "./messages/latex-environments.ts";
 import { createWriteCallComponent, formatWriteCallText } from "./tools/write-preview.ts";
@@ -305,6 +305,7 @@ export default function (pi: ExtensionAPI): void {
     splitDiffMinWidth: config.splitDiffMinWidth,
   });
   tidyEnabled.set(config.enabled);
+  chromeStyle.set(config.style);
   agentRunning.set(false);
   if (!config.enabled) return;
   if (config.collapseTurns !== "off" || config.finalReplyStyle !== "off") connectTurns(pi);
@@ -376,7 +377,8 @@ export default function (pi: ExtensionAPI): void {
     patchMessageBoxes(config.messageBorderColors, config.icons, config.frameMessages);
     patchContainerBoxes(config.messageBorderColors, {
       icons: config.icons,
-      includeUser: config.userMessageStyle === "frame",
+      includeUser: config.userMessageStyle !== "off",
+      userOpen: config.userMessageStyle === "rail",
       userAlign: config.userMessageAlign,
       userMaxWidth: config.userMessageMaxWidth,
       userTime: config.userMessageTime,
@@ -384,23 +386,11 @@ export default function (pi: ExtensionAPI): void {
       headerStyle: config.messageHeaderStyle,
         enabled: config.frameMessages,
     });
-    patchUserMessages({
-      style: config.userMessageStyle,
-      railColor: config.userMessageColors.rail,
-      ruleColor: config.userMessageColors.rule,
-      paddingY: config.userMessagePaddingY,
-      icons: config.icons,
-      time: config.userMessageTime,
-      align: config.userMessageAlign,
-      timeFormat: config.messageTimeFormat,
-      headerStyle: config.messageHeaderStyle,
-      });
     patchBashExecutions({
       enabled: config.frameMessages,
       icons: config.icons,
-      // The user's own commands wear the user's color, whichever style draws them.
-      color:
-        config.userMessageStyle === "rail" ? config.userMessageColors.rail : config.messageBorderColors.user,
+      // The user's own commands wear the user's color.
+      color: config.messageBorderColors.user,
     });
     // pi's non-tool error rows: one framed row per failure instead of one per
     // retry attempt.

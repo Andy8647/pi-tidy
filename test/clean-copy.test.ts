@@ -23,19 +23,22 @@ const { cleanCopy, cleanTranscriptRows, installCleanCopy } = await import("../sr
 const { drawFrame, labeledTopBorder } = await import("../src/draw/frame-draw.ts");
 const { joinBoxCorners, railRows } = await import("../src/turns/turn-view.ts");
 const { tidyEnabled } = await import("../src/live.ts");
-const { patchUserMessages, USER_MESSAGE_TIME } = await import("../src/messages/user-message.ts");
+const { USER_MESSAGE_TIME } = await import("../src/messages/user-message.ts");
+const { patchContainerBoxes } = await import("../src/messages/message-frame.ts");
 
-const USER_ICON = "\u{f007}";
-
-function railMessage(lines: readonly string[], width: number): string[] {
-  const rule = "─".repeat(width);
-  return [rule, ...lines.map((line) => `│ ${line}`.padEnd(width)), rule];
-}
+const FILE_ICON = "\u{f0219}";
 
 /** A framed box as tidy draws it: rounded edges, the text one cell in. */
 function frame(lines: readonly string[], width: number, label?: string): string[] {
   const rows = drawFrame(lines.map((line) => ` ${line}`), width, theme, "accent");
   if (label) rows[0] = labeledTopBorder(width, theme, "accent", label);
+  return rows;
+}
+
+/** The same box drawn as a rail: no sides, no corners. */
+function rail(lines: readonly string[], width: number, label?: string, lead = 1): string[] {
+  const rows = drawFrame(lines.map((line) => ` ${line}`), width, theme, "accent", undefined, true);
+  if (label) rows[0] = labeledTopBorder(width, theme, "accent", label, "left", lead, undefined, true);
   return rows;
 }
 
@@ -81,7 +84,7 @@ test("a framed table keeps its own pipes", () => {
 });
 
 test("right-aligned frames come off from their column, wide text whole", () => {
-  const lines = [`    ╭───── ${USER_ICON} ─╮`, "    │ 你好    │", "    ╰─────────╯"];
+  const lines = [`    ╭───── \u{f007} ─╮`, "    │ 你好    │", "    ╰─────────╯"];
   const { rows } = cleanTranscriptRows(lines, 0, 2);
   assert.deepEqual(texts(rows), [null, "你好", null]);
   assert.equal(rows[1]!.leftTrim, 6);
@@ -107,45 +110,78 @@ test("what is not tidy's stays byte-identical", () => {
   }
 });
 
-test("a rail message loses its rules and rail, on a selection without its edges too", () => {
-  const lines = ["earlier", ...railMessage(["one", "two"], 20)];
-  assert.deepEqual(texts(cleanTranscriptRows(lines, 1, 4).rows), [null, "one", "two", null]);
-  assert.deepEqual(texts(cleanTranscriptRows(lines, 3, 3).rows), ["two"]);
+test("a rail loses its rules, the blanks where its sides were, and its inset", () => {
+  const lines = rail(["hello there", "second"], 30, "label 14:06");
+  assert.match(stripVTControlCharacters(lines[0]!), /^── label 14:06 ─+$/);
+  const { rows, changed } = cleanTranscriptRows(lines, 0, lines.length - 1);
+  assert.equal(changed, true);
+  assert.deepEqual(texts(rows), [null, "hello there", "second", null]);
+  assert.equal(rows[1]!.leftTrim, 2);
+  // A selection inside it holds neither rule and is cleaned all the same.
+  assert.deepEqual(texts(cleanTranscriptRows(["before", ...lines], 3, 3).rows), ["second"]);
 });
 
-test("a rail message's padding rows and the text's own indent are handled", () => {
-  const padded = ["─".repeat(20), "│", "│ hello", "│", "─".repeat(20)];
-  assert.deepEqual(texts(cleanTranscriptRows(padded, 0, 4).rows), [null, "", "hello", "", null]);
-  const plain = ["─".repeat(20), "│ first", "│   indented", "─".repeat(20)];
-  assert.deepEqual(texts(cleanTranscriptRows(plain, 0, 3).rows), [null, "first", "  indented", null]);
+test("a rail keeps a row's own indent, and keeps the path its top rule names", () => {
+  const lines = rail(["first", "  indented"], 40, `${FILE_ICON} /tmp/tidy/a.py`);
+  assert.deepEqual(texts(cleanTranscriptRows(lines, 0, lines.length - 1).rows), ["/tmp/tidy/a.py", "first", "  indented", null]);
 });
 
-test("a labelled top rule opens a rail message, and opens only", () => {
-  const top = `─ ${USER_ICON} 14:06 ${"─".repeat(10)}`;
-  const close = "─".repeat(top.length);
-  assert.deepEqual(texts(cleanTranscriptRows([top, "│ one", close], 0, 2).rows), [null, "one", null]);
-  const two = [top, "│ one", close, top, "│ two", close];
+test("a rail hanging on an open run's line loses the line too", () => {
+  const lines = ["│ took 3s", ...railRows(rail(["one", "two"], 30, "label"), theme, " ")];
+  assert.deepEqual(texts(cleanTranscriptRows(lines, 1, lines.length - 1).rows), [null, "one", "two", null]);
+});
+
+test("a rail reply on an open run: `├─` above, the run's line beside, `╰` below", () => {
+  const lines = [`├─ model 13:09 ${"─".repeat(15)}`, "│ first", "│", "│ second", `╰${"─".repeat(29)}`];
+  assert.deepEqual(texts(cleanTranscriptRows(lines, 0, 4).rows), [null, "first", "", "second", null]);
+});
+
+test("a code block inside a rail comes out first, and its rules close nothing", () => {
+  const lines = [
+    `── model ${"─".repeat(21)}`,
+    "  text",
+    `  ─ fish \u{f0192} ${"─".repeat(16)}`,
+    "    set -l x 1",
+    `  ${"─".repeat(26)}`,
+    "  more",
+    "─".repeat(30),
+  ];
+  assert.deepEqual(texts(cleanTranscriptRows(lines, 0, lines.length - 1).rows), [null, "text", null, "  set -l x 1", null, "more", null]);
+});
+
+test("a rail with no label keeps its rules: two bare rules are what a model's `---` looks like", () => {
+  const lines = rail(["text"], 20);
+  assert.equal(cleanTranscriptRows(lines, 0, 2).changed, false);
+});
+
+test("a labelled top rule opens a rail, and opens only", () => {
+  const top = `── a ${"─".repeat(15)}`;
+  const close = "─".repeat(20);
+  const two = [top, "  one", close, top, "  two", close];
   assert.deepEqual(texts(cleanTranscriptRows(two, 0, 5).rows), [null, "one", null, null, "two", null]);
-  // A rule of another width, or a row without the rail, is not this shape.
-  assert.equal(cleanTranscriptRows([top, "│ one", "─".repeat(5)], 0, 2).changed, false);
-  assert.equal(cleanTranscriptRows([top, "plain", close], 0, 2).changed, false);
+  // A rule of another width is not its bottom.
+  assert.equal(cleanTranscriptRows([top, "  one", "─".repeat(5)], 0, 2).changed, false);
+  // A label with no bottom of its width before the next one closes nothing.
+  const open = [`── b ${"─".repeat(25)}`, "  text", top, "  more", close];
+  assert.deepEqual(texts(cleanTranscriptRows(open, 0, 4).rows), [open[0], "  text", null, "more", null]);
 });
 
-test("what tidy draws for a rail message, at either end, copies as its text", () => {
+test("what tidy draws for your message as a rail, at either end, copies as its text", () => {
   for (const align of ["left", "right"] as const) {
-    patchUserMessages({ style: "rail", railColor: "accent", ruleColor: "border", paddingY: 1, icons: true, time: true, align, timeFormat: "auto", headerStyle: "inline" });
-    const component: any = new UserMessageComponent("first\n\nsecond" as never);
-    component[USER_MESSAGE_TIME] = Date.now();
-    const lines: string[] = component.render(40);
-    assert.match(stripVTControlCharacters(lines[0]!), /\d\d:\d\d/, "the label is on the rule");
-    const { rows } = cleanTranscriptRows(lines, 0, lines.length - 1);
-    assert.deepEqual(texts(rows).filter((row) => row), ["first", "second"]);
-    assert.equal(rows[0], null);
-    assert.equal(rows.at(-1), null);
+    for (const headerStyle of ["inline", "split"] as const) {
+      patchContainerBoxes({ user: "border", custom: "warning" }, { includeUser: true, userOpen: true, icons: true, userAlign: align, timeFormat: "HH:mm", headerStyle });
+      const component: any = new UserMessageComponent("first\n\nsecond" as never);
+      component[USER_MESSAGE_TIME] = Date.now();
+      const lines: string[] = component.render(40);
+      assert.match(stripVTControlCharacters(lines[0]!), /\d\d:\d\d/, "the label is on the rule");
+      const { rows } = cleanTranscriptRows(lines, 0, lines.length - 1);
+      assert.deepEqual(texts(rows), [null, "first", "", "second", null], `${align}, ${headerStyle}`);
+    }
   }
+  patchContainerBoxes({ user: "border", custom: "warning" }, {});
 });
 
-test("a split header copies clean, framed or on a rail, and so does a rule written into the time format", () => {
+test("a split header copies clean, and so does a rule written into the time format", () => {
   const label = "model \u2500\u2500 13:09";
   const framed = drawFrame([" hello"], 30, theme, "accent");
   framed[0] = labeledTopBorder(30, theme, "accent", label, "left", 2);
@@ -153,39 +189,12 @@ test("a split header copies clean, framed or on a rail, and so does a rule writt
   const literal = drawFrame([" hello"], 40, theme, "accent");
   literal[0] = labeledTopBorder(40, theme, "accent", "model \u2500\u2500 11\u67085\u65e5 \u2500 13:09");
   assert.deepEqual(texts(cleanTranscriptRows(literal, 0, literal.length - 1).rows), [null, "hello", null]);
-  for (const align of ["left", "right"] as const) {
-    patchUserMessages({ style: "rail", railColor: "accent", ruleColor: "border", paddingY: 1, icons: true, time: true, align, timeFormat: "HH:mm", headerStyle: "split" });
-    const component: any = new UserMessageComponent("first" as never);
-    component[USER_MESSAGE_TIME] = Date.now();
-    const lines: string[] = component.render(40);
-    assert.match(stripVTControlCharacters(lines[0]!), /\u2500\u2500 \d\d:\d\d/);
-    assert.deepEqual(texts(cleanTranscriptRows(lines, 0, lines.length - 1).rows).filter((row) => row), ["first"]);
-  }
-});
-
-test("a message with only rules copies as its text; a model's own rules stay", () => {
-  const rule = "\u2500".repeat(30);
-  const lines = [`\u2500 model 13:09 ${"\u2500".repeat(16)}`, " first", " \u2500\u2500\u2500\u2500", "", " second", rule];
-  const { rows } = cleanTranscriptRows(lines, 0, lines.length - 1);
-  assert.deepEqual(texts(rows), [null, "first", "\u2500\u2500\u2500\u2500", "", "second", null]);
-  assert.equal(rows[1]!.leftTrim, 1);
-
-  // No label: nothing tells these from rules a model wrote, so they stay.
-  const unlabeled = [rule, " text", rule];
-  assert.deepEqual(texts(cleanTranscriptRows(unlabeled, 0, 2).rows), [rule, " text", rule]);
-
-  // A label with no closing rule of its width, before the next message, closes nothing.
-  const open = [`\u2500 a ${"\u2500".repeat(26)}`, " text", `\u2500 b ${"\u2500".repeat(26)}`, " more", rule];
-  assert.deepEqual(texts(cleanTranscriptRows(open, 0, 4).rows), [open[0], " text", null, "more", null]);
-});
-
-test("two rail messages in a row do not pair across their gap", () => {
-  const lines = [...railMessage(["first"], 20), ...railMessage(["second"], 20)];
-  assert.deepEqual(texts(cleanTranscriptRows(lines, 0, 5).rows), [null, "first", null, null, "second", null]);
+  const railed = rail(["hello"], 30, label, 2);
+  assert.deepEqual(texts(cleanTranscriptRows(railed, 0, railed.length - 1).rows), [null, "hello", null]);
 });
 
 test("a selection past the end of the buffer reads as empty rows", () => {
-  const lines = railMessage(["short"], 10);
+  const lines = rail(["short"], 10, "a");
   const { rows } = cleanTranscriptRows(lines, 1, 4);
   assert.deepEqual(texts(rows), ["short", null, "", ""]);
 });

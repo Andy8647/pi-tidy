@@ -16,8 +16,12 @@
  *   names a file: the path a tool box puts there is what the selection was for, so it
  *   stays while the corner, the padding rules, the title's icons and its copy chip
  *   come off.
- * - A `rail` user message: two equal `─` rules, the top one possibly labelled, whose
- *   every row between them carries the rail.
+ * - A rail (`tidy.style: "rail"`): the same box without its sides. A labelled top
+ *   rule pairs with the next plain one of its width in its column, and the blank cell
+ *   where each side was comes off with the inset; a reply on an open run has the run's
+ *   `│` in that cell, and its bottom rule ends the line with `╰`. A rail with no label
+ *   (`!` commands, `icons: false`) keeps its rules: two bare rules are also what a
+ *   model's own `---` looks like.
  *
  * Anything else is content and stays byte-identical: a table's square corners, a
  * blockquote's gutter, a rule the assistant wrote, a bash box. Telling frames from
@@ -28,25 +32,24 @@
 import { sliceByColumn, stripTerminalSequences, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { USER_RAIL_GLYPH } from "./messages/user-message.ts";
-import { CHIP_LABELS, isOpenRule, isRuleOnly, ruleCells } from "./turns/code-blocks.ts";
+import { CHIP_LABELS, isOpenRule, isRuleOnly } from "./turns/code-blocks.ts";
 
 /** `null` drops the row. `leftTrim` is the columns taken off its left edge. */
 export type CleanedRow = { text: string; leftTrim: number } | null;
 
-const USER_RAIL_PREFIX = `${USER_RAIL_GLYPH} `;
-
-const RULE_ROW_RE = /^─+$/;
-/** A rail message's top rule, with who and when set into it; `├` where a run's rail meets it. */
+/** A rail's top rule, with what it is set into it; `├` where an open run's line meets it. */
 const LABELED_RULE_RE = /^[─├]─*(?: [^─]+ ─+)+$/;
+/** A rail's bottom rule; `╰` where an open run's line ends in it. */
+const RAIL_CLOSE_RE = /^╰?─+$/;
 /** The rails and indent a frame hangs on. */
 const HANG_RE = /^[│ ]*/;
 /** `├` is a corner where a rail meets it; a table's `├─┼─┤` never ends in a round one. */
 const FRAME_OPEN_RE = /^[╭├]─*(?: [^─]+ ─+)*╮$/;
 const FRAME_CLOSE_RE = /^[╰├]─*╯$/;
-/** The corner and the rules that pad the label out to the box's width. */
-const EDGE_LEAD_RE = /^[╭├][─ ]*/;
+/** The corner (a rule, on a rail) and the rules that pad the label out to the box's width. */
+const EDGE_LEAD_RE = /^[╭├─][─ ]*/;
 /** The closing fill and corner of a labelled edge. */
-const EDGE_TAIL_RE = /[─ ]*╮$/;
+const EDGE_TAIL_RE = /[─ ]*╮?$/;
 /** The glyphs a box puts in front of its title: kind icon, file icon. */
 const EDGE_ICONS_RE = /^(?:[\uE000-\uF8FF\u{F0000}-\u{FFFFF}]+\s*)+/u;
 
@@ -82,10 +85,6 @@ function edgeLabel(edge: string): { text: string; offset: number } | undefined {
   return { text, offset: visibleWidth(lead) + visibleWidth(icons) };
 }
 
-function isRailRow(text: string): boolean {
-  return text.startsWith(USER_RAIL_PREFIX) || text.trimEnd() === USER_RAIL_GLYPH;
-}
-
 /**
  * Classify the whole buffer, then clean the rows in `[startRow, endRow]`. A drag that
  * starts inside a box never contains the box's edges, so what a row is cannot depend
@@ -101,8 +100,8 @@ export function cleanTranscriptRows(
   const frameRows = new Map<number, { left: number; inset: number }>();
   /** A top edge that carries a label: the label is content, the rest of the row is not. */
   const labelRows = new Map<number, CleanedRow>();
-  const railRows = new Map<number, string>();
-  const flatRows = new Set<number>();
+  /** A rail's rows: the columns in front of the text, up to and with its inset. */
+  const railRows = new Map<number, number>();
 
   // Rounded frames. Edges pair by width and column; a frame inside another pairs first.
   const open: Array<{ row: number; width: number; left: number }> = [];
@@ -140,49 +139,33 @@ export function cleanTranscriptRows(
     }
   }
 
-  // Rail user messages. A row without the rail breaks the pair, which is what keeps
-  // an assistant's own `---` rules, and the text between them, from being eaten.
-  let lastRule: { row: number; width: number } | undefined;
+  // Rails. They run after the code blocks', whose rules would otherwise read as a
+  // labelled top and its bottom; whatever those passes took is not looked at again.
+  const tops: Array<{ row: number; width: number; left: number }> = [];
   for (let row = 0; row < plain.length; row++) {
-    if (dropped.has(row)) continue;
-    const text = plain[row]!;
-    if (RULE_ROW_RE.test(text)) {
-      const width = visibleWidth(text);
-      if (lastRule && lastRule.width === width && row - lastRule.row >= 2) {
-        dropped.add(lastRule.row);
-        dropped.add(row);
-        for (let inner = lastRule.row + 1; inner < row; inner++) {
-          const body = plain[inner]!;
-          railRows.set(inner, body.startsWith(USER_RAIL_PREFIX) && body.trim() !== USER_RAIL_GLYPH ? USER_RAIL_PREFIX : USER_RAIL_GLYPH);
-        }
-      }
-      lastRule = { row, width };
-    } else if (LABELED_RULE_RE.test(text)) {
-      // A label only ever opens a message, and it closes nothing above it.
-      lastRule = { row, width: visibleWidth(text) };
-    } else if (!isRailRow(text) && !ruleCells(text).startsWith("─")) {
-      // A code block's rule neither opens nor closes a message: it sits between
-      // two of them without breaking the pair.
-      lastRule = undefined;
+    if (dropped.has(row) || frameRows.has(row) || labelRows.has(row)) continue;
+    const raw = plain[row]!;
+    const left = HANG_RE.exec(raw)![0].length;
+    const edge = raw.slice(left).trimEnd();
+    if (LABELED_RULE_RE.test(edge)) {
+      tops.push({ row, width: visibleWidth(edge), left });
+      continue;
     }
-  }
-
-  // A message with only rules: a labeled top rule, an indented body, then the next plain
-  // rule of its width. The label is what tells it from a model's own rules, so a "rules"
-  // user message with no icons, and so no label, keeps its rules.
-  for (let row = 0; row < plain.length; row++) {
-    if (dropped.has(row) || !LABELED_RULE_RE.test(plain[row]!)) continue;
-    const width = visibleWidth(plain[row]!);
-    for (let end = row + 1; end < plain.length && !dropped.has(end) && !LABELED_RULE_RE.test(plain[end]!); end++) {
-      if (!RULE_ROW_RE.test(plain[end]!) || visibleWidth(plain[end]!) !== width) continue;
-      const body = Array.from({ length: end - row - 1 }, (_, index) => row + 1 + index);
-      // A code block's rules are chrome too, and they are not what ends this body.
-      if (body.length === 0 || !body.every((inner) => plain[inner]!.trim() === "" || plain[inner]!.startsWith(" ") || ruleCells(plain[inner]!).startsWith("─"))) break;
-      dropped.add(row);
-      dropped.add(end);
-      for (const inner of body) flatRows.add(inner);
-      break;
-    }
+    if (!RAIL_CLOSE_RE.test(edge)) continue;
+    const width = visibleWidth(edge);
+    let index = tops.length - 1;
+    while (index >= 0 && (tops[index]!.width !== width || tops[index]!.left !== left)) index--;
+    if (index < 0) continue;
+    const top = tops[index]!;
+    tops.length = index;
+    dropped.add(row);
+    const label = edgeLabel(plain[top.row]!.slice(top.left).trimEnd());
+    if (label) labelRows.set(top.row, { text: label.text, leftTrim: top.left + label.offset });
+    else dropped.add(top.row);
+    // The side's cell, then the inset every row of the box has after it.
+    const body = Array.from({ length: row - top.row - 1 }, (_, index) => top.row + 1 + index).filter((inner) => !dropped.has(inner));
+    const inset = body.every((inner) => /^(?: |$)/.test(plain[inner]!.slice(left + 1).trimEnd())) ? 1 : 0;
+    for (const inner of body) railRows.set(inner, left + 1 + inset);
   }
 
   const rows: CleanedRow[] = [];
@@ -207,14 +190,9 @@ export function cleanTranscriptRows(
       changed = true;
       continue;
     }
-    const prefix = railRows.get(row);
-    if (prefix !== undefined && text.startsWith(prefix)) {
-      rows.push({ text: text.slice(prefix.length), leftTrim: visibleWidth(prefix) });
-      changed = true;
-      continue;
-    }
-    if (flatRows.has(row) && text.startsWith(" ")) {
-      rows.push({ text: text.slice(1), leftTrim: 1 });
+    const cut = railRows.get(row);
+    if (cut !== undefined) {
+      rows.push({ text: text.slice(cut), leftTrim: cut });
       changed = true;
       continue;
     }

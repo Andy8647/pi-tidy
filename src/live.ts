@@ -74,6 +74,14 @@ function isLiveBox<T>(value: unknown): value is LiveBox<T> {
 export const tidyEnabled = liveSlot("enabled", true);
 
 /**
+ * `tidy.style`: how every surface is edged. A `frame` is a rounded box; a `rail` is the
+ * same box with its sides and corners taken away, only the rules above and below left.
+ * The lines an open run or group hangs on are structure, not style: both draw them.
+ */
+export type Style = "frame" | "rail";
+export const chromeStyle = liveSlot<Style>("style", "frame");
+
+/**
  * An agent run is in flight: `agent_start` … `agent_end`/`agent_settled`. This
  * is the only signal about pi's work that cannot go stale, so the thinking rows
  * use it to stop animating the moment the run is over.

@@ -17,7 +17,7 @@ import {
   ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobNotes, jobsForTool, noteJobMessage,
   spinnerFrame, toggleJobDetails, type JobDetails, type JobState,
 } from "./background-jobs.ts";
-import { agentRunning, tidyEnabled } from "../live.ts";
+import { agentRunning, optionsRevision, tidyEnabled } from "../live.ts";
 import {
   hoverBand,
   hoverIsTracked,
@@ -156,7 +156,9 @@ export function renderGroupedTool(
     cached && cached.width === width && cached.icons === icons && cached.highlight === highlight && cached.rowLines === rowLines && cached.line === plan.line &&
     cached.full === plan.full && cached.hovered === hovered && cached.align === align &&
     cached.header === headerLine && cached.body === body && cached.theme === theme &&
-    cached.result === tool.result && cached.args === tool.args
+    cached.result === tool.result && cached.args === tool.args &&
+    // A reload can bring new tool colours with nothing else changed.
+    cached.revision === optionsRevision()
   ) return cached.lines;
   nestedRowSpans.delete(tool);
   nestedFoldSpans.delete(tool);
@@ -232,7 +234,7 @@ export function renderGroupedTool(
   nestedRowSpans.set(tool, spans);
   if (!live) groupedRows.set(tool, {
     width, icons, highlight, rowLines, line: plan.line, full: plan.full, hovered, align,
-    header: headerLine, body, theme, result: tool.result, args: tool.args, lines,
+    header: headerLine, body, theme, result: tool.result, args: tool.args, revision: optionsRevision(), lines,
   });
   return lines;
 }
@@ -244,6 +246,7 @@ export function renderGroupedTool(
  * pointer and the box under it can change them.
  */
 const groupedRows = new WeakMap<object, {
+  revision: number;
   width: number;
   icons: boolean;
   highlight: boolean | undefined;
@@ -452,6 +455,8 @@ function groupHeaderLine(
     icons,
     thinkingColor,
     theme.fg("accent", "·"),
+    // The tool colours the icons wear arrive with a reload, and every reload bumps it.
+    optionsRevision(),
   ].join("\u0000");
   const cached = headerLines.get(anchor);
   if (cached?.key === key) return cached.line;
@@ -888,7 +893,7 @@ let groupingActive: () => boolean = () => true;
 /** Whether Nerd Font icons are on (`icons: false` on a terminal without one). */
 let iconsEnabled: () => boolean = () => true;
 /** `tidy.thinkingColor`: the brain, the count and an expanded box border. */
-let thinkingColorFor: () => string = () => "muted";
+let thinkingColorFor: () => string = () => "warning";
 
 export function setGroupingActive(active: () => boolean): void {
   groupingActive = active;

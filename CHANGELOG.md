@@ -8,29 +8,32 @@ What changed in each released version of pi-tidy (published as
 
 ### Changed
 
-**The transcript breathes, and the reply is where the eye lands.** tidy trims pi's blank rows off every message it
-draws, so a settled screen had almost none: a run's summary sat on the reply's top edge, and one run sat on the one
-before it. The gaps are now tidy's own, on one scale: none inside one thing (a summary and the calls under it), one row
-between your message, a run's process and its reply, and two between runs. A closed reply frame keeps a row clear inside
-its top and bottom edges.
+**One style for everything: `tidy.style`, `frame` or `rail`** (#65). A screen used to mix three looks: an opened run
+hung its process on a `│`, the tool boxes on it were closed boxes, your message was a frame and the reply was rules.
+Now one key draws every surface tidy puts an edge on — your messages, the final reply, tool boxes, thinking and error
+boxes, compaction, branch and extension messages, your `!` commands. `frame` is the rounded box. `rail` is the same
+box with its sides and corners taken away: the rules above and below stay, the label sits in the same cells and the
+text keeps its column, so switching moves nothing. The lines that say what belongs together are not a style and both
+draw them: an opened run's line, which comes down into the reply's top edge and now ends in its bottom one, and an
+open group's gutter. `userMessageStyle` and `finalReplyStyle` stay, as overrides for one surface (`frame`, `rail` or
+`off`); unset, they follow `style`. `rules` reads as `rail`, which is what it now is. The old `rail` (rules plus a `│`
+in front of the text) is gone, and with it `userMessagePaddingY` and `userMessageColors`: your message takes
+`messageBorderColors.user` in either style, and a rail is drawn by the same code as the frame, so it hugs your text and
+can sit on the right. In a rail reply a code block's rules join nothing and open in the column they close in
+(`─ fish 󰆒 ───`). `frameMessages` no longer gates your message's frame; it only decides compactions, branch
+summaries, extension notices and `!` commands.
 
-**One grey for the chrome, one accent.** A settled screen had eight hues on it, several of them meaning two things: the
-reply's frame, the model's name and `took 46s` all wore the accent, `6 calls` and a file icon both wore blue, and a
-thought count was yellow. Now every message edge (the reply's, your message's, an opened run's rail, a code block's
-rules) is the theme's `border` grey, the summary lines are `muted`, and the model's name on the reply is the one accent.
-Colour is left to signals: a failure, and a run or a job still going. The new defaults are
-`messageBorderColors.assistant` and `.user` `"border"`, `userMessageColors` following `messageBorderColors.user`, and
-`thinkingColor` `"muted"`.
+**The transcript breathes.** tidy trims pi's blank rows off every message it draws, so a settled screen had almost
+none: a run's summary sat on the reply's top edge, and one run sat on the one before it. The gaps are now tidy's own,
+on one scale: none inside one thing, one row between your message and its run, two between runs. The reply follows its
+process with no gap; its top edge is the separation. A closed reply frame keeps a row clear inside its top and bottom
+edges.
 
-**The reply is drawn as `rules` by default** — a labelled rule above, a rule below, no box. With the process boxed and
-grey, the answer is the one block on a settled screen that is not, which is what makes it the focus. `frame` is still
-there, and `frameFinalReply: true` still means it.
-
-**One style vocabulary for both surfaces** (#65). `userMessageStyle` and `finalReplyStyle` take the same values, and a
-value now draws the same way on both: every edge takes the surface's `messageBorderColors` key (`userMessageColors`
-still wins where it is set), and an open style has no rows inside its rules by default (`userMessagePaddingY` is now
-`0`). The README has one table for the three styles. A framed user message no longer needs `frameMessages`, which now
-frames only compactions, branch summaries, extension notices and your `!` commands.
+**One grey for the edges, colour where it says something.** Every message edge (the reply's, your message's, an opened
+run's line, a code block's rules) is the theme's `border` grey, and the model's name on the reply is the one accent. A
+folded summary's words are grey and each tool's icon wears its box's colour (`toolColors`), so `bash×5 · write×1`
+still reads at a glance without the line shouting; an opened group's header takes back its `accent` marker and
+`toolTitle` count. Thinking stays yellow. The new defaults are `messageBorderColors.assistant` and `.user` `"border"`.
 
 **An open run's summary no longer repeats a failure count** its group line already shows; folded, it is still the
 summary's to say. **deepseek's glyph is md-dolphin**, one cell and one colour like the other providers', instead of the
@@ -50,13 +53,8 @@ nothing, and its labels being three cells wide pushed the rule one cell off ever
 now the width of the file's highest line number instead of a fixed three, the bar sits against the digits rather than
 after a gap, and the numbers are left-aligned.
 
-Settings you wrote out keep their values: a `finalReplyStyle: "frame"`, a `messageBorderColors`, `toolColors` or
-`thinkingColor` copied from an older README stays as it was. Remove a key to get the new default.
-
-### Fixed
-
-**An open run's rail joins a `rail` or `rules` reply in front of its rule** (`├─ model ───`). It used to land on the
-rule's only `─` before the label and read `├ model ───`.
+Settings you wrote out keep their values: a `userMessageStyle`, `finalReplyStyle` or `messageBorderColors` copied from
+an older README keeps that surface as it was and outranks `style`. Remove a key to follow `style` and the new defaults.
 
 ## [0.10.0] - 2026-11-19
 
