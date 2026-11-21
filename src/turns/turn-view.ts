@@ -4,6 +4,7 @@ import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
 import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlock, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
+import { FRAME_PADDING_Y, GAP_PART, GAP_RUN } from "../draw/rhythm.ts";
 import { optionsRevision, tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
@@ -201,6 +202,12 @@ export function railRows(rows: readonly string[], theme: ThemeLike, pad = ""): s
   return out;
 }
 
+/** `count` rows of `row` (blank by default), as a child a Container can lay out and hit-test. */
+function blankRows(count: number, row = ""): { render(width: number): string[]; invalidate(): void } {
+  const rows = Array.from({ length: count }, () => row);
+  return { render: () => rows, invalidate() {} };
+}
+
 /** Box owns the horizontal mouse transform; its padding cells become border glyphs. */
 const ZONE_A = "\x1b]133;A\x07";
 const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
@@ -210,9 +217,16 @@ class ReplyBody extends Box {
   private closed: boolean;
   /** Rows of the child that are a code block's rule, by index. */
   private rules: ReadonlySet<number>;
-  /** `closed` draws the right border too; a rail has only the left one. */
+  /** Blank rows inside the top and bottom edges: the child's rows start this far down. */
+  private padY: number;
+  /**
+   * `closed` draws the right border too; a rail has only the left one. A closed frame
+   * keeps a row clear inside each edge: text pressed against a border is the cramped
+   * look, and a rail, open on three sides, never has it.
+   */
   constructor(theme: ThemeLike, color: string, closed: boolean, rules: ReadonlySet<number> = new Set()) {
-    super(1, 0);
+    super(1, closed ? FRAME_PADDING_Y : 0);
+    this.padY = closed ? FRAME_PADDING_Y : 0;
     this.theme = theme;
     this.color = color;
     this.closed = closed;
@@ -233,7 +247,7 @@ class ReplyBody extends Box {
       const end = markers.filter((marker) => marker !== ZONE_A).join("");
       // A rule joins the frame: the border cell becomes a corner and the padding
       // cell beside it turns into rule, so the line is unbroken edge to edge.
-      if (this.rules.has(row)) {
+      if (this.rules.has(row - this.padY)) {
         return start + paint(this.theme, this.color, "├") + rule + sliceByColumn(clean, 2, Math.max(0, width - 4)) + rule + joint + end;
       }
       return start + border + sliceByColumn(clean, 1, width - 2) + (this.closed ? border : "") + end;
@@ -254,7 +268,7 @@ function installMouse(component: any): void {
     // `spans` are body rows; the component's own rows start with the frame's top edge.
     const shift = layout.chipShift ?? 0;
     const chip = event.type === "move" ? (layout.spans as ChipSpan[] | undefined)?.find((span: ChipSpan) => span.row + layout.bodyTop === event.y && event.x - shift >= span.x && event.x - shift < span.end) : undefined;
-    const hot = event.type === "move" && !chip && layout.header && event.y === 0;
+    const hot = event.type === "move" && !chip && layout.header && event.y === layout.headerRow;
     const moved = event.type === "move" && ((code?.hover ?? -1) !== (chip?.index ?? -1) || !!this[HOVER] !== !!hot);
     if (event.type === "move") {
       this[HOVER] = !!hot;
@@ -445,9 +459,15 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     if (!copied && hotIndex !== span.index) continue;
     body = repaintChip(body, span, theme, copied ? labels.copied : labels.copy, hotIndex === span.index);
   }
+  // A run's first rows stand clear of your message, or, when nothing of yours started
+  // it (a job's notification did), of the run before. A settled reply stands clear of
+  // the process drawn above it: this message's summary, or the messages before it.
+  const runGap = key === turn.firstAssistant ? (turn.root ? GAP_PART : GAP_RUN) : 0;
+  const settledReply = key === turn.final && turn.outcome !== "running";
+  const replyGap = settledReply && hasProcess(turn) && (header || key !== turn.firstAssistant) ? GAP_PART : 0;
   // A chip needs the layout and the handler below it; a message without one keeps the
   // fast path, since most rows in a transcript carry neither.
-  if (!header && !framed && !spans.length) return body;
+  if (!header && !framed && !spans.length && !runGap && !replyGap) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const color = options.assistantColor;
@@ -467,7 +487,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const lead = replyHeader?.lead ?? 1;
   const cache = component[CACHE];
   const revision = optionsRevision();
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && cache.runGap === runGap && cache.replyGap === replyGap && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -493,11 +513,14 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     return true;
   };
   const view = new Container();
+  if (runGap) view.addChild(blankRows(runGap));
   if (header) view.addChild(new MouseRegion(new Text(line, 0, 0), (event) => {
     if (event.type !== "click" || event.button !== "left") return undefined;
     turn.open = folded(turn);
     return { handled: true, render: true };
   }));
+  // An open run's rail comes down through the gap into the reply's corner.
+  if (replyGap) view.addChild(blankRows(replyGap, framed && railOpen ? paint(theme, color, "│") : ""));
   const source = { render: () => body, invalidate() {}, handleMouse: (event: TuiMouseEvent) => {
     if (copyClick(event)) return { handled: true, render: true };
     if (component[NATIVE_VIEW]) return component[NATIVE_VIEW].handleMouse(event);
@@ -525,9 +548,11 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   // A body inside `ReplyBody` sits one cell right of the row: the pointer's column has
   // to come back through that padding before it is compared with a chip's.
   const chipShift = framed && options.replyStyle !== "rules" ? 1 : 0;
-  const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0), chipShift };
+  const padding = framed && options.replyStyle === "frame" ? FRAME_PADDING_Y : 0;
+  const bodyTop = runGap + (header ? 1 : 0) + replyGap + (framed ? 1 : 0) + padding;
+  const layout = { view, header, headerRow: runGap, spans, bodyTop, chipShift };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, body, out, layout };
+  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, runGap, replyGap, body, out, layout };
   installMouse(component);
   return out;
 }

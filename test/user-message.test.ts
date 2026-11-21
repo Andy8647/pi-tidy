@@ -306,3 +306,33 @@ test("the rules style is the rail without its glyph, at either end", () => {
   patchUserMessages({ ...RAIL, paddingY: 0, icons: true, timeFormat: "HH:mm" });
   assert.equal(rows()[1]!.trimEnd(), "│ first");
 });
+
+test("the blank pi puts in front of your message becomes the two-row gap between runs", async () => {
+  const { installRunGaps } = await import("../src/messages/user-message.ts");
+  const { Container, Spacer } = await import("@earendil-works/pi-tui");
+  const proto = (InteractiveMode as any).prototype;
+  const original = proto.addMessageToChat;
+  // pi's own shape: a blank, then the message. A tool result adds no blank to widen.
+  proto.addMessageToChat = function (this: any, message: any) {
+    if (message.role === "user") this.chatContainer.addChild(new Spacer(1));
+    this.chatContainer.addChild(new UserMessageComponent(String(message.content) as never));
+  };
+  try {
+    installRunGaps();
+    const mode: any = { chatContainer: new Container() };
+    proto.addMessageToChat.call(mode, { role: "toolResult", content: "x" });
+    proto.addMessageToChat.call(mode, { role: "user", content: "next" });
+    const [, gap] = mode.chatContainer.children;
+    assert.ok(gap instanceof Spacer, "still a Spacer to whatever looks for pi's blank");
+    tidyEnabled.set(true);
+    assert.deepEqual(gap.render(W), ["", ""]);
+    tidyEnabled.set(false);
+    assert.equal(gap.render(W).length, 1, "off, pi's one row");
+    tidyEnabled.set(true);
+    installRunGaps();
+    proto.addMessageToChat.call(mode, { role: "user", content: "again" });
+    assert.equal(mode.chatContainer.children[3].render(W).length, 2, "a second install does not wrap twice");
+  } finally {
+    proto.addMessageToChat = original;
+  }
+});

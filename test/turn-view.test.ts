@@ -30,16 +30,16 @@ const middle: any = { ...first, timestamp: 1300, content: [
 const final: any = { ...first, provider: "anthropic", model: "claude-sonnet-4-5", timestamp: 1500, stopReason: "stop", content: [
   { type: "thinking", thinking: "Verify the final result carefully" }, { type: "text", text: "Fixed the result.\n\n```ts\nconst value = 2;\n```" },
 ] };
-function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = false, groupTools = true) {
+function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = false, groupTools = true, withUser = true) {
   resetGroups();
   patchToolBoxFrames({ groupTools, groupOpen, icons: false, splitDiff: true });
   turnOptions.set({ ...turnOptions.get(), collapseTurns: mode, frameFinalReply: true, icons: true });
   const store = new TurnStore(); turnStore.set(store);
-  store.begin(1000); store.note(user); store.note(first); store.note(middle);
+  store.begin(1000); if (withUser) store.note(user); store.note(first); store.note(middle);
   if (settled) store.note(final);
   const saved = settled ? store.settle(false, 1800) : undefined;
   const chat = new Container();
-  chat.addChild(new UserMessageComponent("Fix this"));
+  if (withUser) chat.addChild(new UserMessageComponent("Fix this"));
   const read = new ToolExecutionComponent("read", "a", first.content[2].arguments, {}, createReadToolDefinition(cwd) as any, ui, cwd);
   read.setExpanded(false); read.setArgsComplete(); read.markExecutionStarted();
   read.updateResult({ content: [{ type: "text", text: "const value = 1;" }], isError: false, durationMs: 10 });
@@ -679,4 +679,51 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   for (const marker of ["A", "B", "C"]) assert.equal((raw.match(new RegExp(`\\x1b\\]133;${marker}\\x07`, "g")) ?? []).length, 1);
   assert.ok(rendered.includes("claude-sonnet-4-5"));
   assert.ok(!rendered.includes("took"));
+});
+
+test("rhythm: a row after your message, a row before the reply, and a closed frame breathes inside", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+  const rows = frame(chat);
+  const summary = rows.findIndex((line) => line.includes("took"));
+  const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+  assert.equal(rows[summary - 1], "", `one blank between your message and the run:\n${rows.join("\n")}`);
+  assert.equal(reply, summary + 2, `one blank between the summary and the reply:\n${rows.join("\n")}`);
+  assert.equal(rows[summary + 1], "");
+  assert.match(rows[reply + 1]!, /^│ +│$/, "a row clear under the top edge");
+  assert.ok(rows[reply + 2]!.includes("Fixed the result"), rows.join("\n"));
+  const bottom = rows.findIndex((line, index) => index > reply && line.startsWith("╰"));
+  assert.match(rows[bottom - 1]!, /^│ +│$/, "and over the bottom one");
+  const rule = rows.findIndex((line) => line.startsWith("├─ ts "));
+  assert.ok(rule > reply && rows[rule]!.endsWith("┤"), `a code block still meets both edges:\n${rows.join("\n")}`);
+});
+
+test("rhythm: a run nothing of yours started stands two rows clear of the one before", () => {
+  const { chat } = fixture("afterRun", true, false, true, false);
+  const rows = frame(chat);
+  const summary = rows.findIndex((line) => line.includes("took"));
+  assert.equal(summary, 2, rows.join("\n"));
+  assert.deepEqual(rows.slice(0, 2), ["", ""]);
+});
+
+test("rhythm: an open run's rail comes down through the gap into the reply's corner", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+  click(chat, (line) => line.includes("took"));
+  const rows = frame(chat);
+  const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+  assert.equal(rows[reply - 1], "│", rows.join("\n"));
+  assert.ok(rows[reply]!.startsWith("├─ "), rows.join("\n"));
+  // The header row moved down by the gap; the pointer still finds it.
+  click(chat, (line) => line.includes("took"));
+  assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾")), "folded again through a click on the moved header");
+});
+
+test("rhythm: a rail reply has no inner padding", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "rail" });
+  const rows = frame(chat);
+  const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+  assert.ok(rows[reply + 1]!.includes("Fixed the result"), rows.join("\n"));
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
 });

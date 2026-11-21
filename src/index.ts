@@ -28,7 +28,7 @@ import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES, type Tid
 import { agentRunning, tidyEnabled } from "./live.ts";
 import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
 import { patchErrorLines } from "./messages/error-lines.ts";
-import { patchUserMessages } from "./messages/user-message.ts";
+import { installRunGaps, patchUserMessages } from "./messages/user-message.ts";
 import { restoreColor, withHexSwatchesCached } from "./messages/hex-swatches.ts";
 import { transformLatexEnvironmentsCached } from "./messages/latex-environments.ts";
 import { createWriteCallComponent, formatWriteCallText } from "./tools/write-preview.ts";
@@ -335,6 +335,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on("message_start", ({ message }) => { noteDelegateNotice(message); });
   // `/skill:<name>` is the prompt that started the turn: drawn as one (skill-prompt.ts).
   installSkillPrompts();
+  // Two blank rows between runs: the one pi puts in front of your message, widened.
+  installRunGaps();
 
   const unavailable: string[] = [];
   if (!hasRendererApi(pi)) {
