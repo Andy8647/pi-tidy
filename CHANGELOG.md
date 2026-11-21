@@ -4,6 +4,24 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-11-21
+
+### Changed
+
+**A change at the end of a long line is no longer cut off.** A source line wider than a pane — a long URL with a
+query string, a long import list, a minified JSON value — was truncated on both sides. When the edit sat near the end
+of such a line the two panes drew identical-looking text: the reader could see that the line had changed but not what
+had changed, and the word-level emphasis was cut away with it. Now a pair the panes cannot show in full leaves the
+columns and is drawn across the whole box — old above new, each wrapped onto as many rows as it needs, the number and
+the bar on the first row, the row tint carried onto the continuation rows. Only a changed side breaks out (an
+unchanged row has no change to lose, so it is still cut at the pane edge), and the decision is made per pair, so a
+short edit next to a long one stays side by side.
+
+**The panes are three columns wider.** The `old` / `new` header is gone: left is old and right is new, so it labelled
+nothing, and its labels being three cells wide pushed the rule one cell off every row below them. The number column is
+now the width of the file's highest line number instead of a fixed three, the bar sits against the digits rather than
+after a gap, and the numbers are left-aligned.
+
 ## [0.10.0] - 2026-11-19
 
 ### Added
