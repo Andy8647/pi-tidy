@@ -543,6 +543,7 @@ function fenced(lang: string, text: string) {
   return ruleCodeToken(lines, { lang, text }, 100, {
     theme,
     icons: false,
+    ruleColor: "border",
     enabled: true,
     splitDiff: false,
     splitDiffMinWidth: 72,
@@ -574,6 +575,7 @@ test("a fence with an unknown language still keeps pi's rows", () => {
   const unchanged = ruleCodeToken(["```plaintextish", "hello", "```"], { lang: "plaintextish", text: "hello" }, 100, {
     theme,
     icons: false,
+    ruleColor: "border",
     enabled: true,
     splitDiff: false,
     splitDiffMinWidth: 72,

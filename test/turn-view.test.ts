@@ -136,6 +136,8 @@ test("a folded turn's summary counts what its jobs reported", () => {
 test("the summary line is cached per frame but rebuilt when a second passes or the turn moves", () => {
   const { store } = fixture("afterRun", false);
   const turn = store.current!;
+  // Folded: the summary is where a failure is counted (open, its group says it).
+  turn.open = false;
   const theme = getTheme()!;
   const early = summaryLine(turn, theme, W, false, 2500);
   // 1500 ms and 1600 ms of wall time both read "2s", so the cache may serve.
@@ -185,8 +187,7 @@ test("with icons off the summary is exactly the line it was before", () => {
   const theme = getTheme()!;
   const muted = (text: string) => theme.fg("muted", text);
   const expected = [
-    paint(theme, turnOptions.get().assistantColor, "▸ took 1s"),
-    muted("LLM 0s"), muted("tools 0s"), theme.fg("toolTitle", "2 calls"), muted("read×1"), muted("edit×1"),
+    muted("▸ took 1s"), muted("LLM 0s"), muted("tools 0s"), muted("2 calls"), muted("read×1"), muted("edit×1"),
   ].join(muted(" · "));
   assert.equal(summaryAt(W, false), expected);
   assert.equal(summaryAt(20, false), clipToWidth(expected, 20, "…"), "a clipped line clips the same way");
@@ -286,7 +287,7 @@ test("the rail takes the colour of the reply it runs into", () => {
   const painted: string[] = [];
   const theme: any = { fg: (color: string, value: string) => { painted.push(color); return value; } };
   railRows(["one"], theme);
-  assert.deepEqual(painted, ["accent"]);
+  assert.deepEqual(painted, [turnOptions.get().assistantColor]);
 });
 
 test("box corners join only where asked, and the frame's other rows stay put", () => {
@@ -639,7 +640,7 @@ test("the final frame carries the message's clock next to the model", () => {
   assert.ok(top.includes(formatMessageTime(final.timestamp)));
 });
 
-test("the whale glyph keeps the final frame at the terminal width", () => {
+test("deepseek's glyph keeps the final frame at the terminal width", () => {
   const { provider, model } = final;
   final.provider = "deepseek";
   final.model = "deepseek-v4-pro";
@@ -648,7 +649,7 @@ test("the whale glyph keeps the final frame at the terminal width", () => {
     const lines = frame(chat);
     const top = lines.find((line) => line.includes("deepseek-v4-pro"));
     assert.ok(top);
-    assert.ok(top.includes("\u{1f433} deepseek-v4-pro"));
+    assert.ok(top.includes("\u{f18b4} deepseek-v4-pro"), "one cell, one colour: md-dolphin, not the whale emoji");
     assert.equal(visibleWidth(top), W);
   } finally {
     final.provider = provider;
@@ -663,7 +664,7 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   assert.ok(plainChat.includes("claude-sonnet-4-5"), "the model is the name on the border");
   assert.ok(!plainChat.includes("anthropic"), "the vendor is the glyph's job");
   assert.equal(replyLabel("unknown-provider", "some-model", true), "\u{f06a9} some-model");
-  assert.equal(replyLabel("deepseek", "deepseek-chat", true), "\u{1f433} deepseek-chat");
+  assert.equal(replyLabel("deepseek", "deepseek-chat", true), "\u{f18b4} deepseek-chat");
   assert.equal(replyLabel("deepseek", "deepseek-chat", false), "deepseek-chat");
   assert.equal(replyLabel("openai-codex", "gpt-6.1-sol", true), "\uec81 gpt-6.1-sol");
   assert.equal(replyLabel("anthropic", undefined, false), "anthropic", "no model recorded: the provider is the best name left");
@@ -726,4 +727,29 @@ test("rhythm: a rail reply has no inner padding", () => {
   const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
   assert.ok(rows[reply + 1]!.includes("Fixed the result"), rows.join("\n"));
   turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+});
+
+test("open, a run's summary leaves its failures to the groups they happened in", () => {
+  const { store } = fixture("afterRun", false);
+  const turn = store.current!;
+  store.note({ role: "toolResult", toolCallId: "a", toolName: "read", isError: true, content: [], timestamp: 1650 } as any);
+  const theme = getTheme()!;
+  turn.open = true;
+  assert.ok(!visibleText(summaryLine(turn, theme, W, false, 4000)).includes("failed"), "the group line says it");
+  turn.open = false;
+  assert.ok(visibleText(summaryLine(turn, theme, W, false, 4000)).includes("1 failed"), "folded, nothing else would");
+});
+
+test("the reply's name is the one accent, and its edges are the chrome grey", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame", assistantColor: "border" });
+  const theme = getTheme()!;
+  let rows: string[] = [];
+  for (let pass = 0; pass < 4; pass++) rows = chat.render(W);
+  const top = rows.find((row) => visibleText(row).includes("claude-sonnet-4-5"))!;
+  assert.ok(top.includes(theme.fg("accent", replyLabel("anthropic", "claude-sonnet-4-5", true))), JSON.stringify(top));
+  const sgr = (text: string) => /^\x1b\[[0-9;]*m/.exec(text)?.[0];
+  assert.equal(sgr(top), sgr(paint(theme, "border", "╭")), "the corner is grey");
+  const summary = rows.find((row) => visibleText(row).includes("took"))!;
+  assert.ok(!summary.includes(sgr(theme.fg("accent", "x"))!), "nothing on a settled run's summary is accent");
 });

@@ -22,10 +22,12 @@ const BASE_MOUSE = Symbol.for("pi-tidy:turn-base-mouse");
 const HOVER = Symbol.for("pi-tidy:turn-hover");
 const CACHE = Symbol.for("pi-tidy:turn-cache");
 // Nerd Fonts glyphnames.json: cod-openai, cod-claude, md-google; deepseek has no brand
-// glyph in Nerd Fonts, so it uses the whale emoji; all others use md-robot.
+// glyph in Nerd Fonts, so it gets md-dolphin, the nearest to its whale. Not the whale
+// emoji: a colour picture two cells wide was the loudest thing on a quiet screen. All
+// others use md-robot.
 const PROVIDER_ICONS: Record<string, string> = {
   openai: "\uec81", "openai-codex": "\uec81", anthropic: "\uec82",
-  deepseek: "\u{1f433}",
+  deepseek: "\u{f18b4}",
   google: "\u{f02ad}", "google-gemini-cli": "\u{f02ad}", "google-vertex": "\u{f02ad}",
 };
 const ROBOT_ICON = "\u{f06a9}"; // md-robot
@@ -103,14 +105,20 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   const parts: string[] = [];
   const glyphed: string[] = [];
   const add = (plain: string, icon = plain) => { parts.push(plain); glyphed.push(icon); };
-  add(paint(theme, turnOptions.get().assistantColor, `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`));
+  // Grey like the rest of the process; a run still going is the one thing here
+  // that wants the eye, so it keeps the accent.
+  add(theme.fg(state === "running" ? "accent" : "muted", `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`));
   if (!["completed", "running", "unknown"].includes(state)) add(theme.fg("error", state));
   const llmFailures = [...turn.messages.values()].filter((message) => message.role === "assistant" && message.stopReason === "error").length;
   if (llmFailures) add(theme.fg("error", `${llmFailures} LLM failed`));
-  const failed = [...turn.tools.values()].filter((tool) => tool.failed).length;
-  if (failed) add(theme.fg("error", `${failed} failed`));
-  const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
-  if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
+  // Open, the group a failed call sits in says so on its own line, and a failed box is
+  // red: the count here would be the same news twice. Folded, it is the only report.
+  if (folded(turn)) {
+    const failed = [...turn.tools.values()].filter((tool) => tool.failed).length;
+    if (failed) add(theme.fg("error", `${failed} failed`));
+    const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
+    if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
+  }
   // Background sub-agents this turn launched, as their notices reported them
   // (delegate-notices.ts). A failure goes with the other failures: early on the
   // line, so a narrow row clips the counts after it first.
@@ -128,7 +136,7 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   if (ended.length) add(theme.fg("muted", `sub-agents ${ended.join(", ")}`));
   // Open, the group headers below already count the calls.
   if (folded(turn)) {
-    add(theme.fg("toolTitle", `${turn.tools.size} calls`));
+    add(theme.fg("muted", `${turn.tools.size} calls`));
     const counts = new Map<string, number>();
     const nested = new Map<string, Map<string, number>>();
     for (const tool of turn.tools.values()) {
@@ -235,7 +243,7 @@ class ReplyBody extends Box {
   override render(width: number): string[] {
     const border = paint(this.theme, this.color, "│");
     const joint = paint(this.theme, this.color, this.closed ? "┤" : "");
-    const rule = this.theme.fg("muted", RULE_GLYPH);
+    const rule = paint(this.theme, this.color, RULE_GLYPH);
     return super.render(width).map((line, row) => {
       // pi's OSC 133 zones belong at the row's edges. The frame used to leave
       // them inside: zone A landed after the left border, and B/C before the
@@ -394,7 +402,7 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
  */
 function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: ThemeLike, color: string): string[] {
   const out = [...body];
-  const glyph = theme.fg("muted", RULE_GLYPH);
+  const glyph = paint(theme, color, RULE_GLYPH);
   for (const row of rules) {
     const line = out[row];
     if (line === undefined) continue;
@@ -437,6 +445,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     splitDiff: options.splitDiff,
     splitDiffMinWidth: options.splitDiffMinWidth,
     canCopy: canCopyText(),
+    ruleColor: options.assistantColor,
   });
   const drawn = closed && key !== visible
     ? []
@@ -475,7 +484,8 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     ? messageHeader(
         theme,
         color,
-        paint(theme, color, replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
+        // The one accent on a settled screen: whose answer this is, where the eye should land.
+        theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
         typeof component.lastMessage.timestamp === "number" ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat)) : "",
         options.headerStyle,
         width,

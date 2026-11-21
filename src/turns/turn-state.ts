@@ -279,7 +279,7 @@ export const turnOptions = liveSlot("turn-presentation-options", {
   /** How a drawn final reply looks; `frameFinalReply` says whether it is drawn. */
   replyStyle: "frame" as Exclude<FinalReplyStyle, "off">,
   icons: true,
-  assistantColor: "accent",
+  assistantColor: "border",
   timeFormat: "auto",
   headerStyle: "inline" as HeaderStyle,
 });

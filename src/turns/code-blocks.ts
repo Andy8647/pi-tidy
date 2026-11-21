@@ -11,6 +11,7 @@
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { visibleText } from "../draw/frame-draw.ts";
+import { paint } from "../draw/paint.ts";
 import { renderSplitDiff } from "../tools/split-diff.ts";
 import { highlightLines } from "../tools/lang-support.ts";
 import type { ThemeLike } from "../theme-access.ts";
@@ -90,6 +91,8 @@ export interface CodeBlockOptions {
   splitDiff: boolean;
   splitDiffMinWidth: number;
   canCopy: boolean;
+  /** The rule's own glyphs: the colour of the edges it joins. Its label stays muted. */
+  ruleColor: string;
 }
 
 /** A reply's blocks, plus the chip showing `copied` and the one under the pointer. */
@@ -119,17 +122,18 @@ function bodyIndent(row: string | undefined): string {
 }
 
 /**
- * `─ fish copy ───────`: one colour, one row of the width asked for. The label and
- * the chip sit together right after the joint, and the rule runs on from there.
+ * `─ fish copy ───────`: one row of the width asked for. The label and the chip sit
+ * together right after the joint, and the rule runs on from there in the colour of
+ * the edges it joins, so a block inside a frame is drawn in the frame's own line.
  */
-function ruleRow(cells: number, theme: ThemeLike, lang = "", chip = ""): string {
+function ruleRow(cells: number, theme: ThemeLike, color: string, lang = "", chip = ""): string {
   const head = lang ? ` ${lang} ` : "";
   const chipPart = chip ? `${chip} ` : "";
   const fill = cells - visibleWidth(head) - visibleWidth(chipPart);
   // A label longer than the row keeps the rule honest: the words go, not the line.
-  if (cells < 4 || fill < 2) return theme.fg("muted", RULE_GLYPH.repeat(Math.max(0, cells)));
+  if (cells < 4 || fill < 2) return paint(theme, color, RULE_GLYPH.repeat(Math.max(0, cells)));
   // The chip keeps its own escapes, so the `copied` swap is a plain string replace.
-  return theme.fg("muted", head) + (chip ? chipWord(theme, chip, false) + theme.fg("muted", " ") : "") + theme.fg("muted", RULE_GLYPH.repeat(fill));
+  return theme.fg("muted", head) + (chip ? chipWord(theme, chip, false) + theme.fg("muted", " ") : "") + paint(theme, color, RULE_GLYPH.repeat(fill));
 }
 
 /** The chip's painted word: muted at rest, lit while the pointer is on it. */
@@ -200,8 +204,8 @@ export function ruleCodeToken(
   const replaced = bodyRows(token.text, lang, width, visibleWidth(indent), options);
   const rows = replaced ? replaced.map((row) => `${indent}${row.trimEnd()}`) : lines.slice(1, 1 + count);
   const chip = options.canCopy ? chipLabels(options.icons).copy : "";
-  const open = ruleRow(width, options.theme, lang, chip);
-  const close = ruleRow(width, options.theme);
+  const open = ruleRow(width, options.theme, options.ruleColor, lang, chip);
+  const close = ruleRow(width, options.theme, options.ruleColor);
   return {
     lines: [open, ...rows, close, ...lines.slice(2 + count)],
     block: { lang, text: token.text, open: visibleText(open), close: visibleText(close), copyable: options.canCopy, chip },
