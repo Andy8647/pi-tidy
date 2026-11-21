@@ -4,9 +4,37 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.1] - 2026-11-21
+## [0.11.0] - 2026-11-21
 
 ### Changed
+
+**The transcript breathes, and the reply is where the eye lands.** tidy trims pi's blank rows off every message it
+draws, so a settled screen had almost none: a run's summary sat on the reply's top edge, and one run sat on the one
+before it. The gaps are now tidy's own, on one scale: none inside one thing (a summary and the calls under it), one row
+between your message, a run's process and its reply, and two between runs. A closed reply frame keeps a row clear inside
+its top and bottom edges.
+
+**One grey for the chrome, one accent.** A settled screen had eight hues on it, several of them meaning two things: the
+reply's frame, the model's name and `took 46s` all wore the accent, `6 calls` and a file icon both wore blue, and a
+thought count was yellow. Now every message edge (the reply's, your message's, an opened run's rail, a code block's
+rules) is the theme's `border` grey, the summary lines are `muted`, and the model's name on the reply is the one accent.
+Colour is left to signals: a failure, and a run or a job still going. The new defaults are
+`messageBorderColors.assistant` and `.user` `"border"`, `userMessageColors` following `messageBorderColors.user`, and
+`thinkingColor` `"muted"`.
+
+**The reply is drawn as `rules` by default** — a labelled rule above, a rule below, no box. With the process boxed and
+grey, the answer is the one block on a settled screen that is not, which is what makes it the focus. `frame` is still
+there, and `frameFinalReply: true` still means it.
+
+**One style vocabulary for both surfaces** (#65). `userMessageStyle` and `finalReplyStyle` take the same values, and a
+value now draws the same way on both: every edge takes the surface's `messageBorderColors` key (`userMessageColors`
+still wins where it is set), and an open style has no rows inside its rules by default (`userMessagePaddingY` is now
+`0`). The README has one table for the three styles. A framed user message no longer needs `frameMessages`, which now
+frames only compactions, branch summaries, extension notices and your `!` commands.
+
+**An open run's summary no longer repeats a failure count** its group line already shows; folded, it is still the
+summary's to say. **deepseek's glyph is md-dolphin**, one cell and one colour like the other providers', instead of the
+whale emoji.
 
 **A change at the end of a long line is no longer cut off.** A source line wider than a pane — a long URL with a
 query string, a long import list, a minified JSON value — was truncated on both sides. When the edit sat near the end
@@ -21,6 +49,14 @@ short edit next to a long one stays side by side.
 nothing, and its labels being three cells wide pushed the rule one cell off every row below them. The number column is
 now the width of the file's highest line number instead of a fixed three, the bar sits against the digits rather than
 after a gap, and the numbers are left-aligned.
+
+Settings you wrote out keep their values: a `finalReplyStyle: "frame"`, a `messageBorderColors`, `toolColors` or
+`thinkingColor` copied from an older README stays as it was. Remove a key to get the new default.
+
+### Fixed
+
+**An open run's rail joins a `rail` or `rules` reply in front of its rule** (`├─ model ───`). It used to land on the
+rule's only `─` before the label and read `├ model ───`.
 
 ## [0.10.0] - 2026-11-19
 
