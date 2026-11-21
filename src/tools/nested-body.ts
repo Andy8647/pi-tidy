@@ -30,7 +30,8 @@ import type { ThemeLike } from "../theme-access.ts";
 import { highlightLines } from "./lang-support.ts";
 import type { NestedCall, NestedRun } from "./nested-calls.ts";
 import { renderSplitDiff } from "./split-diff.ts";
-import { summarizeArgs, summarizeResult } from "./tool-lines.ts";
+import { summarizeArgs, summarizeResult, toolColor } from "./tool-lines.ts";
+import { paint } from "../draw/paint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // The two folds
@@ -221,7 +222,7 @@ function callRow(call: NestedCall, nameWidth: number, theme: ThemeLike, options:
   const args = argsText(call, budget);
   const note = call.output && call.status !== "error" ? summarizeResult(call.name, { content: [{ type: "text", text: call.output }] }) : "";
   const duration = formatDuration(call.durationMs);
-  let row = ` ${statusGlyph(call, theme)} ${icon}${theme.fg("toolTitle", call.name)}${pad}`;
+  let row = ` ${statusGlyph(call, theme)} ${paint(theme, toolColor(call.name), `${icon}${call.name}`)}${pad}`;
   if (args) row += ` ${theme.fg("muted", args)}`;
   if (note) row += ` ${theme.fg("muted", note)}${duration ? theme.fg("muted", " ·") : ""}`;
   if (duration) row += ` ${theme.fg("dim", duration)}`;

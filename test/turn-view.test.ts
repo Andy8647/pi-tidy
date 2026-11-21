@@ -582,52 +582,30 @@ test("the final frame takes the assistant color and the time format", () => {
   }
 });
 
-test("a railed final reply has rules and a left rail, and copies as its text", () => {
+test("a rail reply is its frame without sides or corners, and copies as its text", () => {
   const { chat } = fixture();
   const options = turnOptions.get();
-  turnOptions.set({ ...options, replyStyle: "rail" });
   try {
+    turnOptions.set({ ...options, replyStyle: "frame" });
+    const framed = chat.render(W).map(visibleText);
+    turnOptions.set({ ...options, replyStyle: "rail" });
     const rows = chat.render(W);
     const plain = rows.map(visibleText);
     const top = plain.findIndex((line) => line.includes("claude-sonnet-4-5"));
-    assert.match(plain[top]!, /^[─├]─* .*claude-sonnet-4-5.* ─+$/);
-    assert.ok(!plain[top]!.includes("╮"));
+    // The label sits in the same cells as on the frame's top edge.
+    assert.equal(plain[top], framed[framed.findIndex((line) => line.includes("claude-sonnet-4-5"))]!.replace(/[╭╮]/g, "─"));
     assert.equal(visibleWidth(rows[top]!), W);
     const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
     assert.ok(bottom > top + 1);
     assert.equal(visibleWidth(rows[bottom]!), W);
-    // A code block's rules meet the rail with a corner, and the rest keep it.
-    for (const line of plain.slice(top + 1, bottom)) assert.match(line, /^[│├]/, line);
+    for (const line of plain.slice(top + 1, bottom)) assert.doesNotMatch(line, /[│├┤╭╮╰╯]/, line);
+    const text = plain.find((line) => line.includes("Fixed the result"))!;
+    assert.equal(text.indexOf("Fixed"), framed.find((line) => line.includes("Fixed the result"))!.indexOf("Fixed"), "the text keeps its column");
     const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
     assert.equal(cleaned[0], null);
     assert.equal(cleaned.at(-1), null);
-    assert.ok(cleaned.slice(1, -1).every((row) => !row || !row.text.startsWith("│")), cleaned.slice(1, -1).map((row) => (row ? row.text : "NULL")).join("\n"));
+    assert.ok(cleaned.some((row) => row?.text.startsWith("Fixed the result")), cleaned.map((row) => (row ? row.text : "NULL")).join("\n"));
     assert.ok(cleaned.some((row) => row?.text.trim() === "const value = 2;"), "the code is still what copies");
-  } finally {
-    turnOptions.set(options);
-  }
-});
-
-test("a final reply with only rules has no verticals, keeps its width, and copies as its text", () => {
-  const { chat } = fixture();
-  const options = turnOptions.get();
-  turnOptions.set({ ...options, replyStyle: "rules" });
-  try {
-    const rows = chat.render(W);
-    const plain = rows.map(visibleText);
-    const top = plain.findIndex((line) => line.includes("claude-sonnet-4-5"));
-    const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
-    assert.ok(bottom > top + 1);
-    assert.equal(visibleWidth(rows[top]!), W);
-    assert.equal(visibleWidth(rows[bottom]!), W);
-    for (const line of plain.slice(top + 1, bottom)) {
-      assert.doesNotMatch(line, /^│/);
-      assert.doesNotMatch(line, /│\s*$/);
-    }
-    const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
-    assert.equal(cleaned[0], null);
-    assert.equal(cleaned.at(-1), null);
-    assert.ok(cleaned.slice(1, -1).some((row) => row && row.text.trim().length > 0 && !row.text.startsWith(" ")));
   } finally {
     turnOptions.set(options);
   }
@@ -682,15 +660,14 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   assert.ok(!rendered.includes("took"));
 });
 
-test("rhythm: a row after your message, a row before the reply, and a closed frame breathes inside", () => {
+test("rhythm: a row after your message, none before the reply, and a closed frame breathes inside", () => {
   const { chat } = fixture();
   turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
   const rows = frame(chat);
   const summary = rows.findIndex((line) => line.includes("took"));
   const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
   assert.equal(rows[summary - 1], "", `one blank between your message and the run:\n${rows.join("\n")}`);
-  assert.equal(reply, summary + 2, `one blank between the summary and the reply:\n${rows.join("\n")}`);
-  assert.equal(rows[summary + 1], "");
+  assert.equal(reply, summary + 1, `the reply's top edge is the separation:\n${rows.join("\n")}`);
   assert.match(rows[reply + 1]!, /^│ +│$/, "a row clear under the top edge");
   assert.ok(rows[reply + 2]!.includes("Fixed the result"), rows.join("\n"));
   const bottom = rows.findIndex((line, index) => index > reply && line.startsWith("╰"));
@@ -707,17 +684,25 @@ test("rhythm: a run nothing of yours started stands two rows clear of the one be
   assert.deepEqual(rows.slice(0, 2), ["", ""]);
 });
 
-test("rhythm: an open run's rail comes down through the gap into the reply's corner", () => {
-  const { chat } = fixture();
+test("an open run's line comes straight down into the reply's corner and on to its bottom one", () => {
+  for (const replyStyle of ["frame", "rail"] as const) {
+    const { chat } = fixture();
+    turnOptions.set({ ...turnOptions.get(), replyStyle });
+    click(chat, (line) => line.includes("took"));
+    const rows = frame(chat);
+    const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+    assert.ok(rows[reply - 1]!.startsWith("│ ") && rows[reply - 1]!.trim() !== "│", `${replyStyle}: no gap\n${rows.join("\n")}`);
+    assert.ok(rows[reply]!.startsWith("├─ "), `${replyStyle}: ${rows[reply]}`);
+    assert.equal(visibleWidth(rows[reply]!), W);
+    const bottom = rows.findIndex((line, index) => index > reply && line.startsWith("╰"));
+    assert.ok(bottom > reply, `${replyStyle}: the line ends in the bottom edge\n${rows.join("\n")}`);
+    assert.ok(rows.slice(reply + 1, bottom).every((line) => line.startsWith("│") || line.startsWith("├")), `${replyStyle}\n${rows.join("\n")}`);
+    assert.equal(rows[bottom]!.endsWith("╯"), replyStyle === "frame", rows[bottom]);
+    // The header row is where it was drawn; the pointer still finds it.
+    click(chat, (line) => line.includes("took"));
+    assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾")), "folded again through a click on the header");
+  }
   turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
-  click(chat, (line) => line.includes("took"));
-  const rows = frame(chat);
-  const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
-  assert.equal(rows[reply - 1], "│", rows.join("\n"));
-  assert.ok(rows[reply]!.startsWith("├─ "), rows.join("\n"));
-  // The header row moved down by the gap; the pointer still finds it.
-  click(chat, (line) => line.includes("took"));
-  assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾")), "folded again through a click on the moved header");
 });
 
 test("rhythm: a rail reply has no inner padding", () => {
@@ -750,19 +735,11 @@ test("the reply's name is the one accent, and its edges are the chrome grey", ()
   assert.ok(top.includes(theme.fg("accent", replyLabel("anthropic", "claude-sonnet-4-5", true))), JSON.stringify(top));
   const sgr = (text: string) => /^\x1b\[[0-9;]*m/.exec(text)?.[0];
   assert.equal(sgr(top), sgr(paint(theme, "border", "╭")), "the corner is grey");
+  // The summary's words are grey; an icon may wear its tool's colour, and with no colour
+  // set for a tool that is the accent its box wears too.
   const summary = rows.find((row) => visibleText(row).includes("took"))!;
-  assert.ok(!summary.includes(sgr(theme.fg("accent", "x"))!), "nothing on a settled run's summary is accent");
+  const accent = sgr(theme.fg("accent", "x"))!;
+  const painted = summary.split(accent).slice(1).map((part) => visibleText(part.split("\x1b[")[0]!));
+  assert.ok(painted.every((text) => /^[\uE000-\uF8FF\u{F0000}-\u{FFFFF}]+$/u.test(text)), JSON.stringify(painted));
 });
 
-test("an open run's rail joins an open reply's top rule in front of its lead", () => {
-  for (const replyStyle of ["rules", "rail"] as const) {
-    const { chat } = fixture();
-    turnOptions.set({ ...turnOptions.get(), replyStyle });
-    click(chat, (line) => line.includes("took"));
-    const rows = frame(chat);
-    const top = rows.find((line) => line.includes("claude-sonnet-4-5"))!;
-    assert.ok(top.startsWith("├─ "), `${replyStyle}: ${top}`);
-    assert.equal(visibleWidth(top), W);
-  }
-  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
-});

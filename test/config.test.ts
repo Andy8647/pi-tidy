@@ -79,19 +79,31 @@ test("groupOpen defaults to false, passes true through, and ignores a non-boolea
   withSettings({ tidy: { groupOpen: 1 } }, () => assert.equal(loadConfig().groupOpen, false));
 });
 
-test("user messages default to the frame; an unknown style falls back to it", () => {
+test("one style draws every surface; a surface's own key, where set, is the exception", () => {
   withSettings({ tidy: {} }, () => {
     const config = loadConfig();
-    assert.equal(config.userMessageStyle, "frame");
-    assert.equal(config.userMessagePaddingY, 0, "an open style has no inner padding, as the reply's has none");
-    assert.deepEqual(config.userMessageColors, { rail: "border", rule: "border" });
+    assert.deepEqual([config.style, config.userMessageStyle, config.finalReplyStyle], ["frame", "frame", "frame"]);
   });
-  withSettings({ tidy: { userMessageStyle: "rail" } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
-  withSettings({ tidy: { userMessageStyle: "rules" } }, () => assert.equal(loadConfig().userMessageStyle, "rules"));
-  withSettings({ tidy: { userMessageStyle: "off" } }, () => assert.equal(loadConfig().userMessageStyle, "off"));
+  withSettings({ tidy: { style: "rail" } }, () => {
+    const config = loadConfig();
+    assert.deepEqual([config.style, config.userMessageStyle, config.finalReplyStyle], ["rail", "rail", "rail"]);
+  });
+  withSettings({ tidy: { style: "boxed" } }, () => assert.equal(loadConfig().style, "frame", "an unknown style is the default"));
+  withSettings({ tidy: { style: "rail", userMessageStyle: "frame", finalReplyStyle: "off" } }, () => {
+    const config = loadConfig();
+    assert.deepEqual([config.userMessageStyle, config.finalReplyStyle], ["frame", "off"]);
+  });
+  // An unknown value on a surface says nothing, so the surface follows the style.
+  withSettings({ tidy: { style: "rail", userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
   // pre-0.5: `false` left user messages to pi-starline, which no longer draws them.
   withSettings({ tidy: { frameUserMessages: false } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
-  withSettings({ tidy: { userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
+});
+
+test("`rules`, the rail's name before 0.11, reads as a rail on either surface", () => {
+  withSettings({ tidy: { userMessageStyle: "rules", finalReplyStyle: "rules" } }, () => {
+    const config = loadConfig();
+    assert.deepEqual([config.userMessageStyle, config.finalReplyStyle], ["rail", "rail"]);
+  });
 });
 
 test("user alignment defaults left and accepts only right as an override", () => {
@@ -112,18 +124,18 @@ test("turn folding and final reply frames are on by default and turn off indepen
   }
   withSettings({ tidy: {} }, () => {
     assert.equal(loadConfig().collapseTurns, "afterRun");
-    assert.equal(loadConfig().finalReplyStyle, "rules", "the reply is the one thing on screen not boxed in");
+    assert.equal(loadConfig().finalReplyStyle, "frame");
   });
 });
 
 test("finalReplyStyle wins over the old frameFinalReply, which still works alone", () => {
   for (const [settings, expected] of [
     [{ finalReplyStyle: "rail" }, "rail"],
-    [{ finalReplyStyle: "rules" }, "rules"],
     [{ finalReplyStyle: "rail", frameFinalReply: true }, "rail"],
     [{ finalReplyStyle: "off", frameFinalReply: true }, "off"],
-    [{ finalReplyStyle: "boxed" }, "rules"],
+    [{ finalReplyStyle: "boxed" }, "frame"],
     [{ frameFinalReply: true }, "frame"],
+    [{ frameFinalReply: true, style: "rail" }, "frame"],
     [{ frameFinalReply: false }, "off"],
   ] as const) {
     withSettings({ tidy: settings }, () => assert.equal(loadConfig().finalReplyStyle, expected, JSON.stringify(settings)));
@@ -140,26 +152,6 @@ test("a user message's time shows by default and only a boolean hides it", () =>
   for (const [value, expected] of [[undefined, true], [false, false], [true, true], ["no", true]] as const) {
     withSettings({ tidy: { userMessageTime: value } }, () => assert.equal(loadConfig().userMessageTime, expected));
   }
-});
-
-test("user message padding is clamped and colors merge over the defaults", () => {
-  withSettings({ tidy: { userMessagePaddingY: 0, userMessageColors: { rail: "#cba6f7", rule: 3 } } }, () => {
-    const config = loadConfig();
-    assert.equal(config.userMessagePaddingY, 0);
-    assert.deepEqual(config.userMessageColors, { rail: "#cba6f7", rule: "border" });
-  });
-  withSettings({ tidy: { userMessagePaddingY: 9 } }, () => assert.equal(loadConfig().userMessagePaddingY, 3));
-  withSettings({ tidy: { userMessagePaddingY: -1 } }, () => assert.equal(loadConfig().userMessagePaddingY, 0));
-  withSettings({ tidy: { userMessagePaddingY: 1.5 } }, () => assert.equal(loadConfig().userMessagePaddingY, 0));
-});
-
-test("a user message's rail and rules take its frame's colour unless set apart", () => {
-  withSettings({ tidy: { messageBorderColors: { user: "mauve" } } }, () => {
-    assert.deepEqual(loadConfig().userMessageColors, { rail: "mauve", rule: "mauve" }, "one colour source per surface");
-  });
-  withSettings({ tidy: { messageBorderColors: { user: "mauve" }, userMessageColors: { rule: "surface1" } } }, () => {
-    assert.deepEqual(loadConfig().userMessageColors, { rail: "mauve", rule: "surface1" }, "an explicit one still wins");
-  });
 });
 
 test("user message max width takes a fraction or a column count, and falls back to auto", () => {

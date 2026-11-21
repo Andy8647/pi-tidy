@@ -43,7 +43,7 @@ import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { CALL_PROMPT_CELLS } from "./command-text.ts";
 import { groupIsOpen, pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
 import { claimNotices, noticeRows, toggleNotice } from "../turns/delegate-notices.ts";
-import { formatToolLine, groupGutter } from "./tool-lines.ts";
+import { formatToolLine, groupGutter, setToolColors } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
   hangColumn,
@@ -242,7 +242,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
-  thinkingColor: "muted",
+  thinkingColor: "warning",
   highlightBash: true,
   toolRowLines: 1,
   bashResultLines: DEFAULT_BASH_RESULT_LINES,
@@ -332,7 +332,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiff = true,
     splitDiffMinWidth = 72,
     diffLines = 20,
-    thinkingColor = "muted",
+    thinkingColor = "warning",
     highlightBash = true,
     toolRowLines = 1,
     bashResultLines = DEFAULT_BASH_RESULT_LINES,
@@ -371,6 +371,8 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   setGroupingActive(grouping);
   setIconsEnabled(() => toolOptions.get().icons);
   setThinkingColor(() => toolOptions.get().thinkingColor);
+  // The colour a box of this tool wears when it succeeded (see the border below).
+  setToolColors((name) => toolOptions.get().toolColors[name] || "accent");
   installGroupBoundaries();
   installHoverTracking();
 

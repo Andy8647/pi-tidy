@@ -7,7 +7,7 @@
  *   tool-groups.ts      the grouping state machine
  *   hover.ts            the row under the pointer, shared by tool and turn rows
  *   message-frame.ts    compaction / branch / skill / custom / user boxes
- *   user-message.ts     the default "rail" user message
+ *   user-message.ts     your message's time and the gap in front of it
  *   bash-mode-frame.ts  the user's own `!` / `!!` bash runs
  *   error-lines.ts      pi's own error rows: one framed row per failure, `×N`
  */
@@ -17,4 +17,4 @@ export { patchToolBoxFrames, type ToolFrameOptions } from "./tools/tool-frame.ts
 export { patchContainerBoxes, patchMessageBoxes, type ContainerBoxOptions } from "./messages/message-frame.ts";
 export { patchBashExecutions, type BashModeOptions } from "./messages/bash-mode-frame.ts";
 export { installErrorLines, patchErrorLines, type ErrorLineOptions } from "./messages/error-lines.ts";
-export { patchUserMessages, USER_RAIL_GLYPH, type UserMessageOptions, type UserMessageStyle } from "./messages/user-message.ts";
+export { USER_RAIL_GLYPH, type UserMessageStyle } from "./messages/user-message.ts";

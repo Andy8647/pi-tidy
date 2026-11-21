@@ -7,7 +7,11 @@
 import { homedir } from "node:os";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "../theme-access.ts";
+import { chromeStyle } from "../live.ts";
 import { paint } from "./paint.ts";
+
+/** Whether boxes are drawn open (`tidy.style: "rail"`) unless a surface says otherwise. */
+export const railStyle = (): boolean => chromeStyle.get() === "rail";
 
 /** `$HOME` as `~`, the form a box shows a path in. */
 export function shortenPath(path: string): string {
@@ -240,7 +244,8 @@ export function messageHeader(
 /**
  * A rounded top border with a label set into it: `╭─ label ─────╮`. Falls
  * back to the plain border when the label does not fit. `label` arrives
- * painted; only the rule is colored here.
+ * painted; only the rule is colored here. `open` (a rail) draws the same row with
+ * its corners turned into rule, so the label sits in the same cells either way.
  */
 export function labeledTopBorder(
   width: number,
@@ -255,15 +260,17 @@ export function labeledTopBorder(
    * its right corner to the truncation.
    */
   labelCells = visibleWidth(label),
+  open = railStyle(),
 ): string {
   const inner = Math.max(2, width - 2);
   const bc = (s: string) => paint(theme, color, s);
+  const [left, right] = open ? ["─", "─"] : ["╭", "╮"];
   const rest = inner - 2 - lead - labelCells;
-  if (rest < 1) return bc(`╭${"─".repeat(inner)}╮`);
+  if (rest < 1) return bc(`${left}${"─".repeat(inner)}${right}`);
   const start = "─".repeat(lead);
   return align === "right"
-    ? `${bc(`╭${"─".repeat(rest)} `)}${label}${bc(` ${start}╮`)}`
-    : `${bc(`╭${start} `)}${label}${bc(` ${"─".repeat(rest)}╮`)}`;
+    ? `${bc(`${left}${"─".repeat(rest)} `)}${label}${bc(` ${start}${right}`)}`
+    : `${bc(`${left}${start} `)}${label}${bc(` ${"─".repeat(rest)}${right}`)}`;
 }
 
 /** A rule with a label set into it: `─ label ─────`. Plain when the label does not fit. */
@@ -288,6 +295,9 @@ export function labeledRule(
  *   pending (streaming/executing) → borderMuted (grey)
  *   success                      → success (green)
  *   error                        → error (red)
+ *
+ * `open` (a rail) keeps the rules above and below and blanks the sides, so every row
+ * keeps its width and the text its column: what was a frame's border cell is a space.
  */
 export function drawFrame(
   lines: string[],
@@ -299,16 +309,18 @@ export function drawFrame(
    * rows). Every other row is stripped — the frame is transparent by design.
    */
   keepBg?: ReadonlySet<number>,
+  open = railStyle(),
 ): string[] {
   const inner = Math.max(2, width - 2);
   const bc = (s: string) => paint(theme, color, s);
-  const out: string[] = [bc(`╭${"─".repeat(inner)}╮`)];
+  const side = open ? " " : bc("│");
+  const out: string[] = [bc(open ? "─".repeat(inner + 2) : `╭${"─".repeat(inner)}╮`)];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] as string;
     const kept = keepBg?.has(i) ? line : stripBackgroundFills(line);
-    out.push(`${bc("│")}${padToWidth(kept, inner)}${bc("│")}`);
+    out.push(`${side}${padToWidth(kept, inner)}${side}`);
   }
-  out.push(bc(`╰${"─".repeat(inner)}╯`));
+  out.push(bc(open ? "─".repeat(inner + 2) : `╰${"─".repeat(inner)}╯`));
   return out;
 }
 
