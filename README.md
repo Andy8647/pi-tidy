@@ -1,12 +1,12 @@
 # pi-tidy
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — a reply's tool calls fold into one line" width="840">
+  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — a run's tool calls fold into one line" width="840">
 </p>
 
-Tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a reply's tool calls
+Tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a run's tool calls
 fold into one line you can click open, while edits, failures and background jobs stay in view — and
-every box gets a rounded transparent frame.
+every box is drawn one way: rails by default, rounded frames if you prefer.
 
 **▶ [Watch the 40-second demo](https://cdn.jsdelivr.net/gh/Andy8647/pi-tidy@v0.4.3/assets/demo.mp4)**
 
@@ -137,25 +137,21 @@ keeps its own rendering.
 
 ## What it looks like
 
-A reply's tool calls, folded:
+A run while it works: each step's thinking and what it said, its calls folded to one line, a write and an edit in full:
 
-<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/folded.png" alt="Five tool calls folded into one summary line" width="840">
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/running.png" alt="A run in progress: thinking rows, folded groups of calls, a write and a side-by-side edit" width="840">
+
+Settled, the whole run folds to one summary line above the reply:
+
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/folded.png" alt="A settled run folded to one summary line above the reply" width="840">
+
+Click a group's line for one row per call. A program's own calls (here a codemode script) open under its row:
+
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/group-open.png" alt="An opened group: a thinking row, a bash row and a codemode row with its nested calls" width="840">
 
 A background process (pi-processes), tracked on the row that started it:
 
 <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/process.png" alt="A background process row with its live state" width="560">
-
-Click `▸ 5 calls` and it becomes a `▾` header with one row per call, each step's thinking above it:
-
-```
- ▾ 5 calls ·  bash×3  read×2 · 4 thoughts · 1 failed · 2.4s
- │ 🧠 thinking  测试挂了，先确认是哪一个断言炸的，再看是不是我们这边的问题
- │ ✓  bash git status --short  4 lines · 0.1s
- │ 🧠 thinking  看一眼改了什么
- │ ✓  read src/app.ts  120 lines · 0.0s
- │ ✗  bash pnpm test  exit 1 · 1.8s
- │ 🧠 thinking  …
-```
 
 ## Installation
 
