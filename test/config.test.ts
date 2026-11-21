@@ -84,7 +84,7 @@ test("user messages default to the frame; an unknown style falls back to it", ()
     const config = loadConfig();
     assert.equal(config.userMessageStyle, "frame");
     assert.equal(config.userMessagePaddingY, 1);
-    assert.deepEqual(config.userMessageColors, { rail: "accent", rule: "borderMuted" });
+    assert.deepEqual(config.userMessageColors, { rail: "border", rule: "border" });
   });
   withSettings({ tidy: { userMessageStyle: "rail" } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
   withSettings({ tidy: { userMessageStyle: "rules" } }, () => assert.equal(loadConfig().userMessageStyle, "rules"));
@@ -146,7 +146,7 @@ test("user message padding is clamped and colors merge over the defaults", () =>
   withSettings({ tidy: { userMessagePaddingY: 0, userMessageColors: { rail: "#cba6f7", rule: 3 } } }, () => {
     const config = loadConfig();
     assert.equal(config.userMessagePaddingY, 0);
-    assert.deepEqual(config.userMessageColors, { rail: "#cba6f7", rule: "borderMuted" });
+    assert.deepEqual(config.userMessageColors, { rail: "#cba6f7", rule: "border" });
   });
   withSettings({ tidy: { userMessagePaddingY: 9 } }, () => assert.equal(loadConfig().userMessagePaddingY, 3));
   withSettings({ tidy: { userMessagePaddingY: -1 } }, () => assert.equal(loadConfig().userMessagePaddingY, 1));

@@ -65,8 +65,10 @@ function formatDuration(ms: number): string {
 export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options: LineOptions = {}): string {
   const { icons = true, open = false, hovered = false } = options;
   const glyph = open ? "▾" : hovered ? "▶" : "▸";
+  // The process is the quiet layer: what it did is grey, and only what needs the
+  // reader — a failure, something still running — keeps a colour.
   const parts: string[] = [
-    `${theme.fg("accent", glyph)} ${theme.fg("toolTitle", `${summary.count} ${summary.count === 1 ? "call" : "calls"}`)}`,
+    theme.fg("muted", `${glyph} ${summary.count} ${summary.count === 1 ? "call" : "calls"}`),
   ];
 
   const breakdown = summary.breakdown.map(({ name, count }) => {
@@ -101,7 +103,7 @@ export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options
     parts.splice(
       parts.length - (summary.failed > 0 ? 1 : 0),
       0,
-      paint(theme, options.thinkingColor ?? "warning", `${icon}${live ? "thinking" : plural(summary.thoughts, "thought")}`),
+      paint(theme, options.thinkingColor ?? "muted", `${icon}${live ? "thinking" : plural(summary.thoughts, "thought")}`),
     );
   }
   if (summary.jobsRunning > 0) {
@@ -536,7 +538,7 @@ export function groupGutter(theme: ThemeLike): string {
  * itself stays a pure string.
  */
 export function formatThoughtLine(text: string, theme: ThemeLike, options: LineOptions = {}): string {
-  const color = options.thinkingColor ?? "warning";
+  const color = options.thinkingColor ?? "muted";
   // A thought row outside a group has no summary line above it to spin, so the
   // row carries the frame set itself: "still arriving" has to be visible
   // without opening anything. The spinner needs no Nerd Font; the brain does.
@@ -577,7 +579,7 @@ export function thoughtColumn(options: LineOptions = {}): number {
  */
 export function formatThoughtLabel(theme: ThemeLike, options: LineOptions = {}): string {
   const glyph = options.spinner ?? (options.icons === false ? "" : THOUGHT_ICON);
-  const label = paint(theme, options.thinkingColor ?? "warning", `${glyph ? `${glyph} ` : ""}thinking`);
+  const label = paint(theme, options.thinkingColor ?? "muted", `${glyph ? `${glyph} ` : ""}thinking`);
   return theme.italic ? theme.italic(label) : label;
 }
 

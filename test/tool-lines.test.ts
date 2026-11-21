@@ -270,7 +270,7 @@ test("hover adds a › hint to a tool row and turns ▸ into ▶ on the summary"
   );
   assert.match(row, /›<\/muted>$/);
   const summary = buildGroupSummary([{ toolName: "bash", isPartial: false, durationMs: 100 }]);
-  assert.match(formatGroupLine(summary, named, { icons: false, hovered: true }), /<accent>▶<\/accent>/);
+  assert.match(formatGroupLine(summary, named, { icons: false, hovered: true }), /<muted>▶ 1 call<\/muted>/);
   assert.doesNotMatch(formatToolLine(
     { toolName: "read", args: { path: "src/app.ts" }, isPartial: false, result: textResult("a\nb") },
     named,

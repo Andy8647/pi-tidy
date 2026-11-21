@@ -888,7 +888,7 @@ let groupingActive: () => boolean = () => true;
 /** Whether Nerd Font icons are on (`icons: false` on a terminal without one). */
 let iconsEnabled: () => boolean = () => true;
 /** `tidy.thinkingColor`: the brain, the count and an expanded box border. */
-let thinkingColorFor: () => string = () => "warning";
+let thinkingColorFor: () => string = () => "muted";
 
 export function setGroupingActive(active: () => boolean): void {
   groupingActive = active;
