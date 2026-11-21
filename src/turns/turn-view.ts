@@ -2,7 +2,7 @@ import { Box, Container, Markdown, MouseRegion, Text, sliceByColumn, visibleWidt
 import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
-import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlock, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
+import { COPIED_MS, chipLabels, quoteChip, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, spliceQuoteChips, type ChipSpan, type CodeBlock, type CodeBlockOptions, type CodeBlocks, type QuoteChip } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
 import { FRAME_PADDING_Y, GAP_PART, GAP_RUN } from "../draw/rhythm.ts";
 import { optionsRevision, tidyEnabled } from "../live.ts";
@@ -339,6 +339,10 @@ interface CodeHook extends CodeBlocks {
   built: Map<string, CodeBlock>;
   /** The rows `blocks` describes, so a render pi answered from its own cache is recognised. */
   rows?: readonly string[];
+  /** The same rows with the quotes' chips on them, which is what the caller draws. */
+  out?: string[];
+  /** The quotes this pass drew, waiting for `render` to say which rows they took. */
+  quotes: QuoteChip[];
   /** The blocks this pass drew, in row order: the fallback when the tokens cannot be read. */
   drawn: CodeBlock[];
 }
@@ -368,27 +372,37 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
     installed.options = options;
     return installed;
   }
-  const hook: CodeHook = { blocks: [], built: new Map(), drawn: [], markdown, options };
+  const hook: CodeHook = { blocks: [], quoteSpans: [], quotes: [], built: new Map(), drawn: [], markdown, options };
   const renderToken = markdown.renderToken;
   const render = markdown.render;
   markdown.renderToken = function (this: unknown, token: any, width: number, next: unknown, context: unknown) {
     const lines = renderToken.call(this, token, width, next, context);
-    if (token?.type !== "code" || !Array.isArray(lines)) return lines;
-    const railed = ruleCodeToken(lines, token, width, hook.options);
-    if (!railed) return lines;
-    hook.built.set(tokenKey(token), railed.block);
-    hook.drawn.push(railed.block);
-    return railed.lines;
+    if (!Array.isArray(lines)) return lines;
+    if (token?.type === "code") {
+      const railed = ruleCodeToken(lines, token, width, hook.options);
+      if (!railed) return lines;
+      hook.built.set(tokenKey(token), railed.block);
+      hook.drawn.push(railed.block);
+      return railed.lines;
+    }
+    // A quote is left as pi drew it; its chip goes in the cell in front of the border,
+    // which only `render` can see, since Markdown adds that cell itself.
+    if (token?.type === "blockquote") {
+      const quote = quoteChip(lines, token, hook.options);
+      if (quote) hook.quotes.push(quote);
+    }
+    return lines;
   };
   markdown.render = function (this: any, width: number) {
     const before = hook.blocks;
     hook.drawn = [];
+    hook.quotes = [];
     const rows = render.call(this, width);
     // pi answers from its own cache once text and width settle: the same array comes
-    // back and the blocks from the pass that filled it still describe those rows.
+    // back, and the pass that filled it already put the chips on the rows.
     if (rows === hook.rows) {
       hook.blocks = before;
-      return rows;
+      return hook.out ?? rows;
     }
     hook.rows = rows;
     // pi-tui 1.5 reuses a block it has already drawn, so `renderToken` may not run for
@@ -401,7 +415,10 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
       if (block) walked.push({ ...block, nested });
     }
     hook.blocks = walked.length === tokens.length && tokens.length ? walked : hook.drawn.length ? hook.drawn : before;
-    return rows;
+    const spliced = spliceQuoteChips(rows, hook.quotes, hook.options.theme);
+    hook.quoteSpans = spliced.spans;
+    hook.out = spliced.rows;
+    return hook.out;
   };
   component[CODE] = hook;
   return hook;
@@ -488,7 +505,13 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const rules = new Set(ruled.rules);
   // On the run's line the chip moves past the line, and on a rail one cell more (`leadRule`).
   const shift = TURN_RAIL_CELLS + (frame ? 0 : RAIL_CHIP_SHIFT);
-  const spans = railed ? ruled.spans.map((span) => ({ ...span, x: span.x + shift, end: span.end + shift })) : ruled.spans;
+  const ruleSpans = railed ? ruled.spans.map((span) => ({ ...span, x: span.x + shift, end: span.end + shift })) : ruled.spans;
+  // A quote's chip sits in the cell in front of its border, which no rule put anything
+  // in front of: on a rail it lands one cell left of where a rule's chip does, so the
+  // cell the pointer gives up for that (`RAIL_CHIP_SHIFT`) is handed back here.
+  const quoteShift = (railed ? TURN_RAIL_CELLS : 0) - (framed && !frame ? RAIL_CHIP_SHIFT : 0);
+  const quoteSpans = (code?.quoteSpans ?? []).map((span) => ({ ...span, x: span.x + quoteShift, end: span.end + quoteShift }));
+  const spans = [...ruleSpans, ...quoteSpans];
   let body = railed ? railRows(drawn, theme) : drawn;
   // A message on the run's line has no box to turn into corners, so the joints are drawn here.
   if (railed && rules.size) {
@@ -558,7 +581,9 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     const x = framed && !frame ? event.x - RAIL_CHIP_SHIFT : event.x;
     const span = spans.find((entry) => entry.row === event.y && x >= entry.x && x < entry.end);
     if (!span) return false;
-    const text = code.blocks[span.index]!.text;
+    // A quote carries its own text; a code block is read back by its index.
+    const text = span.text ?? code.blocks[span.index]?.text;
+    if (text === undefined) return false;
     // Mark it now, not when the write settles: the click's own repaint is the one
     // that has to show `copied`, and a hover renderer may not exist in this mode.
     code.flash = { index: span.index, until: Date.now() + COPIED_MS };

@@ -32,10 +32,16 @@
 import { sliceByColumn, stripTerminalSequences, TuiAltScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { liveSlot, tidyEnabled } from "./live.ts";
 import { USER_RAIL_GLYPH } from "./messages/user-message.ts";
-import { CHIP_LABELS, isOpenRule, isRuleOnly } from "./turns/code-blocks.ts";
+import { CHIP_LABELS, COPY_CHIP, COPIED_CHIP, isOpenRule, isRuleOnly } from "./turns/code-blocks.ts";
 
 /** `null` drops the row. `leftTrim` is the columns taken off its left edge. */
 export type CleanedRow = { text: string; leftTrim: number } | null;
+
+/**
+ * The copy chip tidy puts in front of a quote's border, which is drawing: a selection
+ * keeps the gutter it was drawn beside, not the button next to it.
+ */
+const QUOTE_CHIP_RE = new RegExp(`^(?:${COPY_CHIP}|${COPIED_CHIP}) ?│`);
 
 /** A rail's top rule, with what it is set into it; `├` where an open run's line meets it. */
 const LABELED_RULE_RE = /^[─├]─*(?: [^─]+ ─+)+$/;
@@ -169,6 +175,15 @@ export function cleanTranscriptRows(
   }
 
   const rows: CleanedRow[] = [];
+  /** A quote's chip off the row's front, with its cells counted into the trim. */
+  const withoutChip = (entry: CleanedRow): CleanedRow => {
+    if (!entry) return entry;
+    const match = QUOTE_CHIP_RE.exec(entry.text);
+    if (!match) return entry;
+    // The border the chip stands in front of stays: it is the quote's gutter.
+    const chip = match[0].slice(0, -1);
+    return { text: entry.text.slice(chip.length), leftTrim: entry.leftTrim + visibleWidth(chip) };
+  };
   let changed = false;
   for (let row = startRow; row <= endRow; row++) {
     if (dropped.has(row)) {
@@ -186,17 +201,19 @@ export function cleanTranscriptRows(
     const frame = frameRows.get(row);
     const framed = frame ? text.slice(frame.left).trimEnd() : "";
     if (frame && framed.length >= 2 && framed.startsWith(USER_RAIL_GLYPH) && framed.endsWith(USER_RAIL_GLYPH)) {
-      rows.push({ text: framed.slice(1 + frame.inset, -1), leftTrim: frame.left + 1 + frame.inset });
+      rows.push(withoutChip({ text: framed.slice(1 + frame.inset, -1), leftTrim: frame.left + 1 + frame.inset }));
       changed = true;
       continue;
     }
     const cut = railRows.get(row);
     if (cut !== undefined) {
-      rows.push({ text: text.slice(cut), leftTrim: cut });
+      rows.push(withoutChip({ text: text.slice(cut), leftTrim: cut }));
       changed = true;
       continue;
     }
-    rows.push({ text, leftTrim: 0 });
+    const plainRow = withoutChip({ text, leftTrim: 0 })!;
+    if (plainRow.text !== text) changed = true;
+    rows.push(plainRow);
   }
 
   return { rows, changed };
