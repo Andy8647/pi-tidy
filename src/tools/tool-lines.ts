@@ -14,6 +14,26 @@ import type { JobState } from "./background-jobs.ts";
 import { nestedBreakdown, type GroupSummary } from "./tool-groups.ts";
 import { nestedCallFailed, nestedCallsOf } from "./nested-calls.ts";
 
+/**
+ * `tidy.toolColors`: what a tool's box wears when it succeeded. The tool wears it
+ * wherever it is named — its icon on a summary or group line, its icon and name on a
+ * row — so one tool is one colour on every line. The tool box patch keeps it current.
+ */
+let toolColorFor: (name: string) => string = () => "accent";
+
+export function setToolColors(color: (name: string) => string): void {
+  toolColorFor = color;
+}
+
+export function toolColor(name: string): string {
+  return toolColorFor(name);
+}
+
+/** `text` in the colour of the tool named `name`. */
+function inToolColor(theme: ThemeLike, name: string, text: string): string {
+  return paint(theme, toolColor(name), text);
+}
+
 export interface LineOptions {
   /** Prepend each tool's Nerd Font kind icon. */
   icons?: boolean;
@@ -65,18 +85,22 @@ function formatDuration(ms: number): string {
 export function formatGroupLine(summary: GroupSummary, theme: ThemeLike, options: LineOptions = {}): string {
   const { icons = true, open = false, hovered = false } = options;
   const glyph = open ? "▾" : hovered ? "▶" : "▸";
+  // Folded, the process is the quiet layer: grey words, and each tool's icon in the
+  // colour of its box. Open, the header is what you are reading, and its marker and
+  // count take their colours back.
+  const calls = `${summary.count} ${summary.count === 1 ? "call" : "calls"}`;
   const parts: string[] = [
-    `${theme.fg("accent", glyph)} ${theme.fg("toolTitle", `${summary.count} ${summary.count === 1 ? "call" : "calls"}`)}`,
+    open ? `${theme.fg("accent", glyph)} ${theme.fg("toolTitle", calls)}` : theme.fg("muted", `${glyph} ${calls}`),
   ];
 
   const breakdown = summary.breakdown.map(({ name, count }) => {
-    const icon = icons ? `${toolKindIcon(name)} ` : "";
+    const icon = icons ? `${paint(theme, toolColor(name), toolKindIcon(name))} ` : "";
     // What the programs here ran hangs on the entry that ran them, so `12 calls`
     // still counts rows and this still says what those rows did. Open, each row
     // below already names its own calls, and the header stops repeating them.
     const own = open ? undefined : summary.nested?.get(name);
     const nested = own ? ` (${own.map((entry) => `${entry.name}×${entry.count}`).join(" ")})` : "";
-    return theme.fg("muted", `${icon}${name}×${count}${nested}`);
+    return `${icon}${theme.fg("muted", `${name}×${count}${nested}`)}`;
   });
   if (breakdown.length > 0) parts.push(breakdown.join(theme.fg("muted", "  ")));
 
@@ -397,7 +421,8 @@ export function formatToolRows(tool: ToolLike, theme: ThemeLike, options: LineOp
   // One column for the names in a group: the arguments start on the same cell
   // on every row, whatever the name's length (see groupAlign). The kind icon is
   // the same width on every row, so only the word is padded.
-  const head = rowHead(status, theme.fg(body ?? "toolTitle", `${icon}${tool.toolName}`), tool.toolName, options.align);
+  const named = `${icon}${tool.toolName}`;
+  const head = rowHead(status, body ? theme.fg(body, named) : inToolColor(theme, tool.toolName, named), tool.toolName, options.align);
   // A program's “arguments” are its source, which the open box already shows.
   // What a folded row is missing is what the program ran: the nested calls take
   // the arguments' place instead of the script's first line.
@@ -641,7 +666,7 @@ export function formatJobLine(tool: ToolLike, job: JobState, theme: ThemeLike, i
           ? theme.fg("error", "✗")
           : theme.fg("muted", "⊘");
   const icon = icons ? `${toolKindIcon(tool.toolName)} ` : "";
-  const name = theme.fg("toolTitle", `${icon}${tool.toolName}`);
+  const name = inToolColor(theme, tool.toolName, `${icon}${tool.toolName}`);
   const color = job.status === "failed" ? "error" : job.status === "running" ? "warning" : "muted";
   return `${rowHead(status, name, tool.toolName, align)}${theme.fg("toolOutput", ` ${job.name.replace(/\s+/g, " ")}`)}  ${theme.fg(color, describeJob(job).replace(/\s+/g, " "))}`;
 }

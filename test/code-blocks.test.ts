@@ -24,7 +24,7 @@ interface FixtureOptions {
   width?: number;
   codeBlocks?: boolean;
   splitDiff?: boolean;
-  replyStyle?: "frame" | "rail" | "rules";
+  replyStyle?: "frame" | "rail";
 }
 
 function fixture(text: string, options: FixtureOptions = {}) {
@@ -155,7 +155,7 @@ test("a diff block goes side by side through the same switch as an edit", () => 
   const open = plain.findIndex((line) => line.includes(" diff ") && line.includes(CHIP.copy));
   assert.ok(open >= 0, plain.join("\n"));
   const panes = plain.slice(open + 1, open + 5).join("\n");
-  assert.match(panes, /old\s+│\s+new/, `two labelled panes:\n${panes}`);
+  assert.match(panes, /│/, `two panes, separated by a rule:\n${panes}`);
   assert.match(panes, /const a = 2;/, panes);
 });
 
@@ -182,17 +182,41 @@ test("an info string shows only its language, and a bare fence says code", () =>
   assert.ok(bare.plain.some((line) => new RegExp(`^├─ code ${CHIP.copy} ─+┤$`).test(line)), bare.plain.join("\n"));
 });
 
-test("a railed reply joins the rules to its rail", () => {
+test("a rail reply's code block joins nothing: its rules sit inside, where the text is", () => {
   const { plain } = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { replyStyle: "rail" });
   const open = plain.findIndex((line) => line.includes(" fish ") && line.includes(CHIP.copy));
   assert.ok(open >= 0, plain.join("\n"));
-  assert.match(plain[open]!, new RegExp(`^├─ fish ${CHIP.copy} ─+$`), "no right corner: a rail has no right edge");
-  assert.ok(plain[open]!.endsWith("─"), plain[open]);
+  assert.match(plain[open]!.trimEnd(), new RegExp(`^  ─ fish ${CHIP.copy} ─+$`), "no side to meet, so no corner either");
+  const close = plain.findIndex((line, row) => row > open && /^ +─+$/.test(line.trimEnd()));
+  assert.ok(close > open, plain.join("\n"));
+  assert.equal(plain[open]!.indexOf("─"), plain[close]!.indexOf("─"), "it opens in the column it closes in");
+  assert.ok(!plain.some((line) => /[├┤│]/.test(line)), plain.join("\n"));
 });
 
-test("every rule row is exactly the terminal width", () => {
+test("a rail reply's chip copies from where it is drawn, and the cell in front of it does not", async () => {
+  const written: string[] = [];
+  setClipboardWriter(async (text) => { written.push(text); });
+  try {
+    const { chat, plain } = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { replyStyle: "rail" });
+    const y = plain.findIndex((line) => line.includes(" fish "));
+    const x = plain[y]!.indexOf(CHIP.copy);
+    click(chat, x - 1, y, W, plain.length);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(written, []);
+    click(chat, x, y, W, plain.length);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(written, [FISH]);
+    assert.ok(chat.render(W).map(visibleText)[y]!.includes(CHIP.copied));
+  } finally {
+    setClipboardWriter(undefined);
+  }
+});
+
+test("every drawn row is exactly the terminal width", () => {
   const { rows } = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n\n\`\`\`diff\n${DIFF}\n\`\`\`\n`);
-  assert.ok(rows.every((row) => visibleWidth(row) === W), rows.map((row) => `${visibleWidth(row)}:${visibleText(row).slice(0, 12)}`).join("\n"));
+  // The gap in front of a run is pi's kind of blank row: nothing drawn, so no width.
+  const drawn = rows.filter((row) => visibleText(row) !== "");
+  assert.ok(drawn.length > 0 && drawn.every((row) => visibleWidth(row) === W), rows.map((row) => `${visibleWidth(row)}:${visibleText(row).slice(0, 12)}`).join("\n"));
 });
 
 test("a pi whose Markdown has no renderToken reports no code blocks", () => {
@@ -317,9 +341,9 @@ test("the chip on a reply with no frame lights up and takes the hand", () => {
   disableHoverForTests();
 });
 
-test("a reply with no chip and no frame keeps the fast path", () => {
+test("a reply with no chip and no frame is just its text, with nothing laid out over it", () => {
   const fx = turnFixture("Done, nothing to copy.", { frame: false });
-  assert.equal((fx.answer as any)[TURN_LAYOUT], undefined, "no layout, no mouse wrapper, nothing to measure");
+  assert.equal((fx.answer as any)[TURN_LAYOUT], undefined, "nothing to click, no summary, no gap: the fast path");
   assert.ok(!fx.plain.some((line) => line.includes("─")), fx.plain.join("\n"));
 });
 

@@ -22,15 +22,16 @@ const HEADER = "Script completed\nWall time 0.1 seconds\nOutput:\n";
 
 function body(
   calls: unknown[],
-  options: { output?: string; width?: number; icons?: boolean; script?: boolean; outputOpen?: boolean; code?: string } = {},
+  options: { output?: string; width?: number; icons?: boolean; script?: boolean; outputOpen?: boolean; code?: string; diffContext?: number; splitDiff?: boolean } = {},
 ): string[] {
   const input: NestedBodyInput = {
     args: { code: options.code ?? CODE },
     run: nestedRunOf({ calls })!,
     output: options.output ?? `${HEADER}\n==> text 1/2 <==\n/tmp\n==> text 2/2 <==\nsecond`,
     isError: false,
-    diffLines: 8,
-    splitDiff: true,
+    diffLines: 20,
+    diffContext: options.diffContext ?? 4,
+    splitDiff: options.splitDiff ?? true,
     splitDiffMinWidth: 72,
     outputLines: 1,
     state: { script: options.script ?? false, output: options.outputOpen ?? false },
@@ -164,4 +165,16 @@ test("the fold state is per box and survives a re-render", () => {
   toggleNestedSection(box, "script");
   assert.deepEqual(nestedSections(box), { script: true, output: false });
   assert.deepEqual(nestedSections({}), { script: false, output: false }, "another box starts shut");
+});
+
+test("a nested edit's diff keeps diffContext lines around its change, panes or not", () => {
+  const diff = [" 1 a", " 2 b", " 3 c", " 4 d", "-5 old", "+5 new", " 6 e", " 7 f", " 8 g", " 9 h"].join("\n");
+  const calls = [{ id: "c/1", name: "edit", args: '{"path":"src/app.ts"}', status: "ok", durationMs: 2, diff }];
+  for (const splitDiff of [true, false]) {
+    const at = (context: number) => body(calls, { width: 120, splitDiff, diffContext: context }).join("\n");
+    assert.match(at(4), /\b1 a\b/, `${splitDiff}: pi's four lines`);
+    const two = at(2);
+    assert.doesNotMatch(two, /\b(?:1 a|2 b|8 g|9 h)\b/, `${splitDiff}:\n${two}`);
+    for (const kept of ["3 c", "4 d", "6 e", "7 f"]) assert.ok(two.includes(kept), `${splitDiff}: ${kept}\n${two}`);
+  }
 });

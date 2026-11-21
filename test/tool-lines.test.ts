@@ -13,6 +13,7 @@ import {
   formatToolLine,
   previewText,
   formatToolRows,
+  setToolColors,
   summarizeArgs,
   summarizeNestedCalls,
   summarizeResult,
@@ -204,6 +205,24 @@ test("tool line puts the result note before the duration", () => {
 
 const named = { fg: (token: string, text: string) => `<${token}>${text}</${token}>`, bold: (text: string) => text } as any;
 
+// What the tool box patch installs from `tidy.toolColors`.
+setToolColors((name) => ({ bash: "bashMode", read: "toolTitle" })[name] ?? "accent");
+
+test("a tool is one colour wherever it is named: its icon on the group line, its icon and name on its row", () => {
+  const summary = buildGroupSummary([
+    { toolName: "bash", isPartial: false, durationMs: 100 },
+    { toolName: "read", isPartial: false, durationMs: 100 },
+  ] as any);
+  for (const open of [false, true]) {
+    const line = formatGroupLine(summary!, named, { icons: true, open });
+    assert.match(line, /<bashMode>\S+<\/bashMode> <muted>bash×1<\/muted>/, line);
+    assert.match(line, /<toolTitle>\S+<\/toolTitle> <muted>read×1<\/muted>/, line);
+  }
+  const row = formatToolLine({ toolName: "bash", args: { command: "ls" }, isPartial: false, result: textResult("a") }, named, { icons: true });
+  assert.match(row, /<bashMode>\S+ bash<\/bashMode>/, row);
+  assert.match(formatToolLine({ toolName: "mystery", args: {}, isPartial: false, result: textResult("a") }, named, { icons: false }), /<accent>mystery<\/accent>/, "unlisted, the accent its box wears");
+});
+
 test("a folded group's failed count is the only red left", () => {
   const line = formatGroupLine(
     buildGroupSummary([
@@ -235,7 +254,7 @@ test("a failure's note is data, not an alarm: `exit 1` goes muted", () => {
     { icons: false },
   );
   assert.match(line, /<error>✗<\/error>/);
-  assert.match(line, /<toolTitle>bash<\/toolTitle>/, "an error with output keeps full contrast");
+  assert.match(line, /<bashMode>bash<\/bashMode>/, "an error with output keeps its tool's colour");
   assert.match(line, /<muted>exit 1<\/muted>/);
 });
 
@@ -259,7 +278,7 @@ test("silence is pi's notices only — a timeout or an abort is worth reading", 
     { icons: false },
   );
   assert.doesNotMatch(timeout, /<dim>/);
-  assert.match(timeout, /<toolTitle>bash<\/toolTitle>/);
+  assert.match(timeout, /<bashMode>bash<\/bashMode>/);
 });
 
 test("hover adds a › hint to a tool row and turns ▸ into ▶ on the summary", () => {
@@ -270,7 +289,7 @@ test("hover adds a › hint to a tool row and turns ▸ into ▶ on the summary"
   );
   assert.match(row, /›<\/muted>$/);
   const summary = buildGroupSummary([{ toolName: "bash", isPartial: false, durationMs: 100 }]);
-  assert.match(formatGroupLine(summary, named, { icons: false, hovered: true }), /<accent>▶<\/accent>/);
+  assert.match(formatGroupLine(summary, named, { icons: false, hovered: true }), /<muted>▶ 1 call<\/muted>/);
   assert.doesNotMatch(formatToolLine(
     { toolName: "read", args: { path: "src/app.ts" }, isPartial: false, result: textResult("a\nb") },
     named,

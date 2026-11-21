@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { HeaderStyle } from "./draw/frame-draw.ts";
+import type { Style } from "./live.ts";
 import type { UserMessageStyle } from "./messages/user-message.ts";
 import type { CollapseTurns, FinalReplyStyle } from "./turns/turn-state.ts";
 
@@ -20,12 +21,17 @@ export interface TidyConfig {
   /** Give message boxes the same rounded transparent frame as tool boxes. */
   frameMessages: boolean;
   /**
-   * How user messages look: "frame" (the rounded message frame, hugging the
-   * text, the user icon in its top border), "rail" (rules above and below, an
-   * accent `│` in front of the text), "rules" (only the rules) or "off" (pi's own).
+   * How every surface is edged: "frame" (a rounded box) or "rail" (the same box
+   * without its sides and corners: only the rules above and below). The lines an
+   * open run or group hangs on are drawn either way.
+   */
+  style: Style;
+  /**
+   * Your messages: `style` unless set here, or "off" for pi's own. The frame hugs
+   * the text (up to `userMessageMaxWidth`) and can sit on the right.
    */
   userMessageStyle: UserMessageStyle;
-  /** Alignment of a framed user message and its label; a rail's label only. */
+  /** Alignment of your message and its label. */
   userMessageAlign: "left" | "right";
   /**
    * The widest a framed user message's text renders before it wraps: `"auto"`
@@ -37,20 +43,12 @@ export interface TidyConfig {
   userMessageTime: boolean;
   /** Fold a whole run live or only after settlement. */
   collapseTurns: CollapseTurns;
-  /**
-   * The settled final assistant reply, independently of folding: "frame" (a
-   * full-width rounded frame), "rail" (rules above and below, a `│` in front of
-   * the text), "rules" (only the rules) or "off" (pi's own).
-   */
+  /** The settled final reply, full width: `style` unless set here, or "off" for pi's own. */
   finalReplyStyle: FinalReplyStyle;
   /** `auto`, or a pattern of `YYYY M MM D DD H HH mm ss` and literal text. */
   messageTimeFormat: string;
   /** What a message's top edge looks like: `inline` or `split`. */
   messageHeaderStyle: HeaderStyle;
-  /** Rows between each rule and the text of a "rail" or "rules" user message. */
-  userMessagePaddingY: number;
-  /** "rail" and "rules" user message colors: theme color names or `#rrggbb`. */
-  userMessageColors: { rail: string; rule: string };
   /** Prepend Nerd Font icons (tool kind / file type / message kind). */
   icons: boolean;
   /**
@@ -110,6 +108,12 @@ export interface TidyConfig {
    */
   diffLines: number;
   /**
+   * Unchanged lines an edit's diff keeps on each side of a change, `0` to `4`. pi
+   * writes four and folds the rest into `...`; fewer are cut out of that, in the
+   * panes and in pi's unified diff alike, and more cannot be put back.
+   */
+  diffContext: number;
+  /**
    * Put a `copy` chip on a reply's fenced code blocks, and give a language pi's
    * highlighter has no grammar for (fish) the closest one it does. A `diff` block
    * goes side by side instead, per `splitDiff`.
@@ -168,16 +172,15 @@ const DEFAULTS: TidyConfig = {
   enabled: true,
   highlightBash: true,
   frameMessages: true,
-  userMessageStyle: "frame",
+  style: "rail",
+  userMessageStyle: "rail",
   userMessageAlign: "left",
   userMessageMaxWidth: "auto",
   userMessageTime: true,
   collapseTurns: "afterRun",
-  finalReplyStyle: "frame",
+  finalReplyStyle: "rail",
   messageTimeFormat: "auto",
   messageHeaderStyle: "inline",
-  userMessagePaddingY: 1,
-  userMessageColors: { rail: "accent", rule: "borderMuted" },
   icons: true,
   bashResultLines: DEFAULT_BASH_RESULT_LINES,
   writeLines: PI_WRITE_PREVIEW_LINES,
@@ -192,14 +195,15 @@ const DEFAULTS: TidyConfig = {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
+  diffContext: 4,
   codeBlocks: true,
   hexSwatches: true,
   renderMarkdown: true,
   renderLatex: true,
   thinkingColor: "warning",
   messageBorderColors: {
-    assistant: "accent",
-    user: "toolTitle",
+    assistant: "border",
+    user: "border",
     compaction: "customMessageLabel",
     branch: "mdCode",
     custom: "warning",
@@ -207,14 +211,15 @@ const DEFAULTS: TidyConfig = {
   toolColors: DEFAULT_TOOL_COLORS,
 };
 
-const USER_MESSAGE_STYLES: readonly UserMessageStyle[] = ["rail", "rules", "frame", "off"];
+const STYLES: readonly Style[] = ["frame", "rail"];
 
-// The pre-0.5 `frameUserMessages` needs no reading: `true` asked for the frame,
-// which is the default now, and `false` meant "leave them to pi-starline",
-// which no longer draws them.
-function userMessageStyle(toolbox: any): UserMessageStyle {
-  const style = toolbox?.userMessageStyle;
-  return USER_MESSAGE_STYLES.includes(style) ? style : DEFAULTS.userMessageStyle;
+/**
+ * A surface's own key, when it says something: a style, or "off". `rules` is what a
+ * rail was called before 0.11 (rules with no `│`), so it reads as one.
+ */
+function surfaceStyle(value: unknown): UserMessageStyle | undefined {
+  if (value === "rules") return "rail";
+  return value === "frame" || value === "rail" || value === "off" ? value : undefined;
 }
 
 // A fraction of the width (0 < r ≤ 1) or a column count. Anything else — zero, a
@@ -224,17 +229,17 @@ function userMaxWidth(value: unknown): number | "auto" {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULTS.userMessageMaxWidth;
 }
 
-const FINAL_REPLY_STYLES: readonly FinalReplyStyle[] = ["frame", "rail", "rules", "off"];
-
 // `frameFinalReply` from before 0.9 keeps working: `true` is "frame", `false` is "off".
-function finalReplyStyle(toolbox: any): FinalReplyStyle {
-  if (FINAL_REPLY_STYLES.includes(toolbox?.finalReplyStyle)) return toolbox.finalReplyStyle;
-  return toolbox?.frameFinalReply === false ? "off" : DEFAULTS.finalReplyStyle;
+function finalReplyStyle(toolbox: any, style: Style): FinalReplyStyle {
+  const own = surfaceStyle(toolbox?.finalReplyStyle);
+  if (own) return own;
+  if (typeof toolbox?.frameFinalReply === "boolean") return toolbox.frameFinalReply ? "frame" : "off";
+  return style;
 }
 
-function stringEntries(value: unknown): Record<string, string> {
-  if (typeof value !== "object" || value === null) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+// A whole number of lines, at most the four pi writes; anything else keeps pi's four.
+function diffContext(value: unknown): number {
+  return Number.isInteger(value) && (value as number) >= 0 ? Math.min(value as number, DEFAULTS.diffContext) : DEFAULTS.diffContext;
 }
 
 function readSettings(): any {
@@ -247,29 +252,26 @@ export function loadConfig(): TidyConfig {
     // `tidy` since the rename from pi-toolbox; the old key keeps working.
     const settings = readSettings();
     const toolbox = settings?.tidy ?? settings?.toolbox;
+    // One style for every surface; a surface's own key, where set, is the exception.
+    const style: Style = STYLES.includes(toolbox?.style) ? toolbox.style : DEFAULTS.style;
     return {
       enabled: toolbox?.enabled ?? DEFAULTS.enabled,
       highlightBash: toolbox?.highlightBash ?? DEFAULTS.highlightBash,
       frameMessages: toolbox?.frameMessages ?? DEFAULTS.frameMessages,
-      userMessageStyle: userMessageStyle(toolbox),
+      style,
+      // The pre-0.5 `frameUserMessages` needs no reading: `true` asked for the frame,
+      // and `false` meant "leave them to pi-starline", which no longer draws them.
+      userMessageStyle: surfaceStyle(toolbox?.userMessageStyle) ?? style,
       userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
       userMessageMaxWidth: userMaxWidth(toolbox?.userMessageMaxWidth),
       userMessageTime: typeof toolbox?.userMessageTime === "boolean" ? toolbox.userMessageTime : DEFAULTS.userMessageTime,
       collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
-      finalReplyStyle: finalReplyStyle(toolbox),
+      finalReplyStyle: finalReplyStyle(toolbox, style),
       messageTimeFormat:
         typeof toolbox?.messageTimeFormat === "string" && toolbox.messageTimeFormat.trim()
           ? toolbox.messageTimeFormat
           : DEFAULTS.messageTimeFormat,
       messageHeaderStyle: toolbox?.messageHeaderStyle === "split" ? "split" : DEFAULTS.messageHeaderStyle,
-      userMessagePaddingY:
-        Number.isInteger(toolbox?.userMessagePaddingY) && toolbox.userMessagePaddingY >= 0
-          ? Math.min(3, toolbox.userMessagePaddingY)
-          : DEFAULTS.userMessagePaddingY,
-      userMessageColors: {
-        ...DEFAULTS.userMessageColors,
-        ...stringEntries(toolbox?.userMessageColors),
-      },
       icons: toolbox?.icons ?? DEFAULTS.icons,
       bashResultLines: typeof toolbox?.bashResultLines === "number" ? toolbox.bashResultLines : DEFAULTS.bashResultLines,
       writeLines: typeof toolbox?.writeLines === "number" ? toolbox.writeLines : DEFAULTS.writeLines,
@@ -288,15 +290,13 @@ export function loadConfig(): TidyConfig {
       splitDiffMinWidth:
         typeof toolbox?.splitDiffMinWidth === "number" ? toolbox.splitDiffMinWidth : DEFAULTS.splitDiffMinWidth,
       diffLines: typeof toolbox?.diffLines === "number" ? toolbox.diffLines : DEFAULTS.diffLines,
+      diffContext: diffContext(toolbox?.diffContext),
       codeBlocks: typeof toolbox?.codeBlocks === "boolean" ? toolbox.codeBlocks : DEFAULTS.codeBlocks,
       hexSwatches: typeof toolbox?.hexSwatches === "boolean" ? toolbox.hexSwatches : DEFAULTS.hexSwatches,
       renderMarkdown: typeof toolbox?.renderMarkdown === "boolean" ? toolbox.renderMarkdown : DEFAULTS.renderMarkdown,
       renderLatex: typeof toolbox?.renderLatex === "boolean" ? toolbox.renderLatex : DEFAULTS.renderLatex,
       thinkingColor: typeof toolbox?.thinkingColor === "string" ? toolbox.thinkingColor : DEFAULTS.thinkingColor,
-      messageBorderColors: {
-        ...DEFAULTS.messageBorderColors,
-        ...toolbox?.messageBorderColors,
-      },
+      messageBorderColors: { ...DEFAULTS.messageBorderColors, ...toolbox?.messageBorderColors },
       // Replace, not merge: removing a tool's color must be expressible.
       toolColors: toolbox?.toolColors ?? DEFAULTS.toolColors,
     };

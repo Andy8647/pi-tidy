@@ -1,17 +1,19 @@
 # pi-tidy
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — a reply's tool calls fold into one line" width="840">
+  <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/cover.png" alt="pi-tidy — a run's tool calls fold into one line" width="840">
 </p>
 
-Tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a reply's tool calls
+Tool folding for the [pi](https://github.com/earendil-works/pi) coding agent: a run's tool calls
 fold into one line you can click open, while edits, failures and background jobs stay in view — and
-every box gets a rounded transparent frame.
+every box is drawn one way: rails by default, rounded frames if you prefer.
 
 **▶ [Watch the 40-second demo](https://cdn.jsdelivr.net/gh/Andy8647/pi-tidy@v0.4.3/assets/demo.mp4)**
 
 ## Features
 
+- **One style for everything** — `style` draws every box the same way: rails (the default: each box with only its rules above and below), or rounded frames. The lines a run or an open group hangs on are drawn in both
+- **A screen that breathes** — one blank row between your message and its run, two between runs, none inside one thing, and a folded run's reply right under its summary. Opened, a run reads as steps: a thought, the text it led to and the calls it made sit together, and each step that says something stands one row clear of the last, the reply too. Every message edge is the theme's border grey and the model's name on the reply is the one accent; a summary's words are grey and each tool's icon wears its tool's colour
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
@@ -19,17 +21,17 @@ every box gets a rounded transparent frame.
 - **`/skill` is your prompt** — `/skill:grill-me fix the parser` is drawn as the user message it is, in your user message style, with what you typed after it; a click (or ctrl+o) opens the skill's own text inside it
 - **Every message box** — compaction, branch and extension custom messages get the same frame, each kind its own border color. A message an extension renders itself keeps its rows and loses its fill; pi-subagents' notices are drawn from the message, so the border says `worker needs attention` or `wiki-verifier failed` in that run's own color, one line of the text underneath, a click for the rest
 - **One row per failure** — pi prints its own errors (a failed request, an extension that threw) once per retry attempt, provider body and all; tidy keeps the first row, frames it, and counts the rest as `×N`. Warnings and notes are left alone
-- **User messages that fit** — tidy's rounded frame, as wide as the text, with the user icon and time in its top border; a one-word prompt gets a small box. Or the rail (a rule above and below, an accent `│` in front, the same icon and time in the top rule), or pi's own look
+- **User messages that fit** — as wide as the text, with the user icon and time in the top edge; a one-word prompt gets a small box (or a short pair of rules, as a rail). Or pi's own look
 - **Your own `!` commands** — framed in the user color with the `!` you typed, so a `!` run never passes for the agent's bash box
 - **Thinking, folded in** — a step that only thinks leaves a `thinking` row inside its group (a brain, the word, one line of what the model thought, sliding over the newest words while it streams); the summary counts the runs (`🧠 5 thoughts`), and a click opens that step's thinking full length, in a framed box with `󰧑 thinking` in its border. pi's `hideThinkingBlock` is ignored on purpose: the row is the same either way, and the click is the one way to read it
 - **Background jobs** — a call that starts a pi-processes job shows the job's live state on its row (`◐ process ticker  running 12s · READY matched`, then `✓ … exited 0 · 20s`); its `[process]` notifications are folded into that row, the matched log line they carried waits on a row of its own under it (open the group to read it), and a click opens the command, working directory and last 20 output lines without expanding the call
 - **A program reads as a call list** — a `codemode` script, a `fabric_exec` (pi-fabric) program, or any tool that records its [nested calls](#nested-calls): opened, the calls it ran are tidy rows with a name and a duration column, a failure's text and an edit's diff under their own row; the script and the output each fold to one row. Folded, what it ran hangs on its entry (`fabric_exec×1 (bash×2 edit×1)`), and a failure inside it reads as `1 nested failed`
-- **Side-by-side edit diffs** — `old │ new` with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised; below `splitDiffMinWidth` it falls back to pi's unified diff
+- **Side-by-side edit diffs** — two panes with line numbers on both sides, a bar and a tint per changed row, the changed word emphasised. A change the panes cannot fit in full — a line longer than a pane — stops being cut: that pair leaves the columns and takes the whole width, old above new, so the edit stays readable. Below `splitDiffMinWidth` it falls back to pi's unified diff
 - **One-line boxes** — a collapsed box keeps `bashResultLines` rows of output under a `(+N more lines, ctrl+o to expand)` footer, so a long call no longer owns the screen
 - **Nerd Font icons** — a kind icon per box, and the target file's nvim-web-devicons glyph in front of its path (`write /tmp/x.ts` renders `  write 󰛦 /tmp/x.ts`)
 - **Hex colors you can see** — a message that names a color (`#7f849c`, `#f00`, `rgb(127, 132, 156)`, `hsl(240, 10%, 15%)`) gets a `●` painted in that color in front of it, so a palette in prose reads at a glance. Fenced blocks, inline code and thinking keep their text
 - **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. A payload is highlighted as the language it is written in: a shell's `-c` script as shell, `python3 -c "…"` and `node -e '…'` as python and javascript, and a heredoc's body as whatever the command before it runs (`python3 - <<'PY'`). Opened, a call's whole body hangs on the command's own column (`$ ` in a box of its own, the column after the icon and the name under a group row), so the script and the output under it read as one block. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
-- **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without frames, corners or the rail around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
+- **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without the frame or the rules around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
 - **Scroll-safe caching** — an unchanged box costs one string comparison per frame
@@ -84,12 +86,12 @@ starts a new summary below it. Each counts its own calls and its own time, and `
 toggles either. A steer that beats the first answer changes nothing: with nothing to fold above
 it, it belongs to the run it landed in.
 
-Opened, the process hangs on a rail under the summary's marker, and the rail runs into the final
-reply's border. A box from `alwaysShowTools` joins the rail of a group that is open right above or
+Opened, the process hangs on a line under the summary's marker, and the line comes down into the
+reply's top edge and on to its bottom one, in either style. A box from `alwaysShowTools` joins the rail of a group that is open right above or
 below it. A run that fails with no text keeps the failure in view when it folds.
 
 `finalReplyStyle` draws only a settled final text reply, keeping pi's Markdown and mouse targets —
-an intermediate tool-calling message is never promoted. The border names the model that answered
+an intermediate tool-calling message is never promoted. Its top edge names the model that answered
 (from the message, not the current selection) with its provider glyph, clipped to `…` when it does
 not fit, and `icons: false` drops the glyph.
 
@@ -135,25 +137,21 @@ keeps its own rendering.
 
 ## What it looks like
 
-A reply's tool calls, folded:
+A run while it works: each step's thinking and what it said, its calls folded to one line, a write and an edit in full:
 
-<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/folded.png" alt="Five tool calls folded into one summary line" width="840">
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/running.png" alt="A run in progress: thinking rows, folded groups of calls, a write and a side-by-side edit" width="840">
+
+Settled, the whole run folds to one summary line above the reply:
+
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/folded.png" alt="A settled run folded to one summary line above the reply" width="840">
+
+Click a group's line for one row per call. A program's own calls (here a codemode script) open under its row:
+
+<img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/group-open.png" alt="An opened group: a thinking row, a bash row and a codemode row with its nested calls" width="840">
 
 A background process (pi-processes), tracked on the row that started it:
 
 <img src="https://raw.githubusercontent.com/Andy8647/pi-tidy/main/assets/process.png" alt="A background process row with its live state" width="560">
-
-Click `▸ 5 calls` and it becomes a `▾` header with one row per call, each step's thinking above it:
-
-```
- ▾ 5 calls ·  bash×3  read×2 · 4 thoughts · 1 failed · 2.4s
- │ 🧠 thinking  测试挂了，先确认是哪一个断言炸的，再看是不是我们这边的问题
- │ ✓  bash git status --short  4 lines · 0.1s
- │ 🧠 thinking  看一眼改了什么
- │ ✓  read src/app.ts  120 lines · 0.0s
- │ ✗  bash pnpm test  exit 1 · 1.8s
- │ 🧠 thinking  …
-```
 
 ## Installation
 
@@ -207,36 +205,63 @@ Add keys to the `tidy` object in `~/.pi/agent/settings.json`, then run `/reload`
 out keeps its default:
 
 ```json
-{ "tidy": { "collapseTurns": "off", "userMessageStyle": "rail", "bashResultLines": 3 } }
+{ "tidy": { "collapseTurns": "off", "style": "rail", "bashResultLines": 3 } }
 ```
 
-Colors are theme color names, so they follow the active theme. `thinkingColor`, `userMessageColors`
-and `messageBorderColors.assistant` also take `#rrggbb`.
+Colors are theme color names, so they follow the active theme. `thinkingColor` and
+`messageBorderColors.assistant` also take `#rrggbb`.
+
+### Styles
+
+`style` draws every surface tidy puts an edge on — your messages, the final reply, tool boxes,
+thinking and error boxes, compaction, branch and extension messages, your `!` commands — in one of two
+ways. `frame` is a rounded box. `rail`, the default, is the same box with its sides and corners taken
+away: the rules above and below are left, and the text keeps its column. The lines that say what belongs
+together are structure, not style, and both draw them: an opened run's line, an open group's gutter.
+Under an opened run that line comes down into the reply's top edge and ends in its bottom one.
+
+`userMessageStyle` and `finalReplyStyle` set one surface apart: set, it wins; unset, the surface
+follows `style`. Both also take `off`, pi's own look. `rules`, a rail's name before 0.11, reads as `rail`.
+
+| | `frame` | `rail` |
+|---|---|---|
+| Edges | Four, with rounded corners | A rule above and below |
+| Colour | The surface's own: `messageBorderColors` for a message, `toolColors` and the call's state for a tool box | The same |
+| Label | Set into the top edge | Set into the top rule, in the same cells |
+| Text | One cell in from each side | In the same column, with nothing beside it |
+| A reply's code block | Its rules meet both sides: `├─ fish 󰆒 ───┤` | Its rules start and end in the text's column: `─ fish 󰆒 ───` |
+| Rows inside the top and bottom edges | One on the reply | None |
+| Width | Your message hugs its text, up to `userMessageMaxWidth`, and can sit on the right (`userMessageAlign`). Everything else takes the whole width | The same |
+
+Around either style the rhythm is the same: no blank row inside one thing, one between your message
+and its run, two between runs, and none between a folded run's summary and its reply. Inside an opened
+run, a step — its thought, its text and the calls it makes — is one thing, and each step that says
+something stands one row clear of the one before; the reply is the last step and does the same. A step
+that only thinks and calls joins the group above it, its thought one of the group's rows.
 
 ### General
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `enabled` | `true` | Turns the whole extension on or off | Always |
+| `style` | `"rail"` | `rail` or `frame`: how every box is edged. See [Styles](#styles) | Always |
 | `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`) | Always. Off, a user message loses its label, so its time goes too |
 
 ### User messages
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `userMessageStyle` | `"frame"` | `frame`: a rounded frame as wide as the text, with the user icon and time in its top border. `rail`: a full-width rule above and below, an accent `│` in front of every row, and the icon and time in the top rule. `rules`: the same without the `│`, so a terminal's own selection copies the text without any verticals. `off`: pi's own look | `frame` needs `frameMessages`; without it you get pi's own look. `rail` and `rules` do not need it |
-| `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages use the whole width unless `userMessageMaxWidth` caps it | `frame` moves the message and its label. `rail` and `rules` move only the label, so they need `icons`. `off` ignores it |
-| `userMessageMaxWidth` | `"auto"` | The widest a framed message's text gets before it wraps, so the frame hugs the narrower column: `"auto"` is the whole width, `0.7` is a fraction of it, `88` is a column count. Anything else falls back to `"auto"` | `userMessageStyle: "frame"`. A label wider than the cap still widens the box to fit itself |
+| `userMessageStyle` | `"rail"` | Your messages' own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles) | Always |
+| `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages use the whole width unless `userMessageMaxWidth` caps it | Moves the message and its label, in either style. `off` ignores it |
+| `userMessageMaxWidth` | `"auto"` | The widest your message's text gets before it wraps, so its edges hug the narrower column: `"auto"` is the whole width, `0.7` is a fraction of it, `88` is a column count. Anything else falls back to `"auto"` | Any `userMessageStyle` but `off`. A label wider than the cap still widens the message to fit itself |
 | `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and any `userMessageStyle` but `off` |
-| `userMessagePaddingY` | `1` | Rows between each rule and the text, `0` to `3` | `userMessageStyle` `rail` or `rules` |
-| `userMessageColors` | `{ "rail": "accent", "rule": "borderMuted" }` | Colors of the `│` and the icon (`rail`), and the rules (`rule`) | `userMessageStyle` `rail` or `rules`. Under `rail`, `rail` also colors your `!` commands' frames |
 
 ### Final reply and turn folding
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `collapseTurns` | `"afterRun"` | Folds a whole run's process to one line. `afterRun` waits until the run settles, `live` folds while it runs and keeps the latest assistant text visible, `off` never folds | Always, with grouping on or off |
-| `finalReplyStyle` | `"frame"` | The final assistant reply, with the provider glyph, model name and time in its top edge. `frame`: a full-width rounded frame. `rail`: a full-width rule above and below and a `│` in front of every row. `rules`: only the rules, so a terminal's own selection copies the text without any verticals. `off`: pi's own look. `frameFinalReply` from before 0.9 still works: `true` is `frame`, `false` is `off` | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
+| `finalReplyStyle` | `"rail"` | The final reply's own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles). The provider glyph, the model's name and the time sit in its top edge. `frameFinalReply` from before 0.9 still works: `true` is `frame`, `false` is `off` | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
 | `messageTimeFormat` | `"auto"` | The time in a message's top edge. `auto` is the clock, with the date when the message is not from today. Anything else is a pattern of `YYYY`, `M`, `MM`, `D`, `DD`, `H`, `HH`, `mm`, `ss` and literal text, such as `"M月D日 HH:mm:ss"`. Those letters are always read as tokens, so a word like `Mon` will not survive | Wherever a time is shown: a final reply drawn by `finalReplyStyle`, and a user message under `userMessageTime` |
 | `messageHeaderStyle` | `"inline"` | How a message's top edge sets out who and when. `inline`: `╭─ model 13:09 ───╮`. `split`: `╭── model ── 13:09 ───╮` | Where a label is drawn: a final reply drawn by `finalReplyStyle`, and a user message with `icons`. With no time to separate, or on an edge too narrow for it, `split` looks like `inline` |
 
@@ -246,8 +271,8 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `frameMessages` | `true` | Frames compaction, branch and custom messages, and your own `!` / `!!` commands. Also allows `userMessageStyle: "frame"` | A custom message drawn by another extension's own renderer keeps its rows inside the frame and loses its fill (see below). Does not affect the rail, the final reply or tool boxes |
-| `messageBorderColors` | `{ "assistant": "accent", "user": "toolTitle", "compaction": "customMessageLabel", "branch": "mdCode", "custom": "warning" }` | Border color per message kind, merged over the defaults | A `/skill` invocation is a user message and takes `user`; a `skill` key is no longer read. `assistant` colors the final reply's frame and an opened run's rail and `▾` marker, and needs `finalReplyStyle` or `collapseTurns`. The rest need `frameMessages`. `user` colors a `frame` message and your `!` commands; under `rail`, those commands use `userMessageColors.rail` |
+| `frameMessages` | `true` | Draws compaction, branch and custom messages, and your own `!` / `!!` commands, in `style` | A custom message drawn by another extension's own renderer keeps its rows inside the frame and loses its fill (see below). Does not affect your messages, the final reply or tool boxes: their styles are their own keys |
+| `messageBorderColors` | `{ "assistant": "border", "user": "border", "compaction": "customMessageLabel", "branch": "mdCode", "custom": "warning" }` | Border color per message kind, merged over the defaults | A `/skill` invocation is a user message and takes `user`; a `skill` key is no longer read. `assistant` colors the final reply's edges, its code blocks' rules and an opened run's line (the model's name in the top edge stays `accent`), and needs `finalReplyStyle` or `collapseTurns`. `user` colors every edge of your message, whatever its style, and your `!` commands. The rest need `frameMessages` |
 
 ### Tool folding
 
@@ -265,9 +290,10 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 | `highlightBash` | `true` | Syntax-highlights bash commands, including the script a shell's `-c` takes | Needs pi 1.3 |
 | `bashResultLines` | `1` | Visual lines of output in a collapsed bash box. pi's own number is 5, with no setting. `0` hides the output until you expand | Needs pi 1.3. A failed command keeps pi's preview. `ctrl+o` shows everything |
 | `writeLines` | `10` | Visual lines of a written file in a collapsed box. `0` keeps just the header | Needs pi 1.3. `ctrl+o` shows everything |
-| `splitDiff` | `true` | Draws an edit's diff as two panes (`old │ new`) with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form. An `edit` another extension registers (aft's hashline mode, for one) gets the panes too, whenever its result carries the `diff` |
+| `splitDiff` | `true` | Draws an edit's diff as two panes with line numbers, a bar and a tinted row per changed line. Also decides whether a reply's `diff` code block gets panes. `false` keeps pi's unified diff | `edit` boxes at least `splitDiffMinWidth` wide, and `diff` code blocks on a row that wide; narrower ones get the unified form. An `edit` another extension registers (aft's hashline mode, for one) gets the panes too, whenever its result carries the `diff` |
 | `splitDiffMinWidth` | `72` | Box width below which the panes give way to pi's unified diff | Needs `splitDiff` |
 | `diffLines` | `20` | Diff rows in a collapsed edit box, starting a third of the budget above the first change, with `… (N more lines, M total, ctrl+o to expand)` under them. `0` keeps just the summary row | Only when the panes are drawn. pi's unified diff has no limit, so with `splitDiff: false` or in a narrower box a long diff is shown whole |
+| `diffContext` | `4` | Unchanged lines an edit keeps on each side of a change, `0` to `4`. pi writes four and folds the rest into `...`; fewer are cut out of that, more cannot be put back | Edit boxes, two panes or pi's unified diff, and an edit inside a program's call list |
 | `codeBlocks` | `true` | Draws a reply's fenced blocks as a section: the two fence rows become rules, the opening one labelled with its language and a copy chip (`├─ fish 󰆒 ────┤`), and they join the reply's frame or rail at the edges. The code rows are pi's own, apart from the chip: it lights up and the pointer turns into a hand while it is under it (needs a terminal without tmux, where pi tracks the pointer), and shows a tick for a moment after a click puts the block's text on the clipboard. A `diff` block goes side by side instead, under the same switch and width as an edit's diff, and languages highlight.js has no grammar for (`fish`, `.env`, TOML) get the closest one it does — `md`/`markdown` and `tex`/`latex` blocks are highlighted directly, since pi's highlighter has no grammar for either. `false` leaves pi's own fences | Assistant replies that tidy draws (needs `collapseTurns` or `finalReplyStyle`). A pi whose Markdown has no `renderToken` keeps its own code blocks, and tidy says so once at session start. With `icons: false` the chip is the word `copy` instead |
 
 ### Markdown and LaTeX
@@ -281,12 +307,16 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `toolColors` | `{ "bash": "bashMode", "read": "toolTitle", "edit": "syntaxVariable", "write": "syntaxVariable", "grep": "syntaxOperator", "find": "syntaxOperator", "ls": "syntaxOperator", "mcp": "customMessageLabel" }` | Border color per tool, on success. Pending stays grey, errors red, unlisted tools take `accent`. The map **replaces** the defaults, so `{}` turns per-tool colors off | Tool boxes only, not the rows in a group |
+| `toolColors` | `{ "bash": "bashMode", "read": "toolTitle", "edit": "syntaxVariable", "write": "syntaxVariable", "grep": "syntaxOperator", "find": "syntaxOperator", "ls": "syntaxOperator", "mcp": "customMessageLabel" }` | Border color per tool, on success. Pending stays grey, errors red, unlisted tools take `accent`. The map **replaces** the defaults, so `{}` turns per-tool colors off | Tool boxes, and each tool's icon on a summary or group line |
 | `thinkingColor` | `"warning"` | Color of the brain, the `N thoughts` count and an expanded thinking box | Always, with grouping on or off |
 | `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word. Fenced blocks, inline code and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
 
-Tool boxes keep green, red and grey for a call's state, so the default message colors avoid them:
-mauve for compactions, peach for branch summaries and yellow for extension notices.
+The defaults keep a settled screen quiet without draining it. Your messages, the reply and an opened run's line are
+drawn in the theme's plain `border` grey, and the model's name on the reply is the one `accent`. A folded summary's
+words are `muted`, and each tool's icon on it wears that tool's box colour; an opened group's header takes its colours
+back (`accent` marker, `toolTitle` count), and thinking is `warning` yellow. A failure is red wherever it is counted. Tool boxes keep green, red and grey for a
+call's state, so the default colors of the rarer messages avoid them: mauve for compactions, peach for branch summaries
+and yellow for extension notices.
 
 ### Background jobs
 
@@ -300,7 +330,7 @@ mauve for compactions, peach for branch summaries and yellow for extension notic
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `dedupeErrors` | `true` | pi prints its own error rows (a failed request, an extension that threw) once per retry attempt. Folds the repeats into the first as `×N` and frames that row (`╭─ error ×3 ─╮`). pi's "Retry failed after N attempts" replaces it when pi gives up | Error rows only. Warnings, notes and an abort stay as pi drew them |
-| `cleanCopy` | `true` | Takes tidy's frames, corners, rail glyphs and rules out of what you copy, on select or with the copy key. A top border's label stays when it names a file — a `write` or `edit` box's path is what the drag was for | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy. A `rules` user message with `icons: false` has no label to tell its rules from a model's, so they stay |
+| `cleanCopy` | `true` | Takes tidy's frames, rails and their rules out of what you copy, on select or with the copy key. A top border's label stays when it names a file — a `write` or `edit` box's path is what the drag was for | pi's fullscreen selection only. A terminal's own selection (shift or option and drag) never reaches tidy. A `rules` user message with `icons: false` has no label to tell its rules from a model's, so they stay |
 
 ## How it works
 
@@ -336,10 +366,9 @@ registered first.
 
 `!` bash-mode runs are framed as the user's
 rather than as a tool's: the agent's bash box changes color with its state,
-while the user's keeps the user messages' color (`messageBorderColors.user`, or
-`userMessageColors.rail` under the rail) and lets pi's own rows (`Running...`,
-`(exit 1)`) say how it went. Both user message styles render pi's own Markdown
-child narrower and swap only its chrome, so markdown
+while the user's keeps the user messages' color (`messageBorderColors.user`) and
+lets pi's own rows (`Running...`, `(exit 1)`) say how it went. Your message's edges,
+in either style, render pi's own Markdown child narrower and swap only its chrome, so markdown
 transformers registered by other extensions (pi-ide-context's selection
 references, for one) keep working. With pi-starline 0.9 and later, tidy is the
 only extension that styles user messages; earlier pi-starline versions draw
@@ -398,8 +427,10 @@ toggles every box.
 
 A selection in the transcript copies without tidy's chrome (`cleanCopy`). A frame is
 recognised by its shape: rounded corners of equal width in one column, with a vertical
-on both sides of every row. A table's square corners and a blockquote's `│` stay. So
-does the rail beside an open run's rows, which a selection cannot tell from a quote,
+on both sides of every row. A rail by a labelled top rule and the next plain rule of its
+width in its column; one with no label (an `!` command, `icons: false`) keeps its rules,
+since two bare rules are also what a model's `---` looks like. A table's square corners
+and a blockquote's `│` stay. So does the line beside an open run's rows, which a selection cannot tell from a quote,
 and a rounded box a model drew in an unframed message is taken for a frame. A top
 border's label survives when it names a file: dragging the path out of a tool box's
 border copies the path, and `ctrl+x` on that selection has something to hand over.

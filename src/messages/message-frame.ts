@@ -1,7 +1,7 @@
 /**
  * Rounded transparent frames for the message boxes pi draws outside tool
- * calls: compaction / branch summaries, extension custom messages and
- * user messages in the "frame" style.
+ * calls: compaction / branch summaries, extension custom messages and your
+ * messages. In the "rail" style the same boxes lose their sides and corners.
  *
  * Options live in global slots (see live.ts): every call updates them, and only
  * the first one installs the prototype patches, so a `/reload` with different
@@ -182,11 +182,12 @@ interface CustomRender {
 export interface ContainerBoxOptions {
   icons?: boolean;
   /**
-   * Frame user messages too (`userMessageStyle: "frame"`). The default
-   * "rail" style is drawn by user-message.ts. While false, this patch leaves
-   * UserMessageComponent alone (and is not installed if it never was).
+   * Draw your messages too (`userMessageStyle` is not "off"). While false, this
+   * patch leaves UserMessageComponent alone (and is not installed if it never was).
    */
   includeUser?: boolean;
+  /** Your messages are a rail (`userMessageStyle: "rail"`), whatever `tidy.style` is. */
+  userOpen?: boolean;
   /** Align the framed user message and its label; other message kinds stay left. */
   userAlign?: "left" | "right";
   /** The widest a framed user message's text gets: `"auto"`, a fraction of the width, or columns. */
@@ -197,7 +198,10 @@ export interface ContainerBoxOptions {
   timeFormat?: string;
   /** `tidy.messageHeaderStyle`. */
   headerStyle?: HeaderStyle;
-  /** False turns installed patches into pass-throughs and installs nothing new. */
+  /**
+   * `frameMessages`: false turns the installed patches into pass-throughs for every
+   * kind but the user message, which `includeUser` decides alone.
+   */
   enabled?: boolean;
 }
 
@@ -206,6 +210,7 @@ interface ResolvedContainerOptions {
   borderColors: { user: string; custom: string };
   icons: boolean;
   includeUser: boolean;
+  userOpen: boolean;
   userAlign: "left" | "right";
   userMaxWidth: number | "auto";
   userTime: boolean;
@@ -350,9 +355,9 @@ export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
 ): void {
-  const { icons = false, includeUser = false, enabled = true, userAlign = "left", userMaxWidth = "auto", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
-  containerOptions.set({ enabled, borderColors, icons, includeUser, userAlign, userMaxWidth, userTime, timeFormat, headerStyle });
-  if (!enabled) return;
+  const { icons = false, includeUser = false, userOpen = false, enabled = true, userAlign = "left", userMaxWidth = "auto", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
+  containerOptions.set({ enabled, borderColors, icons, includeUser, userOpen, userAlign, userMaxWidth, userTime, timeFormat, headerStyle });
+  if (!enabled && !includeUser) return;
   if (includeUser) installUserMessageTimes();
 
   const patch = (cls: { prototype: unknown }, kind: "user" | "custom") => {
@@ -367,7 +372,7 @@ export function patchContainerBoxes(
     proto.render = function (this: ContainerBoxInternals, width: number): string[] {
       const live = containerOptions.get();
       const theme = getTheme();
-      if (!theme || !live?.enabled || !tidyEnabled.get() || (isUserMessage && !live.includeUser)) {
+      if (!theme || !framing(live, isUserMessage) || !tidyEnabled.get()) {
         return originalRender.call(this, width);
       }
       try {
@@ -461,8 +466,8 @@ export function patchContainerBoxes(
           // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
           // row and copies without it. No icons, no label: a plain top border.
           const framed = hugContent(content, w, visibleWidth(header?.label ?? ""));
-          const frame = drawFrame(framed.lines, framed.width, theme, borderColor);
-          if (header) frame[0] = labeledTopBorder(framed.width, theme, borderColor, header.label, align, header.lead);
+          const frame = drawFrame(framed.lines, framed.width, theme, borderColor, undefined, live.userOpen);
+          if (header) frame[0] = labeledTopBorder(framed.width, theme, borderColor, header.label, align, header.lead, undefined, live.userOpen);
           const indent = align === "right" ? " ".repeat(w - framed.width) : "";
           out = indent ? frame.map((line) => indent + line) : frame;
         } else {
@@ -489,7 +494,7 @@ export function patchContainerBoxes(
     const inheritedMouse = (proto as unknown as { handleMouse?: (event: any) => unknown }).handleMouse;
     (proto as unknown as Record<string, unknown>).handleMouse = function (this: ContainerBoxInternals, event: any) {
       const live = containerOptions.get();
-      if (!live?.enabled || !tidyEnabled.get()) return inheritedMouse?.call(this, event);
+      if (!framing(live, isUserMessage) || !tidyEnabled.get()) return inheritedMouse?.call(this, event);
       // A notice Tidy drew has no component under the pointer: the whole frame
       // is the switch, and the rows are its own.
       const notice = this.__noticeFrame;
@@ -516,5 +521,13 @@ export function patchContainerBoxes(
   };
 
   if (includeUser) patch(UserMessageComponent, "user");
-  patch(CustomMessageComponent, "custom");
+  if (enabled) patch(CustomMessageComponent, "custom");
+}
+
+/**
+ * Whether this kind is drawn now. Your message follows its own style
+ * (`userMessageStyle`); `frameMessages` decides for everything else.
+ */
+function framing(live: ResolvedContainerOptions | undefined, user: boolean): live is ResolvedContainerOptions {
+  return !!live && (user ? live.includeUser : live.enabled);
 }

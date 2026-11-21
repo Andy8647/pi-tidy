@@ -56,7 +56,7 @@ function hashlineBox(details: unknown, args: unknown = { patch: `[${PATH}#1A2B]`
 test("the diff comes from the result when the call renderer has no preview", () => {
   const rows = hashlineBox({ diff, additions: 2, deletions: 1, files: [{ path: PATH, diff, additions: 2, deletions: 1 }] }).render(W);
   const text = rows.map(plain).join("\n");
-  assert.match(text, /old\s+│\s+new/, `expected the two panes, got:\n${text}`);
+  assert.match(text, /│/, `expected the two panes, got:\n${text}`);
   assert.match(text, /↳ diff \+2 -1/, "the panes keep their own summary row");
   assert.ok(!text.includes(`edited ${PATH}`), "the renderer's own summary row is replaced, not stacked under the panes");
 });

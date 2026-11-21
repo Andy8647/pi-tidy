@@ -30,7 +30,9 @@ import type { ThemeLike } from "../theme-access.ts";
 import { highlightLines } from "./lang-support.ts";
 import type { NestedCall, NestedRun } from "./nested-calls.ts";
 import { renderSplitDiff } from "./split-diff.ts";
-import { summarizeArgs, summarizeResult } from "./tool-lines.ts";
+import { trimDiffContext } from "./diff-context.ts";
+import { summarizeArgs, summarizeResult, toolColor } from "./tool-lines.ts";
+import { paint } from "../draw/paint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // The two folds
@@ -221,7 +223,7 @@ function callRow(call: NestedCall, nameWidth: number, theme: ThemeLike, options:
   const args = argsText(call, budget);
   const note = call.output && call.status !== "error" ? summarizeResult(call.name, { content: [{ type: "text", text: call.output }] }) : "";
   const duration = formatDuration(call.durationMs);
-  let row = ` ${statusGlyph(call, theme)} ${icon}${theme.fg("toolTitle", call.name)}${pad}`;
+  let row = ` ${statusGlyph(call, theme)} ${paint(theme, toolColor(call.name), `${icon}${call.name}`)}${pad}`;
   if (args) row += ` ${theme.fg("muted", args)}`;
   if (note) row += ` ${theme.fg("muted", note)}${duration ? theme.fg("muted", " ·") : ""}`;
   if (duration) row += ` ${theme.fg("dim", duration)}`;
@@ -246,8 +248,8 @@ function hang(lines: readonly string[], cells: number, width: number | undefined
  * screen, and the diff's own header already says how big it was.
  */
 function diffRows(call: NestedCall, input: NestedBodyInput): { rows: string[]; fills: number[] } {
-  const diff = call.diff;
-  if (!diff) return { rows: [], fills: [] };
+  if (!call.diff) return { rows: [], fills: [] };
+  const diff = trimDiffContext(call.diff, input.diffContext);
   const maxLines = Math.max(1, input.diffLines);
   const width = input.options.width;
   const path = typeof call.args === "object" ? call.args.path : undefined;
@@ -377,6 +379,8 @@ export interface NestedBodyInput {
   isError: boolean;
   /** Rows a nested diff may take. */
   diffLines: number;
+  /** Unchanged lines kept on each side of a change (`diffContext`). */
+  diffContext: number;
   splitDiff: boolean;
   splitDiffMinWidth: number;
   /** Rows of a call's own output kept under its row (`bashResultLines`). */

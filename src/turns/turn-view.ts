@@ -1,9 +1,10 @@
 import { Box, Container, Markdown, MouseRegion, Text, sliceByColumn, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { clipToWidth, formatMessageTime, italicDim, labeledRule, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
+import { clipToWidth, formatMessageTime, italicDim, labeledTopBorder, messageHeader, sameLines, visibleText } from "../draw/frame-draw.ts";
 import { toolKindIcon } from "../draw/icons.ts";
 import { canCopyText, copyText } from "../clipboard.ts";
 import { COPIED_MS, chipLabels, repaintChip, ruleCodeToken, ruleRows, RULE_GLYPH, type ChipSpan, type CodeBlock, type CodeBlockOptions, type CodeBlocks } from "./code-blocks.ts";
 import { paint } from "../draw/paint.ts";
+import { FRAME_PADDING_Y, GAP_PART, GAP_RUN } from "../draw/rhythm.ts";
 import { optionsRevision, tidyEnabled } from "../live.ts";
 import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hover.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
@@ -11,6 +12,7 @@ import { jobNoteCount } from "../tools/background-jobs.ts";
 import { toolKindName } from "../tools/tool-groups.ts";
 import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
 import { closeThinking } from "../tools/tool-group-view.ts";
+import { toolColor } from "../tools/tool-lines.ts";
 import { delegateCounts, delegateRevision } from "./delegate-notices.ts";
 
 const NATIVE_VIEW = Symbol.for("pi-toolbox:message-view");
@@ -21,10 +23,12 @@ const BASE_MOUSE = Symbol.for("pi-tidy:turn-base-mouse");
 const HOVER = Symbol.for("pi-tidy:turn-hover");
 const CACHE = Symbol.for("pi-tidy:turn-cache");
 // Nerd Fonts glyphnames.json: cod-openai, cod-claude, md-google; deepseek has no brand
-// glyph in Nerd Fonts, so it uses the whale emoji; all others use md-robot.
+// glyph in Nerd Fonts, so it gets md-dolphin, the nearest to its whale. Not the whale
+// emoji: a colour picture two cells wide was the loudest thing on a quiet screen. All
+// others use md-robot.
 const PROVIDER_ICONS: Record<string, string> = {
   openai: "\uec81", "openai-codex": "\uec81", anthropic: "\uec82",
-  deepseek: "\u{1f433}",
+  deepseek: "\u{f18b4}",
   google: "\u{f02ad}", "google-gemini-cli": "\u{f02ad}", "google-vertex": "\u{f02ad}",
 };
 const ROBOT_ICON = "\u{f06a9}"; // md-robot
@@ -75,14 +79,16 @@ export function summaryLine(turn: Turn, theme: ThemeLike, width: number, hovered
   // A sub-agent's notice arrives long after its turn settled, without touching it.
   const delegates = delegateRevision();
   const cached = summaryCache.get(turn);
-  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color && cached.notes === notes && cached.delegates === delegates) {
+  // The tool colours the icons wear arrive with a reload, and every reload bumps this.
+  const revision = optionsRevision();
+  if (cached && cached.version === turn.version && cached.tick === tick && cached.width === width && cached.hovered === hovered && cached.folded === isFolded && cached.color === color && cached.notes === notes && cached.delegates === delegates && cached.revision === revision) {
     return cached.line;
   }
   const line = buildSummaryLine(turn, theme, width, hovered, now, notes);
-  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, notes, delegates, line });
+  summaryCache.set(turn, { version: turn.version, tick, width, hovered, folded: isFolded, color, notes, delegates, revision, line });
   return line;
 }
-const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; notes: number; delegates: number; line: string }>();
+const summaryCache = new WeakMap<Turn, { version: number | undefined; tick: number; width: number; hovered: boolean; folded: boolean; color: string; notes: number; delegates: number; revision: number; line: string }>();
 
 /** Everything the turn's own calls' jobs have reported, as one number. */
 function noteTotal(turn: Turn): number {
@@ -102,14 +108,20 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   const parts: string[] = [];
   const glyphed: string[] = [];
   const add = (plain: string, icon = plain) => { parts.push(plain); glyphed.push(icon); };
-  add(paint(theme, turnOptions.get().assistantColor, `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`));
+  // Grey like the rest of the process; a run still going is the one thing here
+  // that wants the eye, so it keeps the accent.
+  add(theme.fg(state === "running" ? "accent" : "muted", `${marker} ${state === "running" ? "running" : "took"} ${duration(total)}`));
   if (!["completed", "running", "unknown"].includes(state)) add(theme.fg("error", state));
   const llmFailures = [...turn.messages.values()].filter((message) => message.role === "assistant" && message.stopReason === "error").length;
   if (llmFailures) add(theme.fg("error", `${llmFailures} LLM failed`));
-  const failed = [...turn.tools.values()].filter((tool) => tool.failed).length;
-  if (failed) add(theme.fg("error", `${failed} failed`));
-  const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
-  if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
+  // Open, the group a failed call sits in says so on its own line, and a failed box is
+  // red: the count here would be the same news twice. Folded, it is the only report.
+  if (folded(turn)) {
+    const failed = [...turn.tools.values()].filter((tool) => tool.failed).length;
+    if (failed) add(theme.fg("error", `${failed} failed`));
+    const nestedFailed = [...turn.tools.values()].reduce((sum, tool) => sum + (tool.nestedFailed ?? 0), 0);
+    if (nestedFailed) add(theme.fg("error", `${nestedFailed} nested failed`));
+  }
   // Background sub-agents this turn launched, as their notices reported them
   // (delegate-notices.ts). A failure goes with the other failures: early on the
   // line, so a narrow row clips the counts after it first.
@@ -127,7 +139,7 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
   if (ended.length) add(theme.fg("muted", `sub-agents ${ended.join(", ")}`));
   // Open, the group headers below already count the calls.
   if (folded(turn)) {
-    add(theme.fg("toolTitle", `${turn.tools.size} calls`));
+    add(theme.fg("muted", `${turn.tools.size} calls`));
     const counts = new Map<string, number>();
     const nested = new Map<string, Map<string, number>>();
     for (const tool of turn.tools.values()) {
@@ -143,7 +155,9 @@ function buildSummaryLine(turn: Turn, theme: ThemeLike, width: number, hovered: 
       // says how many calls the run made, this says what those calls did.
       const own = nested.get(name);
       const inside = own ? ` (${[...own].map(([kind, times]) => `${kind}×${times}`).join(" ")})` : "";
-      add(theme.fg("muted", `${name}×${count}${inside}`), theme.fg("muted", `${toolKindIcon(name)} ${name}×${count}${inside}`));
+      // Grey words; the icon wears its tool's colour, as the tool's own box does.
+      const words = theme.fg("muted", `${name}×${count}${inside}`);
+      add(words, `${paint(theme, toolColor(name), toolKindIcon(name))} ${words}`);
     }
     if (notes) add(theme.fg("muted", `${notes} matched`));
   }
@@ -201,6 +215,12 @@ export function railRows(rows: readonly string[], theme: ThemeLike, pad = ""): s
   return out;
 }
 
+/** `count` rows of `row` (blank by default), as a child a Container can lay out and hit-test. */
+function blankRows(count: number, row = ""): { render(width: number): string[]; invalidate(): void } {
+  const rows = Array.from({ length: count }, () => row);
+  return { render: () => rows, invalidate() {} };
+}
+
 /** Box owns the horizontal mouse transform; its padding cells become border glyphs. */
 const ZONE_A = "\x1b]133;A\x07";
 const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
@@ -208,20 +228,32 @@ class ReplyBody extends Box {
   private theme: ThemeLike;
   private color: string;
   private closed: boolean;
+  /** What stands in the left cell: the frame's side, the run's line through a rail, or nothing. */
+  private side: string;
   /** Rows of the child that are a code block's rule, by index. */
   private rules: ReadonlySet<number>;
-  /** `closed` draws the right border too; a rail has only the left one. */
-  constructor(theme: ThemeLike, color: string, closed: boolean, rules: ReadonlySet<number> = new Set()) {
-    super(1, 0);
+  /** Blank rows inside the top and bottom edges: the child's rows start this far down. */
+  private padY: number;
+  /**
+   * `closed` is a frame: both sides, and its code blocks' rules joined to them. A rail
+   * has no sides, so its rules join nothing and keep to the text's column; its left cell
+   * holds the open run's line, or is blank. A frame keeps a row clear inside each edge:
+   * text pressed against a border is the cramped look, and a rail, with no border beside
+   * the text, never has it.
+   */
+  constructor(theme: ThemeLike, color: string, closed: boolean, side: string, rules: ReadonlySet<number> = new Set()) {
+    super(1, closed ? FRAME_PADDING_Y : 0);
+    this.padY = closed ? FRAME_PADDING_Y : 0;
     this.theme = theme;
     this.color = color;
     this.closed = closed;
+    this.side = side;
     this.rules = rules;
   }
   override render(width: number): string[] {
     const border = paint(this.theme, this.color, "│");
-    const joint = paint(this.theme, this.color, this.closed ? "┤" : "");
-    const rule = this.theme.fg("muted", RULE_GLYPH);
+    const joint = paint(this.theme, this.color, "┤");
+    const rule = paint(this.theme, this.color, RULE_GLYPH);
     return super.render(width).map((line, row) => {
       // pi's OSC 133 zones belong at the row's edges. The frame used to leave
       // them inside: zone A landed after the left border, and B/C before the
@@ -233,10 +265,11 @@ class ReplyBody extends Box {
       const end = markers.filter((marker) => marker !== ZONE_A).join("");
       // A rule joins the frame: the border cell becomes a corner and the padding
       // cell beside it turns into rule, so the line is unbroken edge to edge.
-      if (this.rules.has(row)) {
+      if (this.rules.has(row - this.padY)) {
+        if (!this.closed) return start + this.side + leadRule(sliceByColumn(clean, 1, width - 2), 1, rule) + end;
         return start + paint(this.theme, this.color, "├") + rule + sliceByColumn(clean, 2, Math.max(0, width - 4)) + rule + joint + end;
       }
-      return start + border + sliceByColumn(clean, 1, width - 2) + (this.closed ? border : "") + end;
+      return start + this.side + sliceByColumn(clean, 1, width - 2) + (this.closed ? border : "") + end;
     });
   }
 }
@@ -254,7 +287,7 @@ function installMouse(component: any): void {
     // `spans` are body rows; the component's own rows start with the frame's top edge.
     const shift = layout.chipShift ?? 0;
     const chip = event.type === "move" ? (layout.spans as ChipSpan[] | undefined)?.find((span: ChipSpan) => span.row + layout.bodyTop === event.y && event.x - shift >= span.x && event.x - shift < span.end) : undefined;
-    const hot = event.type === "move" && !chip && layout.header && event.y === 0;
+    const hot = event.type === "move" && !chip && layout.header && event.y === layout.headerRow;
     const moved = event.type === "move" && ((code?.hover ?? -1) !== (chip?.index ?? -1) || !!this[HOVER] !== !!hot);
     if (event.type === "move") {
       this[HOVER] = !!hot;
@@ -375,12 +408,26 @@ function codeBlocksFor(component: any, options: CodeBlockOptions): CodeBlocks | 
 }
 
 /**
- * A rule in a railed reply joins the rail on its left and runs on to the row's end:
- * `├─ fish ─── copy ──────`. The rows come back in place, so indexes still match.
+ * A code block's rule where nothing meets it. A frame's joint is the lead in front of the
+ * language; without one, the label would start where the closing rule does (` fish ───`
+ * over `──────`). A rule cell goes in at `at` and the row gives up its last rule cell, so
+ * the block opens in the column it closes in: `─ fish ───`. Everything after `at` moves
+ * one cell right, the chip with it (`RAIL_CHIP_SHIFT`).
+ */
+function leadRule(row: string, at: number, rule: string): string {
+  const width = visibleWidth(row);
+  return sliceByColumn(row, 0, at) + rule + sliceByColumn(row, at, Math.max(0, width - at - 2)) + sliceByColumn(row, width - 1, 1);
+}
+const RAIL_CHIP_SHIFT = 1;
+
+/**
+ * A rule in a message hanging on an open run joins the run's line on its left and runs
+ * on to the row's end: `├─ fish ─── copy ──────`. Frames only: on a rail it keeps to
+ * the text's column. The rows come back in place, so indexes still match.
  */
 function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: ThemeLike, color: string): string[] {
   const out = [...body];
-  const glyph = theme.fg("muted", RULE_GLYPH);
+  const glyph = paint(theme, color, RULE_GLYPH);
   for (const row of rules) {
     const line = out[row];
     if (line === undefined) continue;
@@ -394,6 +441,11 @@ function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: T
     out[row] = `${lead}${paint(theme, color, "├")}${glyph}${content}${glyph.repeat(rest)}`;
   }
   return out;
+}
+
+/** Whether a message has text to show: what cuts a group, and so starts a step of its own. */
+function saysSomething(message: any): boolean {
+  return Array.isArray(message?.content) && message.content.some((block: any) => block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
 }
 
 /** Decorate the existing message view, never a second markdown renderer. */
@@ -423,19 +475,34 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     splitDiff: options.splitDiff,
     splitDiffMinWidth: options.splitDiffMinWidth,
     canCopy: canCopyText(),
+    ruleColor: options.assistantColor,
   });
   const drawn = closed && key !== visible
     ? []
     : railed
       ? draw(Math.max(1, width - TURN_RAIL_CELLS))
-      : draw(framed && options.replyStyle !== "rules" ? width - 2 : width, framed);
+      : draw(framed ? width - 2 : width, framed);
+  const frame = options.replyStyle === "frame";
   // Measured before a rail goes on: once it is there, its `│` and a quote's border read alike.
   const ruled = code ? ruleRows(drawn, code.blocks) : { rules: [], spans: [], opens: new Map<number, number>() };
   const rules = new Set(ruled.rules);
-  const spans = railed ? ruled.spans.map((span) => ({ ...span, x: span.x + TURN_RAIL_CELLS, end: span.end + TURN_RAIL_CELLS })) : ruled.spans;
+  // On the run's line the chip moves past the line, and on a rail one cell more (`leadRule`).
+  const shift = TURN_RAIL_CELLS + (frame ? 0 : RAIL_CHIP_SHIFT);
+  const spans = railed ? ruled.spans.map((span) => ({ ...span, x: span.x + shift, end: span.end + shift })) : ruled.spans;
   let body = railed ? railRows(drawn, theme) : drawn;
-  // A railed reply has no box to turn into corners, so the joints are drawn here.
-  if (railed && rules.size) body = railRules(body, rules, theme, options.assistantColor);
+  // A message on the run's line has no box to turn into corners, so the joints are drawn here.
+  if (railed && rules.size) {
+    if (frame) body = railRules(body, rules, theme, options.assistantColor);
+    else {
+      const rule = paint(theme, options.assistantColor, RULE_GLYPH);
+      body = body.map((row, index) => {
+        if (!rules.has(index)) return row;
+        const lead = row.startsWith(ZONE_A) ? ZONE_A : "";
+        // The run's line, the text's inset, then the cell the lead goes in.
+        return lead + leadRule(lead ? row.slice(ZONE_A.length) : row, TURN_RAIL_CELLS + 1, rule);
+      });
+    }
+  }
   const flash = code?.flash;
   const labels = chipLabels(options.icons);
   // A chip is repainted where it is, so the rule around it keeps its cells.
@@ -445,9 +512,18 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     if (!copied && hotIndex !== span.index) continue;
     body = repaintChip(body, span, theme, copied ? labels.copied : labels.copy, hotIndex === span.index);
   }
+  // A run's first rows stand clear of your message, or, when nothing of yours started
+  // it (a job's notification did), of the run before.
+  const runGap = key === turn.firstAssistant ? (turn.root ? GAP_PART : GAP_RUN) : 0;
+  // Inside the process, a step that says something — its thinking, its text, then the
+  // calls it makes — stands one row clear of the step before it. A step with no text
+  // has its thought inside the group of its calls, so it adds no gap of its own. The
+  // reply is the last step and stands clear the same way; folded, there is no process
+  // above it, and it sits right under the summary.
+  const stepGap = !closed && key !== turn.firstAssistant && body.length > 0 && (framed ? hasProcess(turn) : saysSomething(component.lastMessage)) ? GAP_PART : 0;
   // A chip needs the layout and the handler below it; a message without one keeps the
   // fast path, since most rows in a transcript carry neither.
-  if (!header && !framed && !spans.length) return body;
+  if (!header && !framed && !spans.length && !runGap && !stepGap) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const color = options.assistantColor;
@@ -455,7 +531,8 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     ? messageHeader(
         theme,
         color,
-        paint(theme, color, replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
+        // The one accent on a settled screen: whose answer this is, where the eye should land.
+        theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
         typeof component.lastMessage.timestamp === "number" ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat)) : "",
         options.headerStyle,
         width,
@@ -467,7 +544,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const lead = replyHeader?.lead ?? 1;
   const cache = component[CACHE];
   const revision = optionsRevision();
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && sameLines(cache.body, body)) {
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && cache.runGap === runGap && cache.stepGap === stepGap && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -476,7 +553,10 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   // to pi's own selection, because the chip is chrome the block's text never had.
   const copyClick = (event: TuiMouseEvent): boolean => {
     if (!code || event.type !== "click" || event.button !== "left") return false;
-    const span = spans.find((entry) => entry.row === event.y && event.x >= entry.x && event.x < entry.end);
+    // The click comes through `ReplyBody`'s padding already, but not through the cell a
+    // rail's rule put in front of the chip (`leadRule`).
+    const x = framed && !frame ? event.x - RAIL_CHIP_SHIFT : event.x;
+    const span = spans.find((entry) => entry.row === event.y && x >= entry.x && x < entry.end);
     if (!span) return false;
     const text = code.blocks[span.index]!.text;
     // Mark it now, not when the write settles: the click's own repaint is the one
@@ -493,11 +573,14 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     return true;
   };
   const view = new Container();
+  if (runGap) view.addChild(blankRows(runGap));
   if (header) view.addChild(new MouseRegion(new Text(line, 0, 0), (event) => {
     if (event.type !== "click" || event.button !== "left") return undefined;
     turn.open = folded(turn);
     return { handled: true, render: true };
   }));
+  // On the run's line the gap carries the line, as every row of the process does.
+  if (stepGap) view.addChild(blankRows(stepGap, railed || railOpen ? paint(theme, color, "│") : ""));
   const source = { render: () => body, invalidate() {}, handleMouse: (event: TuiMouseEvent) => {
     if (copyClick(event)) return { handled: true, render: true };
     if (component[NATIVE_VIEW]) return component[NATIVE_VIEW].handleMouse(event);
@@ -507,27 +590,26 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     finally { component[LAYOUT] = layout; }
   } };
   if (framed) {
-    // The rail comes down into the reply's corner and carries on as its left border.
-    const flat = options.replyStyle !== "frame";
-    const top = flat
-      ? labeledRule(width, theme, color, label, "left", lead).replace("─", railOpen ? "├" : "─")
-      : labeledTopBorder(width, theme, color, label, "left", lead).replace("╭", railOpen ? "├" : "╭");
-    view.addChild(new Text(top, 0, 0));
-    if (options.replyStyle === "rules") view.addChild(source);
-    else {
-      const box = new ReplyBody(theme, color, !flat, rules);
-      box.addChild(source);
-      view.addChild(box);
-    }
-    view.addChild(new Text(paint(theme, color, flat ? "─".repeat(width) : `╰${"─".repeat(width - 2)}╯`), 0, 0));
+    // An open run's line comes down into the reply's corner and carries on down its
+    // left edge to the bottom one: a frame's side, or the only vertical a rail has.
+    const top = labeledTopBorder(width, theme, color, label, "left", lead, undefined, !frame);
+    view.addChild(new Text(railOpen ? top.replace(frame ? "╭" : RULE_GLYPH, "├") : top, 0, 0));
+    const box = new ReplyBody(theme, color, frame, frame || railOpen ? paint(theme, color, "│") : " ", rules);
+    box.addChild(source);
+    view.addChild(box);
+    const bottom = frame ? `╰${"─".repeat(width - 2)}╯` : `${railOpen ? "╰" : RULE_GLYPH}${RULE_GLYPH.repeat(width - 1)}`;
+    view.addChild(new Text(paint(theme, color, bottom), 0, 0));
   } else view.addChild(source);
   const out = view.render(width);
   // A body inside `ReplyBody` sits one cell right of the row: the pointer's column has
-  // to come back through that padding before it is compared with a chip's.
-  const chipShift = framed && options.replyStyle !== "rules" ? 1 : 0;
-  const layout = { view, header, spans, bodyTop: (header ? 1 : 0) + (framed ? 1 : 0), chipShift };
+  // to come back through that padding before it is compared with a chip's. A rail's rule
+  // moved its chip one cell more (`leadRule`).
+  const chipShift = framed ? 1 + (frame ? 0 : RAIL_CHIP_SHIFT) : 0;
+  const padding = framed && frame ? FRAME_PADDING_Y : 0;
+  const bodyTop = runGap + (header ? 1 : 0) + stepGap + (framed ? 1 : 0) + padding;
+  const layout = { view, header, headerRow: runGap, spans, bodyTop, chipShift };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, body, out, layout };
+  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, runGap, stepGap, body, out, layout };
   installMouse(component);
   return out;
 }

@@ -13,7 +13,7 @@
  */
 
 import { keyHint } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ThemeLike } from "../theme-access.ts";
 import { highlightLines, resolveLanguageFromPath } from "./lang-support.ts";
 
@@ -67,6 +67,12 @@ interface Row {
   kind: "row" | "skip";
   left?: Cell;
   right?: Cell;
+}
+
+/** One row as it is actually drawn: one line per pane row, or several when wrapped. */
+interface RenderedRow {
+  lines: string[];
+  changed: boolean;
 }
 
 interface ParsedLine {
@@ -404,11 +410,11 @@ function layout(width: number, rows: readonly Row[]): Layout | null {
     }
   }
   // "old" / "new" sit over the number column, so it is at least three wide.
-  const numWidth = Math.max(3, String(maxNumber).length);
+  const numWidth = Math.max(1, String(maxNumber).length);
   const available = width - PAD * 2 - SEPARATOR.length;
-  if (available < (numWidth + 3) * 2 + MIN_CONTENT_WIDTH * 2) return null;
+  if (available < (numWidth + 2) * 2 + MIN_CONTENT_WIDTH * 2) return null;
   const pane = Math.floor(available / 2);
-  const content = pane - numWidth - 3;
+  const content = pane - numWidth - 2;
   if (content < MIN_CONTENT_WIDTH) return null;
   return { numWidth, pane, content };
 }
@@ -445,10 +451,10 @@ function renderCell(
   body = pad(truncateToWidth(body, lay.content, ""), lay.content);
 
   const num = cell.num === null ? "" : String(cell.num);
-  const label = num.padStart(lay.numWidth);
+  const label = num.padEnd(lay.numWidth);
   // Bar first, then the number: the marker sits in its own column, so the
   // digits line up down the pane and the bar reads as a margin.
-  const line = `${bar}${changed ? "▌" : " "}\x1b[39m ${fg}${label}\x1b[39m ${body}`;
+  const line = `${bar}${changed ? "▌" : " "}${fg}${label}\x1b[39m ${body}`;
   return pad(fill ? paint(line, fill) : line, lay.pane);
 }
 
@@ -462,7 +468,7 @@ function renderCell(
 function renderSummary(add: number, remove: number, width: number, palette: Palette): string {
   const prefix = `${palette.contextFg}↳ diff\x1b[39m ${palette.addedFg}+${add}\x1b[39m ${palette.removedFg}-${remove}\x1b[39m`;
   const room = width - PAD * 2 - visibleWidth(`↳ diff +${add} -${remove} []`);
-  if (add + remove === 0 || room < 2) return pad(`${' '.repeat(PAD)}${prefix}${' '.repeat(PAD)}`, width);
+  if (add + remove === 0 || room < 2) return pad(`${" ".repeat(PAD)}${prefix}${" ".repeat(PAD)}`, width);
   // One cell per changed line (capped), but never so short the ratio is a guess.
   const bar = Math.min(room, 32, Math.max(8, add + remove));
   let added = Math.round((bar * add) / (add + remove));
@@ -524,56 +530,31 @@ export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
 
   const label = (text: string) => `${palette.contextFg}${text}\x1b[39m`;
   const separator = `${palette.separator}${SEPARATOR}\x1b[39m`;
-  const header = `  ${label("old".padStart(lay.numWidth))} ${" ".repeat(lay.content)}${separator}  ${label("new".padStart(lay.numWidth))} ${" ".repeat(lay.content)}`;
-  const window = clip(rows, input.maxLines);
-  // A zero budget is "just the summary": column headers over nothing read as a
-  // rendering bug rather than a setting.
-  if (window.rows.length > 0) lines.push(pad(" ".repeat(PAD) + header + " ".repeat(PAD), width));
-
+  // No "old │ new" header. Left is old and right is new, so it labelled
+  // nothing; its labels are three cells wide where the number column is
+  // often two, which put the rule one cell off every row below it.
+  // A pair the panes cannot show in full leaves the columns rather than losing
+  // the change at the cut. Decided per pair: pi writes one `-` block followed by
+  // one `+` block for every adjacent change, so keying this on the block would
+  // drag a short edit out of the panes just because its neighbour is long.
+  const rendered: RenderedRow[] = rows.map((row) => {
+    if (row.kind === "skip") {
+      return { lines: [pad(`${' '.repeat(PAD)}${label("…")}`, width)], changed: false };
+    }
+    return overflowsPane(row, lay.content)
+      ? renderWideRow(row, width, lay.numWidth, palette, highlight)
+      : renderPaneRow(row, width, lay, palette, highlight, separator);
+  });
+  const window = clipRendered(rendered, input.maxLines);
   if (window.above > 0) {
     lines.push(pad(`${" ".repeat(PAD)}${label(`… ${window.above} line${window.above === 1 ? "" : "s"} above`)}`, width));
   }
 
   for (const row of window.rows) {
-    if (row.kind === "skip") {
-      lines.push(pad(`${" ".repeat(PAD)}${label("…")}`, width));
-      continue;
+    for (const line of row.lines) {
+      if (row.changed) bgRows.push(lines.length);
+      lines.push(line);
     }
-    const spans = row.left && row.right ? commonEdges(row.left.text, row.right.text) : undefined;
-    const leftEmphasis =
-      row.left && row.right && row.left.changed
-        ? {
-            start: spans!.prefix,
-            end: row.left.text.length - spans!.suffix,
-          }
-        : undefined;
-    const rightEmphasis =
-      row.left && row.right && row.right.changed
-        ? {
-            start: spans!.prefix,
-            end: row.right.text.length - spans!.suffix,
-          }
-        : undefined;
-
-    const left = renderCell(
-      row.left,
-      row.left?.changed ? "remove" : "context",
-      lay,
-      palette,
-      highlight,
-      leftEmphasis,
-    );
-    const right = renderCell(
-      row.right,
-      row.right?.changed ? "add" : "context",
-      lay,
-      palette,
-      highlight,
-      rightEmphasis,
-    );
-    const line = `${" ".repeat(PAD)}${left}${separator}${right}${" ".repeat(PAD)}`;
-    if (row.left?.changed || row.right?.changed) bgRows.push(lines.length);
-    lines.push(pad(line, width));
   }
 
   if (window.below > 0) {
@@ -598,22 +579,163 @@ export function renderSplitDiff(input: SplitDiffInput): SplitDiffOutput | null {
 }
 
 /**
- * The slice of rows to draw. Without a budget that is all of them; with one,
- * the window is anchored at the first changed row with a third of the budget
- * of context above it, so a one-line change in a 200-line file still shows the
- * line. Rows the window skips are reported on either side.
+ * Whether a changed side of this pair is wider than a pane can draw. An
+ * unchanged row has no change to lose, so the panes may cut it like any other
+ * line; only a change needs the whole box to stay readable.
  */
-function clip(
-  rows: readonly Row[],
+function overflowsPane(row: Row, content: number): boolean {
+  for (const cell of [row.left, row.right]) {
+    if (cell?.changed && visibleWidth(sanitize(cell.text)) > content) return true;
+  }
+  return false;
+}
+
+/** A row drawn inside the two panes: one physical line, both sides aligned. */
+function renderPaneRow(
+  row: Row,
+  width: number,
+  lay: Layout,
+  palette: Palette,
+  highlight: (line: string) => string,
+  separator: string,
+): RenderedRow {
+  const spans = row.left && row.right ? commonEdges(row.left.text, row.right.text) : undefined;
+  const leftEmphasis =
+    row.left && row.right && row.left.changed
+      ? {
+          start: spans!.prefix,
+          end: row.left.text.length - spans!.suffix,
+        }
+      : undefined;
+  const rightEmphasis =
+    row.left && row.right && row.right.changed
+      ? {
+          start: spans!.prefix,
+          end: row.right.text.length - spans!.suffix,
+        }
+      : undefined;
+
+  const left = renderCell(
+    row.left,
+    row.left?.changed ? "remove" : "context",
+    lay,
+    palette,
+    highlight,
+    leftEmphasis,
+  );
+  const right = renderCell(
+    row.right,
+    row.right?.changed ? "add" : "context",
+    lay,
+    palette,
+    highlight,
+    rightEmphasis,
+  );
+  return {
+    lines: [pad(`${" ".repeat(PAD)}${left}${separator}${right}${" ".repeat(PAD)}`, width)],
+    changed: Boolean(row.left?.changed || row.right?.changed),
+  };
+}
+
+/**
+ * One side of a broken-out row: the whole line, wrapped onto as many rows as
+ * the box needs. The bar and the number sit on the first row only; the
+ * continuation rows keep the tint, so the block still reads as one line.
+ */
+function wrapWide(
+  cell: Cell,
+  kind: "add" | "remove",
+  content: number,
+  numWidth: number,
+  palette: Palette,
+  highlight: (line: string) => string,
+  emphasis: { start: number; end: number } | undefined,
+): string[] {
+  const fill = kind === "add" ? palette.addedBg : palette.removedBg;
+  const emphFill = kind === "add" ? palette.addedEmphasis : palette.removedEmphasis;
+  const fg = kind === "add" ? palette.addedFg : palette.removedFg;
+  const bar = kind === "add" ? palette.addedBar : palette.removedBar;
+
+  let body = highlight(sanitize(cell.text));
+  if (emphasis && emphFill) body = emphasize(body, emphasis.start, emphasis.end, emphFill, fill);
+  const gutter = numWidth + 2;
+  const num = cell.num === null ? "" : String(cell.num);
+  const head = `${bar}▌${fg}${num.padEnd(numWidth)}\x1b[39m `;
+  return wrapTextWithAnsi(body, content).map((text, index) => {
+    const line = `${index === 0 ? head : " ".repeat(gutter)}${pad(truncateToWidth(text, content, ""), content)}`;
+    return fill ? paint(line, fill) : line;
+  });
+}
+
+/**
+ * A row whose change does not fit either pane, drawn across the whole box: the
+ * old line on top, the new one below, each wrapped. Trading the side-by-side
+ * comparison for this run beats showing two identical-looking halves and
+ * leaving the reader to guess what changed.
+ */
+function renderWideRow(
+  row: Row,
+  width: number,
+  numWidth: number,
+  palette: Palette,
+  highlight: (line: string) => string,
+): RenderedRow {
+  const content = width - PAD * 2 - (numWidth + 2);
+  const spans = row.left && row.right ? commonEdges(row.left.text, row.right.text) : undefined;
+  const lines: string[] = [];
+  for (const [cell, kind] of [
+    [row.left, "remove"],
+    [row.right, "add"],
+  ] as const) {
+    if (!cell) continue;
+    const emphasis =
+      cell.changed && spans ? { start: spans.prefix, end: cell.text.length - spans.suffix } : undefined;
+    for (const line of wrapWide(cell, kind, content, numWidth, palette, highlight, emphasis)) {
+      lines.push(pad(`${" ".repeat(PAD)}${line}`, width));
+    }
+  }
+  return { lines, changed: true };
+}
+
+/**
+ * The slice of rendered rows to draw. A wrapped row costs the rows it actually
+ * occupies, so three long lines cannot claim a budget of three and then paint
+ * nine. Without a budget that is all of them; with one, the window is anchored
+ * at the first changed row with a third of the budget above it, and only ever
+ * cuts between rows.
+ */
+function clipRendered(
+  rows: readonly RenderedRow[],
   maxLines: number | undefined,
-): { rows: readonly Row[]; above: number; below: number } {
-  const budget = maxLines === undefined ? rows.length : Math.max(0, Math.floor(maxLines));
-  if (budget >= rows.length) return { rows, above: 0, below: 0 };
+): { rows: readonly RenderedRow[]; above: number; below: number } {
+  const heights = rows.map((row) => row.lines.length);
+  const total = heights.reduce((sum, height) => sum + height, 0);
+  const budget = maxLines === undefined ? total : Math.max(0, Math.floor(maxLines));
+  if (budget >= total) return { rows, above: 0, below: 0 };
   if (budget === 0) return { rows: [], above: 0, below: rows.length };
-  const first = rows.findIndex((row) => row.left?.changed || row.right?.changed);
-  const anchor = first < 0 ? 0 : first;
+
+  let seen = 0;
+  for (const row of rows) {
+    if (row.changed) break;
+    seen += row.lines.length;
+  }
   const lead = Math.min(Math.floor(budget / 3), budget);
-  const start = Math.max(0, Math.min(anchor - lead, rows.length - budget));
-  const end = start + budget;
-  return { rows: rows.slice(start, end), above: start, below: rows.length - end };
+  const start = Math.max(0, Math.min(seen - lead, total - budget));
+
+  let first = 0;
+  seen = 0;
+  for (let index = 0; index < rows.length; index++) {
+    if (seen + heights[index]! > start) {
+      first = index;
+      break;
+    }
+    seen += heights[index]!;
+  }
+  let last = first;
+  let used = 0;
+  while (last < rows.length && used < budget) {
+    used += heights[last]!;
+    last++;
+  }
+  return { rows: rows.slice(first, last), above: first, below: rows.length - last };
 }

@@ -4,6 +4,71 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-11-21
+
+### Added
+
+**`diffContext`: how much unchanged code an edit's diff keeps around each change** (0 to 4, default 4). pi writes
+four lines on each side of every change and has no setting for it, so a small edit in a long file could still take a
+dozen rows. Fewer lines are cut out of pi's diff text and the rest fold into one `...` row, in the two panes, in the
+unified diff and in an edit inside a program's call list. Asked for by a viewer of the 0.10 demo. The unified diff
+(`splitDiff: false`, or a box too narrow for panes) is now laid out by tidy from that text with pi's own renderer, as
+the panes are: its path sits in the top border the way every other box's does, and its rows line up with the panes'
+instead of sitting a cell further in.
+
+### Changed
+
+**One style for everything: `tidy.style`, `frame` or `rail`** (#65). A screen used to mix three looks: an opened run
+hung its process on a `│`, the tool boxes on it were closed boxes, your message was a frame and the reply was rules.
+Now one key draws every surface tidy puts an edge on — your messages, the final reply, tool boxes, thinking and error
+boxes, compaction, branch and extension messages, your `!` commands. `frame` is the rounded box. `rail` is the same
+box with its sides and corners taken away: the rules above and below stay, the label sits in the same cells and the
+text keeps its column, so switching moves nothing. **`rail` is the default**: with fewer lines on screen the text is
+what stands out. `style: "frame"` brings back the rounded boxes everywhere. The lines that say what belongs together are not a style and both
+draw them: an opened run's line, which comes down into the reply's top edge and now ends in its bottom one, and an
+open group's gutter. `userMessageStyle` and `finalReplyStyle` stay, as overrides for one surface (`frame`, `rail` or
+`off`); unset, they follow `style`. `rules` reads as `rail`, which is what it now is. The old `rail` (rules plus a `│`
+in front of the text) is gone, and with it `userMessagePaddingY` and `userMessageColors`: your message takes
+`messageBorderColors.user` in either style, and a rail is drawn by the same code as the frame, so it hugs your text and
+can sit on the right. In a rail reply a code block's rules join nothing and open in the column they close in
+(`─ fish 󰆒 ───`). `frameMessages` no longer gates your message's frame; it only decides compactions, branch
+summaries, extension notices and `!` commands.
+
+**The transcript breathes.** tidy trims pi's blank rows off every message it draws, so a settled screen had almost
+none: a run's summary sat on the reply's top edge, and one run sat on the one before it. The gaps are now tidy's own,
+on one scale: none inside one thing, one row between your message and its run, two between runs. Folded, the reply
+sits right under the run's summary. A closed reply frame keeps a row clear inside its top and bottom
+edges. Opened, a run reads as steps: pi's blank row after a thought, which cut it off from the text it led to and left
+it hanging under the step before, is gone, and each step that says something stands one row clear of the last
+instead. The reply is the last step and stands clear the same way.
+
+**One grey for the edges, colour where it says something.** Every message edge (the reply's, your message's, an opened
+run's line, a code block's rules) is the theme's `border` grey, and the model's name on the reply is the one accent. A
+folded summary's words are grey and each tool's icon wears its box's colour (`toolColors`), so `bash×5 · write×1`
+still reads at a glance without the line shouting; an opened group's header takes back its `accent` marker and
+`toolTitle` count. Thinking stays yellow. The new defaults are `messageBorderColors.assistant` and `.user` `"border"`.
+
+**An open run's summary no longer repeats a failure count** its group line already shows; folded, it is still the
+summary's to say. **deepseek's glyph is md-dolphin**, one cell and one colour like the other providers', instead of the
+whale emoji.
+
+**A change at the end of a long line is no longer cut off.** A source line wider than a pane — a long URL with a
+query string, a long import list, a minified JSON value — was truncated on both sides. When the edit sat near the end
+of such a line the two panes drew identical-looking text: the reader could see that the line had changed but not what
+had changed, and the word-level emphasis was cut away with it. Now a pair the panes cannot show in full leaves the
+columns and is drawn across the whole box — old above new, each wrapped onto as many rows as it needs, the number and
+the bar on the first row, the row tint carried onto the continuation rows. Only a changed side breaks out (an
+unchanged row has no change to lose, so it is still cut at the pane edge), and the decision is made per pair, so a
+short edit next to a long one stays side by side.
+
+**The panes are three columns wider.** The `old` / `new` header is gone: left is old and right is new, so it labelled
+nothing, and its labels being three cells wide pushed the rule one cell off every row below them. The number column is
+now the width of the file's highest line number instead of a fixed three, the bar sits against the digits rather than
+after a gap, and the numbers are left-aligned.
+
+Settings you wrote out keep their values: a `userMessageStyle`, `finalReplyStyle` or `messageBorderColors` copied from
+an older README keeps that surface as it was and outranks `style`. Remove a key to follow `style` and the new defaults.
+
 ## [0.10.0] - 2026-11-19
 
 ### Added

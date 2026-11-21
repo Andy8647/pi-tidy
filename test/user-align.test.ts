@@ -45,3 +45,44 @@ test("right alignment preserves narrow, wide-character and multiline content", (
     assert.ok(right.every((line) => visibleWidth(line) === width));
   }
 });
+
+test("a framed user message does not wait on frameMessages", () => {
+  // `frameMessages: false` unframes compactions, branches and notices; your messages
+  // follow their own style.
+  patchContainerBoxes(colors, { ...options, enabled: false });
+  const plain = new UserMessageComponent("hello there").render(60).map(visibleText);
+  assert.ok(plain[0]!.startsWith("╭─ \u{f007} "), plain.join("\n"));
+  assert.match(plain[1]!, /^│ hello there │/);
+  patchContainerBoxes(colors, { ...options, includeUser: false, enabled: true });
+  assert.ok(!new UserMessageComponent("hello there").render(60).map(visibleText).some((line) => line.includes("╭")), "and not drawn when their style is off");
+  patchContainerBoxes(colors, options);
+});
+
+/** A frame's rows as a rail draws them: corners into rule, sides into blanks. */
+function opened(row: string): string {
+  return row.replace(/[╭╮╰╯]/g, "─").replace(/│/g, " ");
+}
+
+test("a rail is the frame without its sides and corners: same rows, same cells", () => {
+  for (const userAlign of ["left", "right"] as const) {
+    for (const icons of [true, false]) {
+      const message = new UserMessageComponent("hello there\nsecond line");
+      patchContainerBoxes(colors, { ...options, icons, userAlign });
+      const frame = message.render(60).map(visibleText);
+      patchContainerBoxes(colors, { ...options, icons, userAlign, userOpen: true });
+      const rail = message.render(60).map(visibleText);
+      assert.deepEqual(rail, frame.map(opened), `${userAlign}, icons ${icons}`);
+      assert.ok(!rail.some((row) => /[╭╮╰╯│]/.test(row)), "no side and no corner left");
+    }
+  }
+  patchContainerBoxes(colors, options);
+});
+
+test("a rail keeps pi's OSC 133 markers on its first and last rows", () => {
+  patchContainerBoxes(colors, { ...options, userOpen: true });
+  const lines = new UserMessageComponent("hello there").render(60);
+  assert.ok(lines[0]!.startsWith("\x1b]133;A\x07"));
+  assert.ok(lines.at(-1)!.startsWith("\x1b]133;B\x07\x1b]133;C\x07"));
+  assert.ok(lines.slice(1, -1).every((line) => !line.includes("\x1b]133;")));
+  patchContainerBoxes(colors, options);
+});

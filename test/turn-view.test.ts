@@ -30,16 +30,16 @@ const middle: any = { ...first, timestamp: 1300, content: [
 const final: any = { ...first, provider: "anthropic", model: "claude-sonnet-4-5", timestamp: 1500, stopReason: "stop", content: [
   { type: "thinking", thinking: "Verify the final result carefully" }, { type: "text", text: "Fixed the result.\n\n```ts\nconst value = 2;\n```" },
 ] };
-function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = false, groupTools = true) {
+function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = false, groupTools = true, withUser = true) {
   resetGroups();
   patchToolBoxFrames({ groupTools, groupOpen, icons: false, splitDiff: true });
   turnOptions.set({ ...turnOptions.get(), collapseTurns: mode, frameFinalReply: true, icons: true });
   const store = new TurnStore(); turnStore.set(store);
-  store.begin(1000); store.note(user); store.note(first); store.note(middle);
+  store.begin(1000); if (withUser) store.note(user); store.note(first); store.note(middle);
   if (settled) store.note(final);
   const saved = settled ? store.settle(false, 1800) : undefined;
   const chat = new Container();
-  chat.addChild(new UserMessageComponent("Fix this"));
+  if (withUser) chat.addChild(new UserMessageComponent("Fix this"));
   const read = new ToolExecutionComponent("read", "a", first.content[2].arguments, {}, createReadToolDefinition(cwd) as any, ui, cwd);
   read.setExpanded(false); read.setArgsComplete(); read.markExecutionStarted();
   read.updateResult({ content: [{ type: "text", text: "const value = 1;" }], isError: false, durationMs: 10 });
@@ -136,6 +136,8 @@ test("a folded turn's summary counts what its jobs reported", () => {
 test("the summary line is cached per frame but rebuilt when a second passes or the turn moves", () => {
   const { store } = fixture("afterRun", false);
   const turn = store.current!;
+  // Folded: the summary is where a failure is counted (open, its group says it).
+  turn.open = false;
   const theme = getTheme()!;
   const early = summaryLine(turn, theme, W, false, 2500);
   // 1500 ms and 1600 ms of wall time both read "2s", so the cache may serve.
@@ -185,8 +187,7 @@ test("with icons off the summary is exactly the line it was before", () => {
   const theme = getTheme()!;
   const muted = (text: string) => theme.fg("muted", text);
   const expected = [
-    paint(theme, turnOptions.get().assistantColor, "▸ took 1s"),
-    muted("LLM 0s"), muted("tools 0s"), theme.fg("toolTitle", "2 calls"), muted("read×1"), muted("edit×1"),
+    muted("▸ took 1s"), muted("LLM 0s"), muted("tools 0s"), muted("2 calls"), muted("read×1"), muted("edit×1"),
   ].join(muted(" · "));
   assert.equal(summaryAt(W, false), expected);
   assert.equal(summaryAt(20, false), clipToWidth(expected, 20, "…"), "a clipped line clips the same way");
@@ -286,7 +287,7 @@ test("the rail takes the colour of the reply it runs into", () => {
   const painted: string[] = [];
   const theme: any = { fg: (color: string, value: string) => { painted.push(color); return value; } };
   railRows(["one"], theme);
-  assert.deepEqual(painted, ["accent"]);
+  assert.deepEqual(painted, [turnOptions.get().assistantColor]);
 });
 
 test("box corners join only where asked, and the frame's other rows stay put", () => {
@@ -581,52 +582,30 @@ test("the final frame takes the assistant color and the time format", () => {
   }
 });
 
-test("a railed final reply has rules and a left rail, and copies as its text", () => {
+test("a rail reply is its frame without sides or corners, and copies as its text", () => {
   const { chat } = fixture();
   const options = turnOptions.get();
-  turnOptions.set({ ...options, replyStyle: "rail" });
   try {
+    turnOptions.set({ ...options, replyStyle: "frame" });
+    const framed = chat.render(W).map(visibleText);
+    turnOptions.set({ ...options, replyStyle: "rail" });
     const rows = chat.render(W);
     const plain = rows.map(visibleText);
     const top = plain.findIndex((line) => line.includes("claude-sonnet-4-5"));
-    assert.match(plain[top]!, /^[─├]─* .*claude-sonnet-4-5.* ─+$/);
-    assert.ok(!plain[top]!.includes("╮"));
+    // The label sits in the same cells as on the frame's top edge.
+    assert.equal(plain[top], framed[framed.findIndex((line) => line.includes("claude-sonnet-4-5"))]!.replace(/[╭╮]/g, "─"));
     assert.equal(visibleWidth(rows[top]!), W);
     const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
     assert.ok(bottom > top + 1);
     assert.equal(visibleWidth(rows[bottom]!), W);
-    // A code block's rules meet the rail with a corner, and the rest keep it.
-    for (const line of plain.slice(top + 1, bottom)) assert.match(line, /^[│├]/, line);
+    for (const line of plain.slice(top + 1, bottom)) assert.doesNotMatch(line, /[│├┤╭╮╰╯]/, line);
+    const text = plain.find((line) => line.includes("Fixed the result"))!;
+    assert.equal(text.indexOf("Fixed"), framed.find((line) => line.includes("Fixed the result"))!.indexOf("Fixed"), "the text keeps its column");
     const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
     assert.equal(cleaned[0], null);
     assert.equal(cleaned.at(-1), null);
-    assert.ok(cleaned.slice(1, -1).every((row) => !row || !row.text.startsWith("│")), cleaned.slice(1, -1).map((row) => (row ? row.text : "NULL")).join("\n"));
+    assert.ok(cleaned.some((row) => row?.text.startsWith("Fixed the result")), cleaned.map((row) => (row ? row.text : "NULL")).join("\n"));
     assert.ok(cleaned.some((row) => row?.text.trim() === "const value = 2;"), "the code is still what copies");
-  } finally {
-    turnOptions.set(options);
-  }
-});
-
-test("a final reply with only rules has no verticals, keeps its width, and copies as its text", () => {
-  const { chat } = fixture();
-  const options = turnOptions.get();
-  turnOptions.set({ ...options, replyStyle: "rules" });
-  try {
-    const rows = chat.render(W);
-    const plain = rows.map(visibleText);
-    const top = plain.findIndex((line) => line.includes("claude-sonnet-4-5"));
-    const bottom = plain.findIndex((line, row) => row > top && /^─+$/.test(line));
-    assert.ok(bottom > top + 1);
-    assert.equal(visibleWidth(rows[top]!), W);
-    assert.equal(visibleWidth(rows[bottom]!), W);
-    for (const line of plain.slice(top + 1, bottom)) {
-      assert.doesNotMatch(line, /^│/);
-      assert.doesNotMatch(line, /│\s*$/);
-    }
-    const cleaned = cleanTranscriptRows(rows, top, bottom).rows;
-    assert.equal(cleaned[0], null);
-    assert.equal(cleaned.at(-1), null);
-    assert.ok(cleaned.slice(1, -1).some((row) => row && row.text.trim().length > 0 && !row.text.startsWith(" ")));
   } finally {
     turnOptions.set(options);
   }
@@ -639,7 +618,7 @@ test("the final frame carries the message's clock next to the model", () => {
   assert.ok(top.includes(formatMessageTime(final.timestamp)));
 });
 
-test("the whale glyph keeps the final frame at the terminal width", () => {
+test("deepseek's glyph keeps the final frame at the terminal width", () => {
   const { provider, model } = final;
   final.provider = "deepseek";
   final.model = "deepseek-v4-pro";
@@ -648,7 +627,7 @@ test("the whale glyph keeps the final frame at the terminal width", () => {
     const lines = frame(chat);
     const top = lines.find((line) => line.includes("deepseek-v4-pro"));
     assert.ok(top);
-    assert.ok(top.includes("\u{1f433} deepseek-v4-pro"));
+    assert.ok(top.includes("\u{f18b4} deepseek-v4-pro"), "one cell, one colour: md-dolphin, not the whale emoji");
     assert.equal(visibleWidth(top), W);
   } finally {
     final.provider = provider;
@@ -663,7 +642,7 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   assert.ok(plainChat.includes("claude-sonnet-4-5"), "the model is the name on the border");
   assert.ok(!plainChat.includes("anthropic"), "the vendor is the glyph's job");
   assert.equal(replyLabel("unknown-provider", "some-model", true), "\u{f06a9} some-model");
-  assert.equal(replyLabel("deepseek", "deepseek-chat", true), "\u{1f433} deepseek-chat");
+  assert.equal(replyLabel("deepseek", "deepseek-chat", true), "\u{f18b4} deepseek-chat");
   assert.equal(replyLabel("deepseek", "deepseek-chat", false), "deepseek-chat");
   assert.equal(replyLabel("openai-codex", "gpt-6.1-sol", true), "\uec81 gpt-6.1-sol");
   assert.equal(replyLabel("anthropic", undefined, false), "anthropic", "no model recorded: the provider is the best name left");
@@ -680,3 +659,118 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   assert.ok(rendered.includes("claude-sonnet-4-5"));
   assert.ok(!rendered.includes("took"));
 });
+
+test("rhythm: a row after your message, none between a folded summary and the reply, and a closed frame breathes inside", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+  const rows = frame(chat);
+  const summary = rows.findIndex((line) => line.includes("took"));
+  const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+  assert.equal(rows[summary - 1], "", `one blank between your message and the run:\n${rows.join("\n")}`);
+  assert.equal(reply, summary + 1, `the reply's top edge is the separation:\n${rows.join("\n")}`);
+  assert.match(rows[reply + 1]!, /^│ +│$/, "a row clear under the top edge");
+  assert.ok(rows[reply + 2]!.includes("Fixed the result"), rows.join("\n"));
+  const bottom = rows.findIndex((line, index) => index > reply && line.startsWith("╰"));
+  assert.match(rows[bottom - 1]!, /^│ +│$/, "and over the bottom one");
+  const rule = rows.findIndex((line) => line.startsWith("├─ ts "));
+  assert.ok(rule > reply && rows[rule]!.endsWith("┤"), `a code block still meets both edges:\n${rows.join("\n")}`);
+});
+
+test("rhythm: a run nothing of yours started stands two rows clear of the one before", () => {
+  const { chat } = fixture("afterRun", true, false, true, false);
+  const rows = frame(chat);
+  const summary = rows.findIndex((line) => line.includes("took"));
+  assert.equal(summary, 2, rows.join("\n"));
+  assert.deepEqual(rows.slice(0, 2), ["", ""]);
+});
+
+test("an open run's line comes down through the reply's own gap into its corner, and on to its bottom one", () => {
+  for (const replyStyle of ["frame", "rail"] as const) {
+    const { chat } = fixture();
+    turnOptions.set({ ...turnOptions.get(), replyStyle });
+    click(chat, (line) => line.includes("took"));
+    const rows = frame(chat);
+    const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+    assert.equal(rows[reply - 1]!.trimEnd(), "│", `${replyStyle}: the reply is the last step, one row clear\n${rows.join("\n")}`);
+    assert.notEqual(rows[reply - 2]!.trimEnd(), "│", "and only one");
+    assert.ok(rows[reply]!.startsWith("├─ "), `${replyStyle}: ${rows[reply]}`);
+    assert.equal(visibleWidth(rows[reply]!), W);
+    const bottom = rows.findIndex((line, index) => index > reply && line.startsWith("╰"));
+    assert.ok(bottom > reply, `${replyStyle}: the line ends in the bottom edge\n${rows.join("\n")}`);
+    assert.ok(rows.slice(reply + 1, bottom).every((line) => line.startsWith("│") || line.startsWith("├")), `${replyStyle}\n${rows.join("\n")}`);
+    assert.equal(rows[bottom]!.endsWith("╯"), replyStyle === "frame", rows[bottom]);
+    // The header row is where it was drawn; the pointer still finds it.
+    click(chat, (line) => line.includes("took"));
+    assert.ok(!frame(chat).some((line) => line.startsWith("│ ▾")), "folded again through a click on the header");
+  }
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+});
+
+test("rhythm: a step is its thought, its text and its calls; each one that says something stands one row clear", () => {
+  for (const mode of ["afterRun", "off"] as const) {
+    const { chat } = fixture(mode);
+    if (mode === "afterRun") click(chat, (line) => line.includes("took"));
+    const rows = frame(chat).map((line) => line.trimEnd());
+    const thought = rows.findIndex((line) => line.includes("Inspect the source carefully"));
+    assert.ok(rows[thought + 1]!.includes("Checking the implementation."), `${mode}: the thought sits on its text\n${rows.join("\n")}`);
+    const next = rows.findIndex((line) => line.includes("Now I will fix the implementation."));
+    assert.equal(rows[next - 1], mode === "off" ? "" : "│", `${mode}: one row, carrying the run's line when there is one\n${rows.join("\n")}`);
+    assert.notEqual(rows[next - 2]?.trim(), "", "and only one");
+    const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+    assert.equal(rows[reply - 1], mode === "off" ? "" : "│", `${mode}: the reply is the last step, one row clear\n${rows.join("\n")}`);
+  }
+});
+
+test("rhythm: a step with no text adds no gap: its thought sits in the group it joins", () => {
+  const content = middle.content;
+  // Thinking, then the call, and nothing said: the step joins the group above it.
+  middle.content = [{ type: "thinking", thinking: "Plan the edit" }, content[1]];
+  try {
+    const { chat } = fixture("afterRun", true, true);
+    click(chat, (line) => line.includes("took"));
+    const rows = frame(chat).map((line) => line.trimEnd());
+    const read = rows.findIndex((line) => line.includes("read ✓"));
+    assert.ok(rows[read + 1]!.includes("Plan the edit"), `no gap inside the group\n${rows.join("\n")}`);
+  } finally {
+    middle.content = content;
+  }
+});
+
+test("rhythm: a rail reply has no inner padding", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "rail" });
+  const rows = frame(chat);
+  const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+  assert.ok(rows[reply + 1]!.includes("Fixed the result"), rows.join("\n"));
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
+});
+
+test("open, a run's summary leaves its failures to the groups they happened in", () => {
+  const { store } = fixture("afterRun", false);
+  const turn = store.current!;
+  store.note({ role: "toolResult", toolCallId: "a", toolName: "read", isError: true, content: [], timestamp: 1650 } as any);
+  const theme = getTheme()!;
+  turn.open = true;
+  assert.ok(!visibleText(summaryLine(turn, theme, W, false, 4000)).includes("failed"), "the group line says it");
+  turn.open = false;
+  assert.ok(visibleText(summaryLine(turn, theme, W, false, 4000)).includes("1 failed"), "folded, nothing else would");
+});
+
+test("the reply's name is the one accent, and its edges are the chrome grey", () => {
+  const { chat } = fixture();
+  turnOptions.set({ ...turnOptions.get(), replyStyle: "frame", assistantColor: "border" });
+  const theme = getTheme()!;
+  let rows: string[] = [];
+  for (let pass = 0; pass < 4; pass++) rows = chat.render(W);
+  const top = rows.find((row) => visibleText(row).includes("claude-sonnet-4-5"))!;
+  assert.ok(top.includes(theme.fg("accent", replyLabel("anthropic", "claude-sonnet-4-5", true))), JSON.stringify(top));
+  const sgr = (text: string) => /^\x1b\[[0-9;]*m/.exec(text)?.[0];
+  assert.equal(sgr(top), sgr(paint(theme, "border", "╭")), "the corner is grey");
+  // The summary's words are grey; an icon may wear its tool's colour, and with no colour
+  // set for a tool that is the accent its box wears too.
+  const summary = rows.find((row) => visibleText(row).includes("took"))!;
+  const accent = sgr(theme.fg("accent", "x"))!;
+  const painted = summary.split(accent).slice(1).map((part) => visibleText(part.split("\x1b[")[0]!));
+  assert.ok(painted.every((text) => /^[\uE000-\uF8FF\u{F0000}-\u{FFFFF}]+$/u.test(text)), JSON.stringify(painted));
+});
+

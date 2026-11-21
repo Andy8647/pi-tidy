@@ -18,7 +18,8 @@
 
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
+import * as codingAgent from "@earendil-works/pi-coding-agent";
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { blankEdges, drawFrame, labeledTopBorder, outsideHyperlink, removeLeadingWord, sameLines, shortenPath, stripBackgroundFills, trimTrailingSpaces, visibleIndexOf, visibleText } from "../draw/frame-draw.ts";
 import {
@@ -39,11 +40,12 @@ import { liveSlot, optionsRevision, tidyEnabled } from "../live.ts";
 import { expandTurnForTool, hideTurnTool, railTurnTool } from "../turns/turn-state.ts";
 import { joinBoxCorners, railRows, TURN_RAIL_BOX_CELLS, TURN_RAIL_CELLS } from "../turns/turn-view.ts";
 import { renderSplitDiff } from "./split-diff.ts";
+import { PI_DIFF_CONTEXT, trimDiffContext } from "./diff-context.ts";
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { CALL_PROMPT_CELLS } from "./command-text.ts";
 import { groupIsOpen, pinnedJoints, noteSetExpanded, planFor, setGroupOpenDefault } from "./tool-groups.ts";
 import { claimNotices, noticeRows, toggleNotice } from "../turns/delegate-notices.ts";
-import { formatToolLine, groupGutter } from "./tool-lines.ts";
+import { formatToolLine, groupGutter, setToolColors } from "./tool-lines.ts";
 import {
   installGroupBoundaries,
   hangColumn,
@@ -135,6 +137,8 @@ interface ToolBoxInternals extends GroupedTool {
   __notices?: { from: number; height: number; spans: Array<{ from: number; to: number; key: string }> };
   /** The split diff last built for this box, and what it was built from. */
   __splitCache?: {
+    /** Two panes, or the unified diff at a cut context. */
+    panes: boolean;
     diff: string;
     width: number;
     maxLines: number | undefined;
@@ -205,6 +209,8 @@ export interface ToolFrameOptions {
   splitDiffMinWidth?: number;
   /** Diff rows shown while the box is collapsed (default 20; `0` shows none). */
   diffLines?: number;
+  /** Unchanged lines kept on each side of a change, at most pi's four (default 4). */
+  diffContext?: number;
   /** Theme color for thinking rows and the expanded thinking box (default `warning`). */
   thinkingColor?: string;
   /** Syntax-highlight bash commands on group rows. */
@@ -227,6 +233,7 @@ interface ResolvedToolFrameOptions {
   splitDiff: boolean;
   splitDiffMinWidth: number;
   diffLines: number;
+  diffContext: number;
   thinkingColor: string;
   highlightBash: boolean;
   toolRowLines: number;
@@ -242,6 +249,7 @@ const toolOptions = liveSlot<ResolvedToolFrameOptions>("tool-frame-options", {
   splitDiff: true,
   splitDiffMinWidth: 72,
   diffLines: 20,
+  diffContext: PI_DIFF_CONTEXT,
   thinkingColor: "warning",
   highlightBash: true,
   toolRowLines: 1,
@@ -332,6 +340,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiff = true,
     splitDiffMinWidth = 72,
     diffLines = 20,
+    diffContext = PI_DIFF_CONTEXT,
     thinkingColor = "warning",
     highlightBash = true,
     toolRowLines = 1,
@@ -346,6 +355,7 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
     splitDiff,
     splitDiffMinWidth,
     diffLines,
+    diffContext,
     thinkingColor,
     highlightBash,
     toolRowLines,
@@ -371,6 +381,8 @@ export function patchToolBoxFrames(options: ToolFrameOptions = {}): void {
   setGroupingActive(grouping);
   setIconsEnabled(() => toolOptions.get().icons);
   setThinkingColor(() => toolOptions.get().thinkingColor);
+  // The colour a box of this tool wears when it succeeded (see the border below).
+  setToolColors((name) => toolOptions.get().toolColors[name] || "accent");
   installGroupBoundaries();
   installHoverTracking();
 
@@ -580,13 +592,31 @@ function editDiff(tool: { callRendererComponent?: { preview?: unknown }; result?
 }
 
 /**
- * Rebuild an edit box's rows as two panes.
+ * pi's unified diff renderer, where this pi exports it. Read off the module rather
+ * than imported by name: a pi without it keeps its own rows instead of failing to
+ * load the extension.
+ */
+const piRenderDiff = (codingAgent as unknown as { renderDiff?: (diff: string, options?: { filePath?: string }) => string }).renderDiff;
+
+/**
+ * The unified diff, drawn by pi's own renderer from the trimmed text, one cell in
+ * from the box's sides as the panes are. Null when this pi has no renderer to lend.
+ */
+function unifiedDiff(diff: string, width: number, filePath: string | undefined): { lines: string[]; bgRows: number[] } | null {
+  if (typeof piRenderDiff !== "function") return null;
+  const text = piRenderDiff(diff, filePath ? { filePath } : {});
+  return { lines: new Text(text, 1, 0).render(width), bgRows: [] };
+}
+
+/**
+ * Rebuild an edit box's rows: as two panes, or as pi's unified diff, both with
+ * `diffContext` lines around each change.
  *
  * pi's edit renderer keeps the unified diff string on its call component
  * (`preview.diff`) and renders it with `renderDiff`; the coloured lines are not
- * reversible, so the panes are built from that string instead. Undefined means
- * "keep what pi drew": no preview yet (streaming), a preview error, a narrow
- * box, or a diff that cannot be laid out.
+ * reversible, so both are built from that string instead. Undefined means
+ * "keep what pi drew": no preview yet (streaming), a preview error, no renderer
+ * to lend, or a diff that cannot be laid out.
  */
 function splitEditBody(
   tool: ToolBoxInternals,
@@ -594,13 +624,19 @@ function splitEditBody(
   callWidth: number,
   theme: ThemeLike,
 ): { raw: string[]; bgRows: ReadonlySet<number> } | undefined {
-  const { splitDiff, splitDiffMinWidth, diffLines } = toolOptions.get();
-  if (!splitDiff || !SPLIT_DIFF_TOOLS.has(tool.toolName) || innerWidth < splitDiffMinWidth) return undefined;
+  const { splitDiff, splitDiffMinWidth, diffLines, diffContext } = toolOptions.get();
+  if (!SPLIT_DIFF_TOOLS.has(tool.toolName)) return undefined;
+  const panes = splitDiff && innerWidth >= splitDiffMinWidth;
+  // The unified diff is pi's renderer on the trimmed text, laid out as the panes are, so
+  // its title and columns stay put whatever `diffContext` says. A pi that does not lend
+  // its renderer keeps its own rows, at its own context.
+  if (!panes && typeof piRenderDiff !== "function") return undefined;
   const component = tool.callRendererComponent;
   const preview = component?.preview;
   if (preview && "error" in preview) return undefined;
-  const diff = editDiff(tool);
-  if (!diff) return undefined;
+  const full = editDiff(tool);
+  if (!full) return undefined;
+  const diff = trimDiffContext(full, diffContext);
   const filePath = targetPath(tool, tool.toolName);
   // Collapsed, the body is a window on the diff; `ctrl+o` draws all of it.
   const maxLines = tool.expanded ? undefined : diffLines;
@@ -622,6 +658,7 @@ function splitEditBody(
   const cache = tool.__splitCache;
   if (
     cache &&
+    cache.panes === panes &&
     cache.diff === diff &&
     cache.width === innerWidth &&
     cache.maxLines === maxLines &&
@@ -631,12 +668,12 @@ function splitEditBody(
   ) {
     return cache.value;
   }
-  const body = renderSplitDiff({ diff, width: innerWidth, theme, filePath, maxLines });
+  const body = panes ? renderSplitDiff({ diff, width: innerWidth, theme, filePath, maxLines }) : unifiedDiff(diff, innerWidth, filePath);
   const offset = call.length;
   const value = body
     ? { raw: [...call, ...body.lines], bgRows: new Set(body.bgRows.map((row) => row + offset)) }
     : undefined;
-  tool.__splitCache = { diff, width: innerWidth, maxLines, filePath, theme, call, value };
+  tool.__splitCache = { panes, diff, width: innerWidth, maxLines, filePath, theme, call, value };
   return value;
 }
 
@@ -670,7 +707,7 @@ function composedNested(tool: ToolBoxInternals, run: NestedRun, theme: ThemeLike
   ) {
     return cache.value;
   }
-  const { bashResultLines, diffLines, splitDiff, splitDiffMinWidth } = toolOptions.get();
+  const { bashResultLines, diffLines, diffContext, splitDiff, splitDiffMinWidth } = toolOptions.get();
   const failure = (details as { error?: unknown } | undefined)?.error;
   const value = composeNestedBody({
     args: tool.args,
@@ -679,6 +716,7 @@ function composedNested(tool: ToolBoxInternals, run: NestedRun, theme: ThemeLike
     ...(typeof failure === "string" && failure ? { failure } : {}),
     isError,
     diffLines,
+    diffContext,
     splitDiff,
     splitDiffMinWidth,
     outputLines: bashResultLines,
