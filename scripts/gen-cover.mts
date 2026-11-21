@@ -45,7 +45,7 @@ const FONT = "Maple Mono NF, Menlo, monospace";
 const SIZE = 16;
 const ADV = 9.6; // a cell at 16px
 const X0 = 548;
-const TOP = 192;
+const TOP = 176;
 const STEP = 24;
 /** Cells across the window's body. */
 const COLS = 67;
@@ -140,6 +140,8 @@ const rows: Row[] = [
     s("▸ 2 calls · ", C.muted), s(`${ICON.bash} `, C.peach), s("bash×1  ", C.muted), s(`${ICON.process} `, C.accent), s("process×1", C.muted),
     s(" · ", C.muted), s("◐ 1 running", C.accent),
   ),
+  // The reply is the last step: one row clear of the process, on the run's line.
+  { segs: [line] },
   (() => {
     const head = [s("├─ ", C.border), s(`${ICON.dolphin} deepseek-flash`, C.accent), s(" 14:07", C.dim, { italic: true }), s(" ", C.border)];
     return { segs: [...head, fill(cells(head), C.border)] };
@@ -184,12 +186,12 @@ ${bullets.map(([glyph, color, text], i) => `      <text x="72" y="${430 + i * 32
     <text x="92" y="602" font-size="18" fill="${C.dim}">$ <tspan fill="${C.text}">pi install npm:pi-tidy</tspan></text>
   </g>
 
-  <rect x="520" y="110" width="700" height="530" rx="16" fill="${C.base}" stroke="${C.surface0}" stroke-width="1.5"/>
-  <line x1="520" y1="152" x2="1220" y2="152" stroke="${C.surface0}" stroke-width="1.5"/>
-  <circle cx="548" cy="131" r="6" fill="${C.surface1}"/>
-  <circle cx="570" cy="131" r="6" fill="${C.surface1}"/>
-  <circle cx="592" cy="131" r="6" fill="${C.surface1}"/>
-  <text x="870" y="137" font-family="${FONT}" font-size="14" fill="${C.dim}" text-anchor="middle">~/app — pi</text>
+  <rect x="520" y="92" width="700" height="546" rx="16" fill="${C.base}" stroke="${C.surface0}" stroke-width="1.5"/>
+  <line x1="520" y1="134" x2="1220" y2="134" stroke="${C.surface0}" stroke-width="1.5"/>
+  <circle cx="548" cy="113" r="6" fill="${C.surface1}"/>
+  <circle cx="570" cy="113" r="6" fill="${C.surface1}"/>
+  <circle cx="592" cy="113" r="6" fill="${C.surface1}"/>
+  <text x="870" y="119" font-family="${FONT}" font-size="14" fill="${C.dim}" text-anchor="middle">~/app — pi</text>
 
   <g font-family="${FONT}" font-size="${SIZE}" xml:space="preserve">
 ${svgRows.join("\n")}

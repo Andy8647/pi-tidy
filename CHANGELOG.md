@@ -36,11 +36,11 @@ summaries, extension notices and `!` commands.
 
 **The transcript breathes.** tidy trims pi's blank rows off every message it draws, so a settled screen had almost
 none: a run's summary sat on the reply's top edge, and one run sat on the one before it. The gaps are now tidy's own,
-on one scale: none inside one thing, one row between your message and its run, two between runs. The reply follows its
-process with no gap; its top edge is the separation. A closed reply frame keeps a row clear inside its top and bottom
+on one scale: none inside one thing, one row between your message and its run, two between runs. Folded, the reply
+sits right under the run's summary. A closed reply frame keeps a row clear inside its top and bottom
 edges. Opened, a run reads as steps: pi's blank row after a thought, which cut it off from the text it led to and left
 it hanging under the step before, is gone, and each step that says something stands one row clear of the last
-instead.
+instead. The reply is the last step and stands clear the same way.
 
 **One grey for the edges, colour where it says something.** Every message edge (the reply's, your message's, an opened
 run's line, a code block's rules) is the theme's `border` grey, and the model's name on the reply is the one accent. A

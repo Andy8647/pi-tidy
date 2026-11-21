@@ -513,13 +513,14 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     body = repaintChip(body, span, theme, copied ? labels.copied : labels.copy, hotIndex === span.index);
   }
   // A run's first rows stand clear of your message, or, when nothing of yours started
-  // it (a job's notification did), of the run before. The reply follows its process
-  // with no gap: its top edge is the separation.
+  // it (a job's notification did), of the run before.
   const runGap = key === turn.firstAssistant ? (turn.root ? GAP_PART : GAP_RUN) : 0;
   // Inside the process, a step that says something — its thinking, its text, then the
   // calls it makes — stands one row clear of the step before it. A step with no text
-  // has its thought inside the group of its calls, so it adds no gap of its own.
-  const stepGap = !closed && !framed && key !== turn.firstAssistant && body.length > 0 && saysSomething(component.lastMessage) ? GAP_PART : 0;
+  // has its thought inside the group of its calls, so it adds no gap of its own. The
+  // reply is the last step and stands clear the same way; folded, there is no process
+  // above it, and it sits right under the summary.
+  const stepGap = !closed && key !== turn.firstAssistant && body.length > 0 && (framed ? hasProcess(turn) : saysSomething(component.lastMessage)) ? GAP_PART : 0;
   // A chip needs the layout and the handler below it; a message without one keeps the
   // fast path, since most rows in a transcript carry neither.
   if (!header && !framed && !spans.length && !runGap && !stepGap) return body;
@@ -579,7 +580,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     return { handled: true, render: true };
   }));
   // On the run's line the gap carries the line, as every row of the process does.
-  if (stepGap) view.addChild(blankRows(stepGap, railed ? paint(theme, color, "│") : ""));
+  if (stepGap) view.addChild(blankRows(stepGap, railed || railOpen ? paint(theme, color, "│") : ""));
   const source = { render: () => body, invalidate() {}, handleMouse: (event: TuiMouseEvent) => {
     if (copyClick(event)) return { handled: true, render: true };
     if (component[NATIVE_VIEW]) return component[NATIVE_VIEW].handleMouse(event);

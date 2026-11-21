@@ -660,7 +660,7 @@ test("pure chat gets no empty process summary; the final frame names the model, 
   assert.ok(!rendered.includes("took"));
 });
 
-test("rhythm: a row after your message, none before the reply, and a closed frame breathes inside", () => {
+test("rhythm: a row after your message, none between a folded summary and the reply, and a closed frame breathes inside", () => {
   const { chat } = fixture();
   turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
   const rows = frame(chat);
@@ -684,14 +684,15 @@ test("rhythm: a run nothing of yours started stands two rows clear of the one be
   assert.deepEqual(rows.slice(0, 2), ["", ""]);
 });
 
-test("an open run's line comes straight down into the reply's corner and on to its bottom one", () => {
+test("an open run's line comes down through the reply's own gap into its corner, and on to its bottom one", () => {
   for (const replyStyle of ["frame", "rail"] as const) {
     const { chat } = fixture();
     turnOptions.set({ ...turnOptions.get(), replyStyle });
     click(chat, (line) => line.includes("took"));
     const rows = frame(chat);
     const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
-    assert.ok(rows[reply - 1]!.startsWith("│ ") && rows[reply - 1]!.trim() !== "│", `${replyStyle}: no gap\n${rows.join("\n")}`);
+    assert.equal(rows[reply - 1]!.trimEnd(), "│", `${replyStyle}: the reply is the last step, one row clear\n${rows.join("\n")}`);
+    assert.notEqual(rows[reply - 2]!.trimEnd(), "│", "and only one");
     assert.ok(rows[reply]!.startsWith("├─ "), `${replyStyle}: ${rows[reply]}`);
     assert.equal(visibleWidth(rows[reply]!), W);
     const bottom = rows.findIndex((line, index) => index > reply && line.startsWith("╰"));
@@ -716,7 +717,7 @@ test("rhythm: a step is its thought, its text and its calls; each one that says 
     assert.equal(rows[next - 1], mode === "off" ? "" : "│", `${mode}: one row, carrying the run's line when there is one\n${rows.join("\n")}`);
     assert.notEqual(rows[next - 2]?.trim(), "", "and only one");
     const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
-    assert.notEqual(rows[reply - 1]!.replace("│", "").trim(), "", `${mode}: the reply's top edge is its own separation\n${rows.join("\n")}`);
+    assert.equal(rows[reply - 1], mode === "off" ? "" : "│", `${mode}: the reply is the last step, one row clear\n${rows.join("\n")}`);
   }
 });
 

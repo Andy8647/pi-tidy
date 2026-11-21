@@ -13,7 +13,7 @@ every box is drawn one way: rails by default, rounded frames if you prefer.
 ## Features
 
 - **One style for everything** — `style` draws every box the same way: rails (the default: each box with only its rules above and below), or rounded frames. The lines a run or an open group hangs on are drawn in both
-- **A screen that breathes** — one blank row between your message and its run, two between runs, none inside one thing, and the reply right under the process it ended. Opened, a run reads as steps: a thought, the text it led to and the calls it made sit together, and each step that says something stands one row clear of the last. Every message edge is the theme's border grey and the model's name on the reply is the one accent; a summary's words are grey and each tool's icon wears its tool's colour
+- **A screen that breathes** — one blank row between your message and its run, two between runs, none inside one thing, and a folded run's reply right under its summary. Opened, a run reads as steps: a thought, the text it led to and the calls it made sit together, and each step that says something stands one row clear of the last, the reply too. Every message edge is the theme's border grey and the model's name on the reply is the one accent; a summary's words are grey and each tool's icon wears its tool's colour
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
@@ -234,10 +234,10 @@ follows `style`. Both also take `off`, pi's own look. `rules`, a rail's name bef
 | Width | Your message hugs its text, up to `userMessageMaxWidth`, and can sit on the right (`userMessageAlign`). Everything else takes the whole width | The same |
 
 Around either style the rhythm is the same: no blank row inside one thing, one between your message
-and its run, two between runs, and none between a run's process and its reply, whose top edge is the
-separation. Inside an opened run, a step — its thought, its text and the calls it makes — is one thing,
-and each step that says something stands one row clear of the one before. A step that only thinks and
-calls joins the group above it, its thought one of the group's rows.
+and its run, two between runs, and none between a folded run's summary and its reply. Inside an opened
+run, a step — its thought, its text and the calls it makes — is one thing, and each step that says
+something stands one row clear of the one before; the reply is the last step and does the same. A step
+that only thinks and calls joins the group above it, its thought one of the group's rows.
 
 ### General
 
