@@ -215,9 +215,9 @@ export function railRows(rows: readonly string[], theme: ThemeLike, pad = ""): s
   return out;
 }
 
-/** `count` blank rows, as a child a Container can lay out and hit-test. */
-function blankRows(count: number): { render(width: number): string[]; invalidate(): void } {
-  const rows = Array.from({ length: count }, () => "");
+/** `count` rows of `row` (blank by default), as a child a Container can lay out and hit-test. */
+function blankRows(count: number, row = ""): { render(width: number): string[]; invalidate(): void } {
+  const rows = Array.from({ length: count }, () => row);
   return { render: () => rows, invalidate() {} };
 }
 
@@ -443,6 +443,11 @@ function railRules(body: readonly string[], rules: ReadonlySet<number>, theme: T
   return out;
 }
 
+/** Whether a message has text to show: what cuts a group, and so starts a step of its own. */
+function saysSomething(message: any): boolean {
+  return Array.isArray(message?.content) && message.content.some((block: any) => block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
+}
+
 /** Decorate the existing message view, never a second markdown renderer. */
 export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => string[]): string[] {
   component[LAYOUT] = undefined;
@@ -511,9 +516,13 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   // it (a job's notification did), of the run before. The reply follows its process
   // with no gap: its top edge is the separation.
   const runGap = key === turn.firstAssistant ? (turn.root ? GAP_PART : GAP_RUN) : 0;
+  // Inside the process, a step that says something — its thinking, its text, then the
+  // calls it makes — stands one row clear of the step before it. A step with no text
+  // has its thought inside the group of its calls, so it adds no gap of its own.
+  const stepGap = !closed && !framed && key !== turn.firstAssistant && body.length > 0 && saysSomething(component.lastMessage) ? GAP_PART : 0;
   // A chip needs the layout and the handler below it; a message without one keeps the
   // fast path, since most rows in a transcript carry neither.
-  if (!header && !framed && !spans.length && !runGap) return body;
+  if (!header && !framed && !spans.length && !runGap && !stepGap) return body;
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const color = options.assistantColor;
@@ -534,7 +543,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const lead = replyHeader?.lead ?? 1;
   const cache = component[CACHE];
   const revision = optionsRevision();
-  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && cache.runGap === runGap && sameLines(cache.body, body)) {
+  if (cache && cache.turn === turn && cache.width === width && cache.line === line && cache.label === label && cache.lead === lead && cache.color === color && cache.revision === revision && cache.framed === framed && cache.railOpen === railOpen && cache.runGap === runGap && cache.stepGap === stepGap && sameLines(cache.body, body)) {
     component[LAYOUT] = cache.layout;
     installMouse(component);
     return cache.out;
@@ -569,6 +578,8 @@ export function presentTurn(component: any, width: number, draw: (width: number,
     turn.open = folded(turn);
     return { handled: true, render: true };
   }));
+  // On the run's line the gap carries the line, as every row of the process does.
+  if (stepGap) view.addChild(blankRows(stepGap, railed ? paint(theme, color, "│") : ""));
   const source = { render: () => body, invalidate() {}, handleMouse: (event: TuiMouseEvent) => {
     if (copyClick(event)) return { handled: true, render: true };
     if (component[NATIVE_VIEW]) return component[NATIVE_VIEW].handleMouse(event);
@@ -594,10 +605,10 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   // moved its chip one cell more (`leadRule`).
   const chipShift = framed ? 1 + (frame ? 0 : RAIL_CHIP_SHIFT) : 0;
   const padding = framed && frame ? FRAME_PADDING_Y : 0;
-  const bodyTop = runGap + (header ? 1 : 0) + (framed ? 1 : 0) + padding;
+  const bodyTop = runGap + (header ? 1 : 0) + stepGap + (framed ? 1 : 0) + padding;
   const layout = { view, header, headerRow: runGap, spans, bodyTop, chipShift };
   component[LAYOUT] = layout;
-  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, runGap, body, out, layout };
+  component[CACHE] = { turn, width, line, label, lead, color, revision, framed, railOpen, runGap, stepGap, body, out, layout };
   installMouse(component);
   return out;
 }

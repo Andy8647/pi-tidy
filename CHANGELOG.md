@@ -13,7 +13,8 @@ hung its process on a `│`, the tool boxes on it were closed boxes, your messag
 Now one key draws every surface tidy puts an edge on — your messages, the final reply, tool boxes, thinking and error
 boxes, compaction, branch and extension messages, your `!` commands. `frame` is the rounded box. `rail` is the same
 box with its sides and corners taken away: the rules above and below stay, the label sits in the same cells and the
-text keeps its column, so switching moves nothing. The lines that say what belongs together are not a style and both
+text keeps its column, so switching moves nothing. **`rail` is the default**: with fewer lines on screen the text is
+what stands out. `style: "frame"` brings back the rounded boxes everywhere. The lines that say what belongs together are not a style and both
 draw them: an opened run's line, which comes down into the reply's top edge and now ends in its bottom one, and an
 open group's gutter. `userMessageStyle` and `finalReplyStyle` stay, as overrides for one surface (`frame`, `rail` or
 `off`); unset, they follow `style`. `rules` reads as `rail`, which is what it now is. The old `rail` (rules plus a `│`
@@ -27,7 +28,9 @@ summaries, extension notices and `!` commands.
 none: a run's summary sat on the reply's top edge, and one run sat on the one before it. The gaps are now tidy's own,
 on one scale: none inside one thing, one row between your message and its run, two between runs. The reply follows its
 process with no gap; its top edge is the separation. A closed reply frame keeps a row clear inside its top and bottom
-edges.
+edges. Opened, a run reads as steps: pi's blank row after a thought, which cut it off from the text it led to and left
+it hanging under the step before, is gone, and each step that says something stands one row clear of the last
+instead.
 
 **One grey for the edges, colour where it says something.** Every message edge (the reply's, your message's, an opened
 run's line, a code block's rules) is the theme's `border` grey, and the model's name on the reply is the one accent. A

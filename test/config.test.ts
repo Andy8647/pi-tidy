@@ -82,21 +82,21 @@ test("groupOpen defaults to false, passes true through, and ignores a non-boolea
 test("one style draws every surface; a surface's own key, where set, is the exception", () => {
   withSettings({ tidy: {} }, () => {
     const config = loadConfig();
-    assert.deepEqual([config.style, config.userMessageStyle, config.finalReplyStyle], ["frame", "frame", "frame"]);
-  });
-  withSettings({ tidy: { style: "rail" } }, () => {
-    const config = loadConfig();
     assert.deepEqual([config.style, config.userMessageStyle, config.finalReplyStyle], ["rail", "rail", "rail"]);
   });
-  withSettings({ tidy: { style: "boxed" } }, () => assert.equal(loadConfig().style, "frame", "an unknown style is the default"));
-  withSettings({ tidy: { style: "rail", userMessageStyle: "frame", finalReplyStyle: "off" } }, () => {
+  withSettings({ tidy: { style: "frame" } }, () => {
     const config = loadConfig();
-    assert.deepEqual([config.userMessageStyle, config.finalReplyStyle], ["frame", "off"]);
+    assert.deepEqual([config.style, config.userMessageStyle, config.finalReplyStyle], ["frame", "frame", "frame"]);
+  });
+  withSettings({ tidy: { style: "boxed" } }, () => assert.equal(loadConfig().style, "rail", "an unknown style is the default"));
+  withSettings({ tidy: { style: "frame", userMessageStyle: "rail", finalReplyStyle: "off" } }, () => {
+    const config = loadConfig();
+    assert.deepEqual([config.userMessageStyle, config.finalReplyStyle], ["rail", "off"]);
   });
   // An unknown value on a surface says nothing, so the surface follows the style.
-  withSettings({ tidy: { style: "rail", userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
+  withSettings({ tidy: { style: "frame", userMessageStyle: "boxed" } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
   // pre-0.5: `false` left user messages to pi-starline, which no longer draws them.
-  withSettings({ tidy: { frameUserMessages: false } }, () => assert.equal(loadConfig().userMessageStyle, "frame"));
+  withSettings({ tidy: { frameUserMessages: false } }, () => assert.equal(loadConfig().userMessageStyle, "rail"));
 });
 
 test("`rules`, the rail's name before 0.11, reads as a rail on either surface", () => {
@@ -124,7 +124,7 @@ test("turn folding and final reply frames are on by default and turn off indepen
   }
   withSettings({ tidy: {} }, () => {
     assert.equal(loadConfig().collapseTurns, "afterRun");
-    assert.equal(loadConfig().finalReplyStyle, "frame");
+    assert.equal(loadConfig().finalReplyStyle, "rail");
   });
 });
 
@@ -133,7 +133,7 @@ test("finalReplyStyle wins over the old frameFinalReply, which still works alone
     [{ finalReplyStyle: "rail" }, "rail"],
     [{ finalReplyStyle: "rail", frameFinalReply: true }, "rail"],
     [{ finalReplyStyle: "off", frameFinalReply: true }, "off"],
-    [{ finalReplyStyle: "boxed" }, "frame"],
+    [{ finalReplyStyle: "boxed" }, "rail"],
     [{ frameFinalReply: true }, "frame"],
     [{ frameFinalReply: true, style: "rail" }, "frame"],
     [{ frameFinalReply: false }, "off"],

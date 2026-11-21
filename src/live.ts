@@ -79,6 +79,8 @@ export const tidyEnabled = liveSlot("enabled", true);
  * The lines an open run or group hangs on are structure, not style: both draw them.
  */
 export type Style = "frame" | "rail";
+// index.ts sets it from `tidy.style` (default `rail`) before anything draws; until then,
+// and in code that draws boxes on its own, a box is closed.
 export const chromeStyle = liveSlot<Style>("style", "frame");
 
 /**

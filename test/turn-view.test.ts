@@ -705,6 +705,36 @@ test("an open run's line comes straight down into the reply's corner and on to i
   turnOptions.set({ ...turnOptions.get(), replyStyle: "frame" });
 });
 
+test("rhythm: a step is its thought, its text and its calls; each one that says something stands one row clear", () => {
+  for (const mode of ["afterRun", "off"] as const) {
+    const { chat } = fixture(mode);
+    if (mode === "afterRun") click(chat, (line) => line.includes("took"));
+    const rows = frame(chat).map((line) => line.trimEnd());
+    const thought = rows.findIndex((line) => line.includes("Inspect the source carefully"));
+    assert.ok(rows[thought + 1]!.includes("Checking the implementation."), `${mode}: the thought sits on its text\n${rows.join("\n")}`);
+    const next = rows.findIndex((line) => line.includes("Now I will fix the implementation."));
+    assert.equal(rows[next - 1], mode === "off" ? "" : "│", `${mode}: one row, carrying the run's line when there is one\n${rows.join("\n")}`);
+    assert.notEqual(rows[next - 2]?.trim(), "", "and only one");
+    const reply = rows.findIndex((line) => line.includes("claude-sonnet-4-5"));
+    assert.notEqual(rows[reply - 1]!.replace("│", "").trim(), "", `${mode}: the reply's top edge is its own separation\n${rows.join("\n")}`);
+  }
+});
+
+test("rhythm: a step with no text adds no gap: its thought sits in the group it joins", () => {
+  const content = middle.content;
+  // Thinking, then the call, and nothing said: the step joins the group above it.
+  middle.content = [{ type: "thinking", thinking: "Plan the edit" }, content[1]];
+  try {
+    const { chat } = fixture("afterRun", true, true);
+    click(chat, (line) => line.includes("took"));
+    const rows = frame(chat).map((line) => line.trimEnd());
+    const read = rows.findIndex((line) => line.includes("read ✓"));
+    assert.ok(rows[read + 1]!.includes("Plan the edit"), `no gap inside the group\n${rows.join("\n")}`);
+  } finally {
+    middle.content = content;
+  }
+});
+
 test("rhythm: a rail reply has no inner padding", () => {
   const { chat } = fixture();
   turnOptions.set({ ...turnOptions.get(), replyStyle: "rail" });

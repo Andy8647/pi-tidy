@@ -12,8 +12,8 @@ every box gets a rounded transparent frame.
 
 ## Features
 
-- **One style for everything** — `style` draws every box the same way: rounded frames, or rails (the same boxes with only their rules left). The lines a run or an open group hangs on are drawn in both
-- **A screen that breathes** — one blank row between your message and its run, two between runs, none inside one thing, and the reply right under the process it ended. Every message edge is the theme's border grey and the model's name on the reply is the one accent; a summary's words are grey and each tool's icon wears its tool's colour
+- **One style for everything** — `style` draws every box the same way: rails (the default: each box with only its rules above and below), or rounded frames. The lines a run or an open group hangs on are drawn in both
+- **A screen that breathes** — one blank row between your message and its run, two between runs, none inside one thing, and the reply right under the process it ended. Opened, a run reads as steps: a thought, the text it led to and the calls it made sit together, and each step that says something stands one row clear of the last. Every message edge is the theme's border grey and the model's name on the reply is the one accent; a summary's words are grey and each tool's icon wears its tool's colour
 - **Rounded borders** — ╭╮╰╯ box drawing instead of pi's ┌┐└┘, on a transparent background: no fill, so terminal transparency works
 - **Every tool box** — built-in tools, MCP calls (pi-mcp-adapter), subagents and any other extension's tools get the same frame, a kind icon, and the tool's own border color on success (pending stays grey, errors red)
 - **Turn folding** — a whole run folds to `▸ took 1m20s · LLM 58s · tools 20s · 12 calls · read×6 · bash×4`, and opens to the process it replaced. Retries and continuations stay in the run; a steer or a follow-up you send while it works starts a new one, below the answer it arrived at
@@ -219,8 +219,8 @@ Colors are theme color names, so they follow the active theme. `thinkingColor` a
 
 `style` draws every surface tidy puts an edge on — your messages, the final reply, tool boxes,
 thinking and error boxes, compaction, branch and extension messages, your `!` commands — in one of two
-ways. `frame` is a rounded box. `rail` is the same box with its sides and corners taken away: the
-rules above and below are left, and the text keeps its column. The lines that say what belongs
+ways. `frame` is a rounded box. `rail`, the default, is the same box with its sides and corners taken
+away: the rules above and below are left, and the text keeps its column. The lines that say what belongs
 together are structure, not style, and both draw them: an opened run's line, an open group's gutter.
 Under an opened run that line comes down into the reply's top edge and ends in its bottom one.
 
@@ -239,21 +239,23 @@ follows `style`. Both also take `off`, pi's own look. `rules`, a rail's name bef
 
 Around either style the rhythm is the same: no blank row inside one thing, one between your message
 and its run, two between runs, and none between a run's process and its reply, whose top edge is the
-separation.
+separation. Inside an opened run, a step — its thought, its text and the calls it makes — is one thing,
+and each step that says something stands one row clear of the one before. A step that only thinks and
+calls joins the group above it, its thought one of the group's rows.
 
 ### General
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `enabled` | `true` | Turns the whole extension on or off | Always |
-| `style` | `"frame"` | `frame` or `rail`: how every box is edged. See [Styles](#styles) | Always |
+| `style` | `"rail"` | `rail` or `frame`: how every box is edged. See [Styles](#styles) | Always |
 | `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`) | Always. Off, a user message loses its label, so its time goes too |
 
 ### User messages
 
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
-| `userMessageStyle` | `"frame"` | Your messages' own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles) | Always |
+| `userMessageStyle` | `"rail"` | Your messages' own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles) | Always |
 | `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages use the whole width unless `userMessageMaxWidth` caps it | Moves the message and its label, in either style. `off` ignores it |
 | `userMessageMaxWidth` | `"auto"` | The widest your message's text gets before it wraps, so its edges hug the narrower column: `"auto"` is the whole width, `0.7` is a fraction of it, `88` is a column count. Anything else falls back to `"auto"` | Any `userMessageStyle` but `off`. A label wider than the cap still widens the message to fit itself |
 | `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and any `userMessageStyle` but `off` |
@@ -263,7 +265,7 @@ separation.
 | Key | Default | What it does | When it applies |
 |-----|---------|--------------|-----------------|
 | `collapseTurns` | `"afterRun"` | Folds a whole run's process to one line. `afterRun` waits until the run settles, `live` folds while it runs and keeps the latest assistant text visible, `off` never folds | Always, with grouping on or off |
-| `finalReplyStyle` | `"frame"` | The final reply's own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles). The provider glyph, the model's name and the time sit in its top edge. `frameFinalReply` from before 0.9 still works: `true` is `frame`, `false` is `off` | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
+| `finalReplyStyle` | `"rail"` | The final reply's own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles). The provider glyph, the model's name and the time sit in its top edge. `frameFinalReply` from before 0.9 still works: `true` is `frame`, `false` is `off` | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
 | `messageTimeFormat` | `"auto"` | The time in a message's top edge. `auto` is the clock, with the date when the message is not from today. Anything else is a pattern of `YYYY`, `M`, `MM`, `D`, `DD`, `H`, `HH`, `mm`, `ss` and literal text, such as `"M月D日 HH:mm:ss"`. Those letters are always read as tokens, so a word like `Mon` will not survive | Wherever a time is shown: a final reply drawn by `finalReplyStyle`, and a user message under `userMessageTime` |
 | `messageHeaderStyle` | `"inline"` | How a message's top edge sets out who and when. `inline`: `╭─ model 13:09 ───╮`. `split`: `╭── model ── 13:09 ───╮` | Where a label is drawn: a final reply drawn by `finalReplyStyle`, and a user message with `icons`. With no time to separate, or on an edge too narrow for it, `split` looks like `inline` |
 

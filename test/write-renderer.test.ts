@@ -7,9 +7,9 @@ import { COPY_CHIP } from "../src/turns/code-blocks.ts";
 import tidy from "../src/index.ts";
 import { collectWarnings, harness, loadTidy as load } from "./renderer-harness.ts";
 
-/** Tidy's own defaults for the parts these tests do not exercise. */
+/** Tidy's own defaults for the parts these tests do not exercise. The box shapes asserted are a frame's. */
 const loadTidy = (pi: Parameters<typeof load>[1], config: Record<string, unknown> = {}) =>
-  load(tidy, pi, { highlightBash: false, backgroundJobs: false, ...config });
+  load(tidy, pi, { style: "frame", highlightBash: false, backgroundJobs: false, ...config });
 
 initTheme("dark");
 const theme = (globalThis as unknown as Record<symbol, any>)[

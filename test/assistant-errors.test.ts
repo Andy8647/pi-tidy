@@ -48,7 +48,8 @@ Container.prototype.render = function (this: Container, width: number) {
 };
 
 const h = harness();
-loadTidy(factory, h.pi, { groupTools: true, groupOpen: true, collapseTurns: "afterRun", frameFinalReply: true, icons: false });
+// The error rows' shapes asserted below are a frame's.
+loadTidy(factory, h.pi, { style: "frame", groupTools: true, groupOpen: true, collapseTurns: "afterRun", frameFinalReply: true, icons: false });
 
 const W = 100;
 let pending = 0;

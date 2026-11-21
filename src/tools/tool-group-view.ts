@@ -11,7 +11,7 @@
  */
 
 import { stripVTControlCharacters } from "node:util";
-import { MouseRegion, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { MouseRegion, Spacer, visibleWidth, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import {
   ANIMATE_MS, closeJobDetails, jobDetails, jobForTool, jobNotes, jobsForTool, noteJobMessage,
@@ -1023,6 +1023,8 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
   const hiddenMarkers: string[] | undefined = hideThinking ? [] : undefined;
   let cursor = 0;
   let run = 0;
+  /** The child before this one was a thinking run drawn as our row or box. */
+  let afterThought = false;
   for (const kid of kids) {
     if (hideThinking && kid instanceof MouseRegion && run < runs.length) {
       run++;
@@ -1036,6 +1038,12 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
     const own = kid.render(width) as string[];
     const taken = lines?.slice(cursor, cursor + own.length) ?? own;
     cursor += own.length;
+    const thought = afterThought;
+    afterThought = false;
+    // pi puts a blank after a thinking run that has more to follow. A thought and the
+    // text it led to are one step, so they sit together; the gap goes in front of the
+    // step instead (turn-view.ts). A blank carrying a prompt marker stays, as it is.
+    if (thought && kid instanceof Spacer && !taken.join("").match(ZONE_MARKERS)) continue;
     if (!theme || runs.length === 0 || !(kid instanceof MouseRegion)) {
       // Preserve pi's OSC markers without changing the child's geometry.
       // MouseRegion forwards to the actual child, retaining its capture/focus
@@ -1064,6 +1072,7 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
       if (marker === "\x1b]133;A\x07") rows[0] = marker + rows[0];
       else rows[rows.length - 1] += marker;
     }
+    afterThought = true;
     view.addChild(new MouseRegion({ render: () => rows, invalidate() {} }, (event) => {
       if (event.type !== "click" || event.button !== "left") return undefined;
       // The title and its entire box are one native click region.
