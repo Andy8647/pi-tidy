@@ -33,6 +33,7 @@ every box is drawn one way: rails by default, rounded frames if you prefer.
 - **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. A payload is highlighted as the language it is written in: a shell's `-c` script as shell, `python3 -c "…"` and `node -e '…'` as python and javascript, and a heredoc's body as whatever the command before it runs (`python3 - <<'PY'`). Opened, a call's whole body hangs on the command's own column (`$ ` in a box of its own, the column after the icon and the name under a group row), so the script and the output under it read as one block. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
 - **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without the frame or the rules around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
+- **A quote you can copy** — a blockquote's chip takes the blank cell in front of its gutter (` 󰆒│ Note: …`), one click from the block's own Markdown, `>` prefixes and all. The gutter stays in its column, so nothing re-wraps, and a quoted note no longer means a drag
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
 - **Scroll-safe caching** — an unchanged box costs one string comparison per frame
 
@@ -245,7 +246,7 @@ that only thinks and calls joins the group above it, its thought one of the grou
 |-----|---------|--------------|-----------------|
 | `enabled` | `true` | Turns the whole extension on or off | Always |
 | `style` | `"rail"` | `rail` or `frame`: how every box is edged. See [Styles](#styles) | Always |
-| `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`) | Always. Off, a user message loses its label, so its time goes too |
+| `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`). A quote's chip is always the glyph: the cell in front of its gutter has room for one character | Always. Off, a user message loses its label, so its time goes too |
 
 ### User messages
 
@@ -430,13 +431,15 @@ recognised by its shape: rounded corners of equal width in one column, with a ve
 on both sides of every row. A rail by a labelled top rule and the next plain rule of its
 width in its column; one with no label (an `!` command, `icons: false`) keeps its rules,
 since two bare rules are also what a model's `---` looks like. A table's square corners
-and a blockquote's `│` stay. So does the line beside an open run's rows, which a selection cannot tell from a quote,
+and a blockquote's `│` stay, while the copy chip in front of that gutter comes off with
+the rules. So does the line beside an open run's rows, which a selection cannot tell from a quote,
 and a rounded box a model drew in an unframed message is taken for a frame. A top
 border's label survives when it names a file: dragging the path out of a tool box's
 border copies the path, and `ctrl+x` on that selection has something to hand over.
 
 A `write` or `edit` box's path also has a chip in the border, one click away from the
-clipboard, and the same on a reply's code block (see `codeBlocks`).
+clipboard, and the same on a reply's code block (see `codeBlocks`) and on a quote, which
+copies its Markdown rather than its rendered text.
 
 A row you can click lights up under the pointer, and the pointer turns into a hand
 while it is on one (OSC 22: Ghostty, kitty, foot and WezTerm draw it; other

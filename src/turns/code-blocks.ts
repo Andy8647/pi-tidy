@@ -9,7 +9,7 @@
  * replies exactly as they are and the caller says so once at load.
  */
 
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { visibleText } from "../draw/frame-draw.ts";
 import { paint } from "../draw/paint.ts";
 import { renderSplitDiff } from "../tools/split-diff.ts";
@@ -98,6 +98,8 @@ export interface CodeBlockOptions {
 /** A reply's blocks, plus the chip showing `copied` and the one under the pointer. */
 export interface CodeBlocks {
   blocks: CodeBlock[];
+  /** The quoted blocks that carry a chip, in row order, and the cells the chips cover. */
+  quoteSpans?: ChipSpan[];
   flash?: { index: number; until: number };
   /** The block whose chip the pointer is on, from the last move packet. */
   hover?: number;
@@ -106,10 +108,76 @@ export interface CodeBlocks {
 /** One column range a click on a chip covers. */
 export interface ChipSpan {
   row: number;
-  /** Index into `CodeBlocks.blocks`. */
+  /** Index into `CodeBlocks.blocks`, or a negative one for a quote's chip. */
   index: number;
   x: number;
   end: number;
+  /** What this chip copies, when it carries its own text: a quote does, a code block is read back by `index`. */
+  text?: string;
+}
+
+/**
+ * A quote's chip. A quoted block has no rule to hang one from, so it goes in the cell
+ * in front of the border, which is Markdown's own left padding: blank on every row, so
+ * the border and the text keep their columns and nothing re-wraps.
+ */
+export interface QuoteChip {
+  /** The border's first row without `│ `: how the block is found again among the rows. */
+  first: string;
+  /** The block's source, `>` prefixes and all: exactly what the chip copies. */
+  text: string;
+  chip: string;
+}
+
+/** The chip a `blockquote` token earns, or undefined when copying is off or it has no source. */
+export function quoteChip(lines: readonly string[], token: { raw?: string }, options: CodeBlockOptions): QuoteChip | undefined {
+  if (!options.canCopy) return undefined;
+  // The source, not the rendered text: a reader who copies a quote wants the `>`s back,
+  // and the bold and the links that the rows only show the result of.
+  const text = (token.raw ?? "").trimEnd();
+  if (!text.trim()) return undefined;
+  const first = visibleText(lines[0] ?? "").replace(/^│ ?/, "").trimEnd();
+  // A row that already carries a block's chip has no room for a second one: a quote that
+  // opens on a fenced block is copied by that block's chip, not by one in front of it.
+  if (!first || (lines[0] ?? "").includes(COPY_CHIP) || first.trimStart().startsWith(RULE_GLYPH)) return undefined;
+  return { first, text, chip: COPY_CHIP };
+}
+
+/**
+ * The rows with each quote's chip drawn where it goes, and the cells the chips cover.
+ * A quote whose first row has no blank cell in front of its border keeps its rows.
+ */
+export function spliceQuoteChips(rows: readonly string[], quotes: readonly QuoteChip[], theme: ThemeLike): { rows: string[]; spans: ChipSpan[] } {
+  const out = [...rows];
+  const spans: ChipSpan[] = [];
+  let cursor = 0;
+  for (const [index, quote] of quotes.entries()) {
+    const found = quoteRow(out, cursor, quote.first);
+    if (!found) continue;
+    const row = out[found.row]!;
+    const width = visibleWidth(row);
+    const chip = chipWord(theme, quote.chip, false);
+    out[found.row] = sliceByColumn(row, 0, found.col) + chip + sliceByColumn(row, found.col + 1, width - found.col - 1);
+    // A negative index, so a quote's chip never answers with a code block's text.
+    spans.push({ row: found.row, index: -1 - index, x: found.col, end: found.col + 1, text: quote.text });
+    cursor = found.row + 1;
+  }
+  return { rows: out, spans };
+}
+
+/**
+ * Where a quote starts: the first row at or below `from` that carries the quote's own first
+ * line behind its border, and a blank cell in front of that border for the chip.
+ */
+function quoteRow(rows: readonly string[], from: number, first: string): { row: number; col: number } | undefined {
+  for (let row = from; row < rows.length; row++) {
+    const text = visibleText(rows[row]!);
+    const match = /^( +)│ /.exec(text);
+    if (!match) continue;
+    if (!text.slice(match[0].length).startsWith(first)) continue;
+    return { row, col: match[1]!.length - 1 };
+  }
+  return undefined;
 }
 
 function infoWord(lang: string | undefined): string {
@@ -232,7 +300,9 @@ function bodyRows(text: string, lang: string, width: number, indent: number, opt
  * whether it had one. What is left is the rule's own glyphs and its label.
  */
 function ruleText(row: string): { bare: string; prefixed: boolean } {
-  const text = visibleText(row).trim();
+  // A quote's chip sits in front of the border, so a block that opens on the quote's
+  // first row is met through it: `󰆒│ ─ fish ─` is still the block's opening rule.
+  const text = visibleText(row).trim().replace(new RegExp(`^${COPY_CHIP}\\s*`), "");
   const prefix = /^(?:[│>]\s*|\d+[.)]\s+)/.exec(text);
   return prefix ? { bare: text.slice(prefix[0].length).trim(), prefixed: true } : { bare: text, prefixed: false };
 }

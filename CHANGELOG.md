@@ -4,6 +4,19 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**A quote's copy chip sits in the cell in front of its gutter** (`󰆒│ Note: …`). pi draws a blockquote as a `│`
+gutter, and tidy had nothing to hang a chip from the way a fenced block's two rules carry one, so copying a quoted
+note meant a drag. The chip takes the blank cell Markdown leaves in front of the border, so the border and the text
+keep their columns and nothing re-wraps; it lights up under the pointer and shows a tick for a moment after the click,
+the same as a code block's. What it copies is the block's own source, `>` prefixes and all: a reader who copies a
+quote wants it to paste back as one, with the bold and the links that the rows only show the result of. A quote that
+opens on a fenced block keeps that block's chip and gets no second one on the row, and a narrow quote with no blank
+cell in front of its border keeps pi's rows. `cleanCopy` takes the glyph off a selection, as it takes the rules off.
+
 ## [0.11.0] - 2026-11-21
 
 ### Added
