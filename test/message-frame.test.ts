@@ -25,7 +25,7 @@ const {
   CustomMessageComponent,
   UserMessageComponent,
 } = await import("@earendil-works/pi-coding-agent");
-const { Box, Text, visibleWidth } = await import("@earendil-works/pi-tui");
+const { Box, Container, Text, visibleWidth } = await import("@earendil-works/pi-tui");
 
 /**
  * The tag-based theme above keeps assertions readable, but its `<fg:…>` tags
@@ -250,6 +250,36 @@ test("an extension message that is not a subagent notice takes the custom glyph"
   const top = component.render(50)[0]!;
   assert.ok(top.includes("\u{f12e}"), "the custom message glyph");
   assert.ok(!top.includes("\u{f0c0}"), "not the subagent glyph");
+});
+
+test("an extension message's image keeps the rows it is drawn into (#91)", async () => {
+  const { Image, setCapabilities, resetCapabilitiesCache, setCellDimensions } = await import("@earendil-works/pi-tui");
+  // A 1×1 PNG; the size pi lays it out at comes from `dimensions`, a portrait screenshot.
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  setCellDimensions({ widthPx: 37, heightPx: 17 });
+  try {
+    for (const images of ["kitty", "iterm2"] as const) {
+      setCapabilities({ images, trueColor: true, hyperlinks: false });
+      patchContainerBoxes(COLORS, { icons: true, includeUser: true });
+      const image = new Image(png, "image/png", { fallbackColor: (s) => s }, { maxWidthCells: 60, maxHeightCells: 16 }, {
+        widthPx: 550,
+        heightPx: 1052,
+      });
+      const imageRows = image.render(56).length;
+      assert.ok(imageRows > 4, `${images}: a tall image, got ${imageRows} rows`);
+      // The image last, as an attachment notice draws it: its blank rows sit at the body's edge.
+      const body = new Container();
+      body.addChild(new Text("Attached [#image 1] shot.png", 0, 0));
+      body.addChild(image);
+      const component = new CustomMessageComponent({ customType: "image-paste", content: "x" } as any, (() => body) as any);
+      const out = component.render(60);
+      // Top border, the label row, the image's rows, bottom border.
+      assert.equal(out.length, 1 + 1 + imageRows + 1, `${images}: every row the image reserved is inside the frame`);
+      assert.ok(out.slice(1, -1).every((row) => row.startsWith("<fg:customCol>│</fg>")), `${images}: inside the side borders`);
+    }
+  } finally {
+    resetCapabilitiesCache();
+  }
 });
 
 // ── Notices Tidy can name from the message itself ──────────────────────────

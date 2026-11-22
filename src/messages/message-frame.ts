@@ -313,6 +313,11 @@ function customKindIcon(component: ContainerBoxInternals, icons: boolean): strin
   return typeof type === "string" && type.startsWith("subagent") ? TOOL_ICONS.subagent! : MESSAGE_ICONS.custom;
 }
 
+/** A row carrying a kitty or iTerm2 image, as pi-tui's `isImageLine` (not exported) tells them. */
+function isImageRow(row: string): boolean {
+  return row.includes("\x1b_G") || row.includes("\x1b]1337;File=");
+}
+
 /**
  * Frame a message whose body an extension renderer drew.
  *
@@ -338,8 +343,13 @@ function frameCustom(
   const raw = custom.render(contentWidth);
   let start = 0;
   let end = raw.length;
-  while (start < end && visibleText(raw[start]!).trim() === "") start++;
-  while (end > start && visibleText(raw[end - 1]!).trim() === "") end--;
+  // An image's blank rows are the room it is drawn into, below its row in kitty
+  // and above it in iTerm2: trimmed, the image spills over the rows around the
+  // frame (#91). A body with an image keeps every row it drew.
+  if (!raw.some(isImageRow)) {
+    while (start < end && visibleText(raw[start]!).trim() === "") start++;
+    while (end > start && visibleText(raw[end - 1]!).trim() === "") end--;
+  }
   const content = raw.slice(start, end);
   component.__customFrame = content.length
     ? { target: custom, top: 1, trimTop: start, inset: 2, width: contentWidth, height: raw.length, rows: content.length }
