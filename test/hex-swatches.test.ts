@@ -155,8 +155,12 @@ test("a link keeps its label and its URL: no swatch inside either (#94)", () => 
 });
 
 test("prose around a link still gets its swatches", () => {
+  // Without terminal hyperlinks (CI) pi writes the URL out after the label, so read
+  // the dots, not the whole line.
   const line = render("[docs](https://x.dev/#fade) say #7f849c is the border", "assistant")[0]!;
-  assert.equal(plain(line).replace(/\x1b\]8;;[^\x1b\x07]*(?:\x1b\\|\x07)/g, "").trimEnd(), "docs say ● #7f849c is the border");
+  const text = plain(line).replace(/\x1b\]8;;[^\x1b\x07]*(?:\x1b\\|\x07)/g, "");
+  assert.equal(text.match(/●/g)?.length, 1, text);
+  assert.ok(text.includes("say ● #7f849c is the border"), text);
 });
 
 test("four decimal digits are a pull request, not #RGBA; three and six still are colors", () => {
