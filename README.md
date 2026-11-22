@@ -232,7 +232,7 @@ follows `style`. Both also take `off`, pi's own look. `rules`, a rail's name bef
 | Text | One cell in from each side | In the same column, with nothing beside it |
 | A reply's code block | Its rules meet both sides: `├─ fish 󰆒 ───┤` | Its rules start and end in the text's column: `─ fish 󰆒 ───` |
 | Rows inside the top and bottom edges | One on the reply | None |
-| Width | Your message hugs its text, up to `userMessageMaxWidth`, and can sit on the right (`userMessageAlign`). Everything else takes the whole width | The same |
+| Width | Your message hugs its text, up to `userMessageMaxWidth`, and can sit on the right (`userMessageAlign`); `userMessageFill` gives it the whole width too. Everything else takes the whole width | The same |
 
 Around either style the rhythm is the same: no blank row inside one thing, one between your message
 and its run, two between runs, and none between a folded run's summary and its reply. Inside an opened
@@ -255,6 +255,7 @@ that only thinks and calls joins the group above it, its thought one of the grou
 | `userMessageStyle` | `"rail"` | Your messages' own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles) | Always |
 | `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages use the whole width unless `userMessageMaxWidth` caps it | Moves the message and its label, in either style. `off` ignores it |
 | `userMessageMaxWidth` | `"auto"` | The widest your message's text gets before it wraps, so its edges hug the narrower column: `"auto"` is the whole width, `0.7` is a fraction of it, `88` is a column count. Anything else falls back to `"auto"` | Any `userMessageStyle` but `off`. A label wider than the cap still widens the message to fit itself |
+| `userMessageFill` | `false` | Takes your message's edges to the whole width, like every other surface's, instead of hugging its text. The text still wraps at `userMessageMaxWidth` | Any `userMessageStyle` but `off` |
 | `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and any `userMessageStyle` but `off` |
 
 ### Final reply and turn folding

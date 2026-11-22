@@ -390,6 +390,7 @@ export default function (pi: ExtensionAPI): void {
       userOpen: config.userMessageStyle === "rail",
       userAlign: config.userMessageAlign,
       userMaxWidth: config.userMessageMaxWidth,
+      userFill: config.userMessageFill,
       userTime: config.userMessageTime,
       timeFormat: config.messageTimeFormat,
       headerStyle: config.messageHeaderStyle,
