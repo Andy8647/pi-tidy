@@ -17,6 +17,24 @@ quote wants it to paste back as one, with the bold and the links that the rows o
 opens on a fenced block keeps that block's chip and gets no second one on the row, and a narrow quote with no blank
 cell in front of its border keeps pi's rows. `cleanCopy` takes the glyph off a selection, as it takes the rules off.
 
+**`userMessageFill`: your message's edges can take the whole width again** (#92). Before 0.11 the rail was two
+full-width rules; 0.11 drew it with the frame's code, which hugs the text, so under the rail default a short prompt's
+rules stopped short while the reply's ran across the screen. `true` takes them to the whole width in either style. The
+text still wraps at `userMessageMaxWidth`, and the default keeps the hug.
+
+### Fixed
+
+**An image in an extension's message stays inside its frame** (#91). An image is one row with the picture on it and
+blank rows that hold its height. tidy trimmed blank rows off the edges of an extension's body before framing it, so an
+image at the end of a message (an attachment notice) lost all of its rows but one and was drawn over the frame's
+bottom edge and the lines under it. A body with an image now keeps every row it drew.
+
+**A pi build without two of pi's private methods no longer crashes on a mouse event** (#93). tidy finds a tool box's
+body through `hasRendererDefinition()` and `getRenderShell()`. Pi-Bolt 1.3 replaced them, and rendering already fell
+back to pi's own box when they were missing, but a pointer over a box called them from pi's input handler, where
+nothing caught the error, and pi exited. The pointer now goes to pi's own handling, and the session starts with one
+warning that tidy leaves those boxes' frames and clicks to pi.
+
 ## [0.11.0] - 2026-11-21
 
 ### Added
