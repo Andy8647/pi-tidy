@@ -36,6 +36,7 @@ import { createReadPreviewComponent } from "./tools/markdown-latex-preview.ts";
 import { isLatexPath, isMarkdownPath } from "./tools/lang-support.ts";
 import { connectJobs, registerNestedJobs, type EventBusLike } from "./tools/background-jobs.ts";
 import { installGroupBoundaries } from "./tools/tool-group-view.ts";
+import { toolBodyInternalsAvailable } from "./tools/tool-frame.ts";
 import { getTheme, type ThemeLike } from "./theme-access.ts";
 
 export { highlightBashCommand, formatBashCallHighlighted } from "./tools/bash-highlight.ts";
@@ -288,6 +289,13 @@ export default function (pi: ExtensionAPI): void {
   if (config.codeBlocks && !codeBlocksAvailable()) {
     pi.on("session_start", (_event, ctx) => {
       ctx.ui.notify("pi-tidy: this pi's Markdown draws code blocks itself, so `tidy.codeBlocks` does nothing on it.", "warning");
+    });
+  }
+  // A tool box's body sits in one of pi's private containers. A pi build that
+  // reorganised them (Pi-Bolt, #93) keeps its own boxes and clicks.
+  if (!toolBodyInternalsAvailable()) {
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify("pi-tidy: this pi builds its tool boxes differently, so tidy leaves their frames and clicks to pi.", "warning");
     });
   }
   // Patches installed by an earlier load (before a /reload) read this live,
