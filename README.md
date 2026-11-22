@@ -33,6 +33,7 @@ every box is drawn one way: rails by default, rounded frames if you prefer.
 - **Bash syntax highlighting** — token-level colors for commands, flags, strings, variables and operators. A payload is highlighted as the language it is written in: a shell's `-c` script as shell, `python3 -c "…"` and `node -e '…'` as python and javascript, and a heredoc's body as whatever the command before it runs (`python3 - <<'PY'`). Opened, a call's whole body hangs on the command's own column (`$ ` in a box of its own, the column after the icon and the name under a group row), so the script and the output under it read as one block. Words the grammar cannot name (arguments, paths, globs) take `toolOutput`, so a path-heavy row is not a wall of the terminal's default foreground
 - **Copies without the chrome** — text you select in pi's fullscreen mode goes to the clipboard without the frame or the rules around a box. A tool box's border is the exception: the path it names is what you dragged for, so it copies on its own
 - **One-click paths** — a `write` or `edit` box puts a copy chip next to the path in its border (`╭─ 󰛦 src/app.ts 󰆒 ────╮`): click it for the path, no drag, and the chip reads a tick for a moment
+- **A quote you can copy** — a blockquote's chip takes the blank cell in front of its gutter (` 󰆒│ Note: …`), one click from the block's own Markdown, `>` prefixes and all. The gutter stays in its column, so nothing re-wraps, and a quoted note no longer means a drag
 - **Click to fold** — clicks land on pi's own expand toggle, for every tool including `renderShell: "self"` ones; only left clicks are taken, so selecting text still works
 - **Scroll-safe caching** — an unchanged box costs one string comparison per frame
 
@@ -231,7 +232,7 @@ follows `style`. Both also take `off`, pi's own look. `rules`, a rail's name bef
 | Text | One cell in from each side | In the same column, with nothing beside it |
 | A reply's code block | Its rules meet both sides: `├─ fish 󰆒 ───┤` | Its rules start and end in the text's column: `─ fish 󰆒 ───` |
 | Rows inside the top and bottom edges | One on the reply | None |
-| Width | Your message hugs its text, up to `userMessageMaxWidth`, and can sit on the right (`userMessageAlign`). Everything else takes the whole width | The same |
+| Width | Your message hugs its text, up to `userMessageMaxWidth`, and can sit on the right (`userMessageAlign`); `userMessageFill` gives it the whole width too. Everything else takes the whole width | The same |
 
 Around either style the rhythm is the same: no blank row inside one thing, one between your message
 and its run, two between runs, and none between a folded run's summary and its reply. Inside an opened
@@ -245,7 +246,7 @@ that only thinks and calls joins the group above it, its thought one of the grou
 |-----|---------|--------------|-----------------|
 | `enabled` | `true` | Turns the whole extension on or off | Always |
 | `style` | `"rail"` | `rail` or `frame`: how every box is edged. See [Styles](#styles) | Always |
-| `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`) | Always. Off, a user message loses its label, so its time goes too |
+| `icons` | `true` | Nerd Font icons on boxes, rows and message labels, and the copy chips (a glyph instead of the word `copy`). A quote's chip is always the glyph: the cell in front of its gutter has room for one character | Always. Off, a user message loses its label, so its time goes too |
 
 ### User messages
 
@@ -254,6 +255,7 @@ that only thinks and calls joins the group above it, its thought one of the grou
 | `userMessageStyle` | `"rail"` | Your messages' own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles) | Always |
 | `userMessageAlign` | `"left"` | `"left"` or `"right"`. Long messages use the whole width unless `userMessageMaxWidth` caps it | Moves the message and its label, in either style. `off` ignores it |
 | `userMessageMaxWidth` | `"auto"` | The widest your message's text gets before it wraps, so its edges hug the narrower column: `"auto"` is the whole width, `0.7` is a fraction of it, `88` is a column count. Anything else falls back to `"auto"` | Any `userMessageStyle` but `off`. A label wider than the cap still widens the message to fit itself |
+| `userMessageFill` | `false` | Takes your message's edges to the whole width, like every other surface's, instead of hugging its text. The text still wraps at `userMessageMaxWidth` | Any `userMessageStyle` but `off` |
 | `userMessageTime` | `true` | Shows when you sent a message (`14:06`, with the date when it is not from today). The final reply's border keeps its own time | Needs `icons`, and any `userMessageStyle` but `off` |
 
 ### Final reply and turn folding
@@ -309,7 +311,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 |-----|---------|--------------|-----------------|
 | `toolColors` | `{ "bash": "bashMode", "read": "toolTitle", "edit": "syntaxVariable", "write": "syntaxVariable", "grep": "syntaxOperator", "find": "syntaxOperator", "ls": "syntaxOperator", "mcp": "customMessageLabel" }` | Border color per tool, on success. Pending stays grey, errors red, unlisted tools take `accent`. The map **replaces** the defaults, so `{}` turns per-tool colors off | Tool boxes, and each tool's icon on a summary or group line |
 | `thinkingColor` | `"warning"` | Color of the brain, the `N thoughts` count and an expanded thinking box | Always, with grouping on or off |
-| `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word. Fenced blocks, inline code and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
+| `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word, and neither does four-digit `#7250`, which is a pull request. Fenced blocks, inline code, links (label and URL) and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
 
 The defaults keep a settled screen quiet without draining it. Your messages, the reply and an opened run's line are
 drawn in the theme's plain `border` grey, and the model's name on the reply is the one `accent`. A folded summary's
@@ -430,13 +432,15 @@ recognised by its shape: rounded corners of equal width in one column, with a ve
 on both sides of every row. A rail by a labelled top rule and the next plain rule of its
 width in its column; one with no label (an `!` command, `icons: false`) keeps its rules,
 since two bare rules are also what a model's `---` looks like. A table's square corners
-and a blockquote's `│` stay. So does the line beside an open run's rows, which a selection cannot tell from a quote,
+and a blockquote's `│` stay, while the copy chip in front of that gutter comes off with
+the rules. So does the line beside an open run's rows, which a selection cannot tell from a quote,
 and a rounded box a model drew in an unframed message is taken for a frame. A top
 border's label survives when it names a file: dragging the path out of a tool box's
 border copies the path, and `ctrl+x` on that selection has something to hand over.
 
 A `write` or `edit` box's path also has a chip in the border, one click away from the
-clipboard, and the same on a reply's code block (see `codeBlocks`).
+clipboard, and the same on a reply's code block (see `codeBlocks`) and on a quote, which
+copies its Markdown rather than its rendered text.
 
 A row you can click lights up under the pointer, and the pointer turns into a hand
 while it is on one (OSC 22: Ghostty, kitty, foot and WezTerm draw it; other

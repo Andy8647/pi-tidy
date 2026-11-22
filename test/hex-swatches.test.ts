@@ -134,3 +134,36 @@ test("the dot, its space and the hash cost three cells", () => {
   const after = plain(render("color #7f849c", "assistant")[0]!).trimEnd();
   assert.equal(after.length - before.length, 3);
 });
+
+/** The same Markdown with no transformer: what pi draws when swatches are off. */
+function renderUntouched(text: string, width = 70): string[] {
+  return new Markdown(text, 0, 0, getMarkdownTheme()).render(width);
+}
+
+test("a link keeps its label and its URL: no swatch inside either (#94)", () => {
+  for (const source of [
+    "[#7250](https://github.com/o/r/pull/7250)",
+    "[#fff](https://x.dev) and [the #abc theme](https://x.dev/t)",
+    "[see](https://x.dev/page#fade)",
+    "![#fff](https://x.dev/a.png)",
+    "[#7250][pr]\n\n[pr]: https://x.dev/#bad",
+    "<https://x.dev/#bad>",
+    "https://x.dev/#cafe and www.x.dev/#add",
+  ]) {
+    assert.deepEqual(render(source, "assistant"), renderUntouched(source), source);
+  }
+});
+
+test("prose around a link still gets its swatches", () => {
+  // Without terminal hyperlinks (CI) pi writes the URL out after the label, so read
+  // the dots, not the whole line.
+  const line = render("[docs](https://x.dev/#fade) say #7f849c is the border", "assistant")[0]!;
+  const text = plain(line).replace(/\x1b\]8;;[^\x1b\x07]*(?:\x1b\\|\x07)/g, "");
+  assert.equal(text.match(/●/g)?.length, 1, text);
+  assert.ok(text.includes("say ● #7f849c is the border"), text);
+});
+
+test("four decimal digits are a pull request, not #RGBA; three and six still are colors", () => {
+  const line = render("fixed in #7250, with #333 on #000000 and #f00a", "assistant")[0]!;
+  assert.equal(plain(line).trimEnd(), "fixed in #7250, with ● #333 on ● #000000 and ● #f00a");
+});

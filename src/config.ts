@@ -39,6 +39,11 @@ export interface TidyConfig {
    * (`88`). The frame hugs the narrower text.
    */
   userMessageMaxWidth: number | "auto";
+  /**
+   * Your message's edges reach the whole width, as everything else's do, instead of
+   * hugging its text. The text still wraps at `userMessageMaxWidth`.
+   */
+  userMessageFill: boolean;
   /** Show a user message's time next to its icon. */
   userMessageTime: boolean;
   /** Fold a whole run live or only after settlement. */
@@ -176,6 +181,7 @@ const DEFAULTS: TidyConfig = {
   userMessageStyle: "rail",
   userMessageAlign: "left",
   userMessageMaxWidth: "auto",
+  userMessageFill: false,
   userMessageTime: true,
   collapseTurns: "afterRun",
   finalReplyStyle: "rail",
@@ -264,6 +270,7 @@ export function loadConfig(): TidyConfig {
       userMessageStyle: surfaceStyle(toolbox?.userMessageStyle) ?? style,
       userMessageAlign: toolbox?.userMessageAlign === "right" ? "right" : "left",
       userMessageMaxWidth: userMaxWidth(toolbox?.userMessageMaxWidth),
+      userMessageFill: typeof toolbox?.userMessageFill === "boolean" ? toolbox.userMessageFill : DEFAULTS.userMessageFill,
       userMessageTime: typeof toolbox?.userMessageTime === "boolean" ? toolbox.userMessageTime : DEFAULTS.userMessageTime,
       collapseTurns: ["off", "afterRun", "live"].includes(toolbox?.collapseTurns) ? toolbox.collapseTurns : DEFAULTS.collapseTurns,
       finalReplyStyle: finalReplyStyle(toolbox, style),

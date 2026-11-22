@@ -74,3 +74,27 @@ test("changing the max width invalidates an existing message's cache", () => {
   patchContainerBoxes(colors, { ...options, userAlign: "right" });
   assert.deepEqual(message.render(80), auto, "and back to the whole width");
 });
+
+test("userMessageFill takes the edges to the whole width, rail or frame, and the text still wraps at the cap (#92)", () => {
+  const message = new UserMessageComponent("hi there");
+  for (const userOpen of [true, false]) {
+    patchContainerBoxes(colors, { ...options, userOpen });
+    const hugged = message.render(80).map(visibleText);
+    assert.ok(frameWidth(hugged) < 30, `a short message hugs its text by default: ${frameWidth(hugged)}`);
+
+    patchContainerBoxes(colors, { ...options, userOpen, userFill: true });
+    const filled = message.render(80).map(visibleText);
+    assert.equal(frameWidth(filled), 80, `${userOpen ? "rail" : "frame"}: the edges reach the whole width`);
+    assert.equal(visibleWidth(filled[0]!), 80, "the top edge");
+    assert.equal(visibleWidth(filled.at(-1)!), 80, "the bottom edge");
+    assert.ok(filled.some((line) => line.includes("hi there")), "the text is still inside");
+  }
+
+  const long = "word ".repeat(40).trim();
+  patchContainerBoxes(colors, { ...options, userFill: true, userMaxWidth: 40, userAlign: "right" });
+  const capped = new UserMessageComponent(long).render(100).map(visibleText);
+  assert.equal(frameWidth(capped), 100, "filled even with a cap");
+  const text = capped.slice(1, -1).map((line) => line.replace(/[│]/g, "").trim());
+  assert.ok(text.every((line) => visibleWidth(line) <= 40), "the text wraps at the cap");
+  assert.ok(capped.every((line) => visibleWidth(line) === 100), "right alignment has nothing left to indent");
+});

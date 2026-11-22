@@ -322,8 +322,20 @@ function nestedRun(tool: ToolBoxInternals): NestedRun | undefined {
   return run && hasNestedBody(run, resultText(tool.result?.content)) ? run : undefined;
 }
 
+/**
+ * The two private methods that say which of pi's containers holds a box's body.
+ * A pi build without them (Pi-Bolt 1.3 keeps one `shell` field instead, #93)
+ * leaves the box to pi: render falls back on its own when frameBox throws, and
+ * the mouse has no such catch, so it has to ask first.
+ */
+export function toolBodyInternalsAvailable(tool: object = ToolExecutionComponent.prototype): boolean {
+  const internals = tool as Partial<ToolBoxInternals>;
+  return typeof internals.hasRendererDefinition === "function" && typeof internals.getRenderShell === "function";
+}
+
 /** The component pi routes a box's clicks through (its result MouseRegions live inside). */
 function mouseTarget(tool: ToolBoxInternals): MouseTarget | undefined {
+  if (!toolBodyInternalsAvailable(tool)) return undefined;
   if (!tool.hasRendererDefinition()) return tool.contentTextRegion;
   return tool.getRenderShell() === "self" ? tool.selfRenderContainer : tool.contentBox;
 }

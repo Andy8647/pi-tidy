@@ -192,6 +192,8 @@ export interface ContainerBoxOptions {
   userAlign?: "left" | "right";
   /** The widest a framed user message's text gets: `"auto"`, a fraction of the width, or columns. */
   userMaxWidth?: number | "auto";
+  /** The user message's edges take the whole width instead of hugging its text (#92). */
+  userFill?: boolean;
   /** The framed user message's time next to its icon. */
   userTime?: boolean;
   /** `tidy.messageTimeFormat`. */
@@ -213,6 +215,7 @@ interface ResolvedContainerOptions {
   userOpen: boolean;
   userAlign: "left" | "right";
   userMaxWidth: number | "auto";
+  userFill: boolean;
   userTime: boolean;
   timeFormat: string;
   headerStyle: HeaderStyle;
@@ -313,6 +316,11 @@ function customKindIcon(component: ContainerBoxInternals, icons: boolean): strin
   return typeof type === "string" && type.startsWith("subagent") ? TOOL_ICONS.subagent! : MESSAGE_ICONS.custom;
 }
 
+/** A row carrying a kitty or iTerm2 image, as pi-tui's `isImageLine` (not exported) tells them. */
+function isImageRow(row: string): boolean {
+  return row.includes("\x1b_G") || row.includes("\x1b]1337;File=");
+}
+
 /**
  * Frame a message whose body an extension renderer drew.
  *
@@ -338,8 +346,13 @@ function frameCustom(
   const raw = custom.render(contentWidth);
   let start = 0;
   let end = raw.length;
-  while (start < end && visibleText(raw[start]!).trim() === "") start++;
-  while (end > start && visibleText(raw[end - 1]!).trim() === "") end--;
+  // An image's blank rows are the room it is drawn into, below its row in kitty
+  // and above it in iTerm2: trimmed, the image spills over the rows around the
+  // frame (#91). A body with an image keeps every row it drew.
+  if (!raw.some(isImageRow)) {
+    while (start < end && visibleText(raw[start]!).trim() === "") start++;
+    while (end > start && visibleText(raw[end - 1]!).trim() === "") end--;
+  }
   const content = raw.slice(start, end);
   component.__customFrame = content.length
     ? { target: custom, top: 1, trimTop: start, inset: 2, width: contentWidth, height: raw.length, rows: content.length }
@@ -355,8 +368,8 @@ export function patchContainerBoxes(
   borderColors: { user: string; custom: string },
   options: ContainerBoxOptions = {},
 ): void {
-  const { icons = false, includeUser = false, userOpen = false, enabled = true, userAlign = "left", userMaxWidth = "auto", userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
-  containerOptions.set({ enabled, borderColors, icons, includeUser, userOpen, userAlign, userMaxWidth, userTime, timeFormat, headerStyle });
+  const { icons = false, includeUser = false, userOpen = false, enabled = true, userAlign = "left", userMaxWidth = "auto", userFill = false, userTime = true, timeFormat = "auto", headerStyle = "inline" } = options;
+  containerOptions.set({ enabled, borderColors, icons, includeUser, userOpen, userAlign, userMaxWidth, userFill, userTime, timeFormat, headerStyle });
   if (!enabled && !includeUser) return;
   if (includeUser) installUserMessageTimes();
 
@@ -466,9 +479,10 @@ export function patchContainerBoxes(
           // `╭─  ─╮`: the icon is the frame's, so the text starts on its own
           // row and copies without it. No icons, no label: a plain top border.
           const framed = hugContent(content, w, visibleWidth(header?.label ?? ""));
-          const frame = drawFrame(framed.lines, framed.width, theme, borderColor, undefined, live.userOpen);
-          if (header) frame[0] = labeledTopBorder(framed.width, theme, borderColor, header.label, align, header.lead, undefined, live.userOpen);
-          const indent = align === "right" ? " ".repeat(w - framed.width) : "";
+          const frameWidth = live.userFill ? w : framed.width;
+          const frame = drawFrame(framed.lines, frameWidth, theme, borderColor, undefined, live.userOpen);
+          if (header) frame[0] = labeledTopBorder(frameWidth, theme, borderColor, header.label, align, header.lead, undefined, live.userOpen);
+          const indent = align === "right" ? " ".repeat(w - frameWidth) : "";
           out = indent ? frame.map((line) => indent + line) : frame;
         } else {
           const framed = drawFrame(content, w, theme, borderColor);

@@ -12,6 +12,12 @@
  * is noise, and a shell comment that happens to look like a color (`#abc`) is
  * not one. Named CSS colors are left alone as well: `red` and `tomato` are
  * ordinary words in prose.
+ *
+ * Links are left alone too (#94). The swatch goes in before Markdown parses the
+ * text, and its escapes carry a `[`: inside a link's label that bracket opens
+ * the label instead, and inside a URL (`…/page#fade`) the swatch cuts the link
+ * in two. A link's `#7250` is a pull request, not a color. So is a bare `#7250`:
+ * four decimal digits are read as `#RGBA` by the pattern, and almost never are.
  */
 
 import { paint } from "../draw/paint.ts";
@@ -149,6 +155,68 @@ function closingTicks(line: string, from: number, length: number): number {
   return -1;
 }
 
+/** The index just past the `]` that closes the bracket opening at `open`, or -1. */
+function closingBracket(line: string, open: number): number {
+  let depth = 0;
+  for (let at = open; at < line.length; at++) {
+    const char = line[at];
+    if (char === "\\") at++;
+    else if (char === "[") depth++;
+    else if (char === "]" && --depth === 0) return at + 1;
+  }
+  return -1;
+}
+
+/** The index just past the `)` that closes the parenthesis opening at `open`, or -1. */
+function closingParen(line: string, open: number): number {
+  let depth = 0;
+  for (let at = open; at < line.length; at++) {
+    const char = line[at];
+    if (char === "\\") at++;
+    else if (char === "(") depth++;
+    else if (char === ")" && --depth === 0) return at + 1;
+  }
+  return -1;
+}
+
+/**
+ * The index just past the link that starts at `index`, or -1: a bracketed label
+ * with the `(destination)` or `[reference]` after it (an image's `![alt](src)` is
+ * the same from its `[`), an autolink, or a bare URL Markdown links by itself.
+ */
+function linkEnd(line: string, index: number): number {
+  const char = line[index];
+  if (char === "[") {
+    const label = closingBracket(line, index);
+    if (label === -1) return -1;
+    if (line[label] === "(") {
+      const destination = closingParen(line, label);
+      return destination === -1 ? label : destination;
+    }
+    if (line[label] === "[") {
+      const reference = closingBracket(line, label);
+      return reference === -1 ? label : reference;
+    }
+    return label;
+  }
+  if (char === "<") {
+    const autolink = AUTOLINK_RE.exec(line.slice(index));
+    return autolink ? index + autolink[0].length : -1;
+  }
+  if (char === "h" || char === "H" || char === "w" || char === "W") {
+    const before = line[index - 1];
+    if (before !== undefined && /[0-9A-Za-z_]/.test(before)) return -1;
+    const url = BARE_URL_RE.exec(line.slice(index));
+    return url ? index + url[0].length : -1;
+  }
+  return -1;
+}
+
+/** `<scheme:…>` with no spaces, as CommonMark reads an autolink. */
+const AUTOLINK_RE = /^<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>/;
+/** What GFM links without any markup: `http://`, `https://` or `www.`, up to the next space. */
+const BARE_URL_RE = /^(?:https?:\/\/|www\.)[^\s<]+/i;
+
 function swatchesInLine(line: string, restore: string, theme: ThemeLike): string {
   let out = "";
   let i = 0;
@@ -161,6 +229,12 @@ function swatchesInLine(line: string, restore: string, theme: ThemeLike): string
       if (end === -1) return out + line.slice(i);
       out += line.slice(i, end);
       i = end;
+      continue;
+    }
+    const link = linkEnd(line, i);
+    if (link !== -1) {
+      out += line.slice(i, link);
+      i = link;
       continue;
     }
     const match = colorAt(line, i);
@@ -181,8 +255,9 @@ function colorAt(line: string, index: number): string | undefined {
   if (char === "#") {
     HEX_AT.lastIndex = index;
     const match = HEX_AT.exec(line);
-    if (match && match.index === index) return match[0];
-    return undefined;
+    if (!match || match.index !== index) return undefined;
+    // `#7250` is a pull request or an issue: the only colors made of four decimal digits are `#RGBA`s nobody writes.
+    return /^#\d{4}$/.test(match[0]) ? undefined : match[0];
   }
   if (char !== "r" && char !== "R" && char !== "h" && char !== "H") return undefined;
   // `myrgb(…)` is not a color, and the regex's `\b` starts one cell later.

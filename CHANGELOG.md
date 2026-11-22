@@ -4,6 +4,46 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-11-22
+
+### Added
+
+**A quote's copy chip sits in the cell in front of its gutter** (`󰆒│ Note: …`). pi draws a blockquote as a `│`
+gutter, and tidy had nothing to hang a chip from the way a fenced block's two rules carry one, so copying a quoted
+note meant a drag. The chip takes the blank cell Markdown leaves in front of the border, so the border and the text
+keep their columns and nothing re-wraps; it lights up under the pointer and shows a tick for a moment after the click,
+the same as a code block's. What it copies is the block's own source, `>` prefixes and all: a reader who copies a
+quote wants it to paste back as one, with the bold and the links that the rows only show the result of. A quote that
+opens on a fenced block keeps that block's chip and gets no second one on the row, and a narrow quote with no blank
+cell in front of its border keeps pi's rows. `cleanCopy` takes the glyph off a selection, as it takes the rules off.
+
+**`userMessageFill`: your message's edges can take the whole width again** (#92). Before 0.11 the rail was two
+full-width rules; 0.11 drew it with the frame's code, which hugs the text, so under the rail default a short prompt's
+rules stopped short while the reply's ran across the screen. `true` takes them to the whole width in either style. The
+text still wraps at `userMessageMaxWidth`, and the default keeps the hug.
+
+### Fixed
+
+**An image in an extension's message stays inside its frame** (#91). An image is one row with the picture on it and
+blank rows that hold its height. tidy trimmed blank rows off the edges of an extension's body before framing it, so an
+image at the end of a message (an attachment notice) lost all of its rows but one and was drawn over the frame's
+bottom edge and the lines under it. A body with an image now keeps every row it drew. If you turned `frameMessages`
+off to get around this, you can turn it back on: compactions, branch summaries, extension messages and `!` commands
+get their frames back.
+
+**Links are left as they were written, and `#7250` gets no swatch** (#94). `hexSwatches` puts its dot in before
+Markdown reads the text, and the dot's escapes carry a `[`. In a link labelled `[#7250](…)` that bracket opened the
+label instead, so the link read `39m #7250` and leaked part of its hyperlink sequence; in a URL whose anchor spells a
+color (`…/page#fade`, `<https://…/#bad>`) the dot cut the link in two. A link's label, its URL, an autolink and a bare
+URL now get no swatch. Four decimal digits are no longer a color either: the pattern read `#7250` as `#RGBA`, and in a
+transcript it is a pull request or an issue every time. `#333` and `#000000` still get their dot.
+
+**A pi build without two of pi's private methods no longer crashes on a mouse event** (#93). tidy finds a tool box's
+body through `hasRendererDefinition()` and `getRenderShell()`. Pi-Bolt 1.3 replaced them, and rendering already fell
+back to pi's own box when they were missing, but a pointer over a box called them from pi's input handler, where
+nothing caught the error, and pi exited. The pointer now goes to pi's own handling, and the session starts with one
+warning that tidy leaves those boxes' frames and clicks to pi.
+
 ## [0.11.0] - 2026-11-21
 
 ### Added

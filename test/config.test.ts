@@ -164,6 +164,12 @@ test("user message max width takes a fraction or a column count, and falls back 
   }
 });
 
+test("a user message hugs its text unless userMessageFill is true", () => {
+  for (const [value, expected] of [[undefined, false], [true, true], [false, false], ["yes", false]] as const) {
+    withSettings({ tidy: { userMessageFill: value } }, () => assert.equal(loadConfig().userMessageFill, expected));
+  }
+});
+
 test("diffContext takes whole lines from 0 to pi's 4, and anything else keeps pi's 4", () => {
   for (const [value, expected] of [[undefined, 4], [0, 0], [2, 2], [4, 4], [9, 4], [-1, 4], [1.5, 4], ["2", 4]] as const) {
     withSettings({ tidy: { diffContext: value } }, () => assert.equal(loadConfig().diffContext, expected, JSON.stringify(value)));
