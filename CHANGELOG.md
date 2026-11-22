@@ -27,7 +27,16 @@ text still wraps at `userMessageMaxWidth`, and the default keeps the hug.
 **An image in an extension's message stays inside its frame** (#91). An image is one row with the picture on it and
 blank rows that hold its height. tidy trimmed blank rows off the edges of an extension's body before framing it, so an
 image at the end of a message (an attachment notice) lost all of its rows but one and was drawn over the frame's
-bottom edge and the lines under it. A body with an image now keeps every row it drew.
+bottom edge and the lines under it. A body with an image now keeps every row it drew. If you turned `frameMessages`
+off to get around this, you can turn it back on: compactions, branch summaries, extension messages and `!` commands
+get their frames back.
+
+**Links are left as they were written, and `#7250` gets no swatch** (#94). `hexSwatches` puts its dot in before
+Markdown reads the text, and the dot's escapes carry a `[`. In a link labelled `[#7250](…)` that bracket opened the
+label instead, so the link read `39m #7250` and leaked part of its hyperlink sequence; in a URL whose anchor spells a
+color (`…/page#fade`, `<https://…/#bad>`) the dot cut the link in two. A link's label, its URL, an autolink and a bare
+URL now get no swatch. Four decimal digits are no longer a color either: the pattern read `#7250` as `#RGBA`, and in a
+transcript it is a pull request or an issue every time. `#333` and `#000000` still get their dot.
 
 **A pi build without two of pi's private methods no longer crashes on a mouse event** (#93). tidy finds a tool box's
 body through `hasRendererDefinition()` and `getRenderShell()`. Pi-Bolt 1.3 replaced them, and rendering already fell
