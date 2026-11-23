@@ -4,6 +4,19 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**`/tidy settings`: an in-pi settings popup** (#98). Opens a keyboard-driven overlay (`↑`/`↓` to
+move, `←`/`→` or `Space` to cycle a value, type to filter, `Enter` to save, `Esc` to cancel) with
+your current values for `collapseTurns`, `groupTools`, `style`, `bashResultLines` and the other
+boolean, style and line-budget options. Cycling an option previews it live on the transcript behind
+the popup; saving merges only the keys you changed into `tidy` in `~/.pi/agent/settings.json`
+without touching any other keys, and cancelling restores the transcript and leaves `settings.json`
+as it was. Changes apply live right away (with a short `/reload` notice for startup-only hooks such
+as turning `enabled` back on after starting with it off).
+
 ## [0.11.1] - 2026-11-22
 
 ### Added

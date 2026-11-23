@@ -39,8 +39,8 @@ every box is drawn one way: rails by default, rounded frames if you prefer.
 
 ## Turn folding
 
-On by default since 0.8.0. To go back, merge these keys into the `tidy` object in
-`~/.pi/agent/settings.json` and run `/reload`:
+On by default since 0.8.0. Run `/tidy settings` in pi to change it from the keyboard, or merge
+these keys into the `tidy` object in `~/.pi/agent/settings.json` and run `/reload`:
 
 ```json
 { "tidy": { "collapseTurns": "off", "finalReplyStyle": "off" } }
@@ -202,8 +202,13 @@ if the tag and the manifest version disagree.
 
 ## Configuration
 
-Add keys to the `tidy` object in `~/.pi/agent/settings.json`, then run `/reload`. A key you leave
-out keeps its default:
+Run `/tidy settings` (or `/tidy`) in pi to open a keyboard-driven popup showing your current
+settings: use `↑`/`↓` to move, `←`/`→` or `Space` to preview another value live on the transcript
+behind the popup, type to filter, `Enter` to save to `~/.pi/agent/settings.json`, or `Esc` to
+cancel without changing anything.
+
+Or add keys directly to the `tidy` object in `~/.pi/agent/settings.json` and run `/reload`. A key
+you leave out keeps its default:
 
 ```json
 { "tidy": { "collapseTurns": "off", "style": "rail", "bashResultLines": 3 } }
