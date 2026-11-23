@@ -6,6 +6,16 @@ import { nestedCallFailed, nestedCallsOf } from "../tools/nested-calls.ts";
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type FinalReplyStyle = "frame" | "rail" | "off";
 export type TurnOutcome = "running" | "completed" | "interrupted" | "error" | "incomplete" | "unknown";
+export interface LlmStepMetrics {
+  ttftMs?: number;
+  durationMs?: number;
+  outputTokens?: number;
+  stopReason?: string;
+}
+export interface TurnLlmMetrics {
+  ttftMs?: number;
+  tps?: number;
+}
 export interface TurnMessage {
   role: string;
   timestamp?: number;
@@ -13,6 +23,7 @@ export interface TurnMessage {
   model?: string;
   stopReason?: string;
   durationMs?: number;
+  usage?: { output?: number };
   content?: any;
   toolCallId?: string;
   toolName?: string;
@@ -22,6 +33,7 @@ export interface TurnMessage {
 export interface Turn {
   messages: Map<string, TurnMessage>;
   tools: Map<string, { name: string; args: unknown; failed?: boolean; nestedFailed?: number; nested?: BreakdownEntry[] }>;
+  llmMetrics?: Map<string, LlmStepMetrics>;
   root?: string;
   firstAssistant?: string;
   latestText?: string;
@@ -127,12 +139,18 @@ export class TurnStore {
   private toolStarts = new Map<string, number>();
   private toolIntervals: [number, number][] = [];
   pendingLlmAt?: number;
+  private pendingRequestAt?: number;
+  private pendingFirstTokenAt?: number;
+  private pendingStepKey?: string;
   settlementOutcome?: "completed" | "aborted" | "error";
 
   begin(now = Date.now()): void {
     if (this.current) return; // retries and automatic continuation stay in this run; a user message splits it (see note)
     this.current = newTurn(now);
     this.pendingLlmAt = undefined;
+    this.pendingRequestAt = undefined;
+    this.pendingFirstTokenAt = undefined;
+    this.pendingStepKey = undefined;
     this.settlementOutcome = undefined;
     this.toolStarts.clear();
     this.toolIntervals = [];
@@ -167,11 +185,82 @@ export class TurnStore {
     if (message.role === "assistant") for (const block of message.content ?? []) {
       if (block.type === "toolCall") this.byTool.set(block.id, turn);
     }
-    if (message.role === "assistant") this.pendingLlmAt = !ended && message.durationMs === undefined ? message.timestamp : undefined;
+    if (message.role === "assistant") {
+      this.pendingLlmAt = !ended && message.durationMs === undefined ? message.timestamp : undefined;
+      if (!ended) {
+        if (this.pendingStepKey !== key) {
+          this.pendingStepKey = key;
+          this.pendingFirstTokenAt = undefined;
+          if (this.pendingRequestAt === undefined) this.pendingRequestAt = message.timestamp;
+        }
+      } else {
+        const isTrackedStep = this.pendingStepKey === key || this.pendingStepKey === undefined;
+        const firstTokenAt = isTrackedStep ? this.pendingFirstTokenAt : undefined;
+        const requestAt = this.pendingRequestAt ?? message.timestamp;
+        const ttftMs = firstTokenAt !== undefined && requestAt !== undefined && Number.isFinite(requestAt)
+          ? Math.max(0, firstTokenAt - requestAt)
+          : undefined;
+        const durationMs = typeof message.durationMs === "number" && Number.isFinite(message.durationMs) && message.durationMs > 0
+          ? message.durationMs
+          : undefined;
+        const outputTokens = typeof message.usage?.output === "number" && Number.isFinite(message.usage.output) && message.usage.output > 0
+          ? message.usage.output
+          : undefined;
+        if (ttftMs !== undefined || durationMs !== undefined || outputTokens !== undefined) {
+          turn.llmMetrics ??= new Map();
+          turn.llmMetrics.set(key, { ttftMs, durationMs, outputTokens, stopReason: message.stopReason });
+        }
+        this.pendingRequestAt = undefined;
+        this.pendingFirstTokenAt = undefined;
+        this.pendingStepKey = undefined;
+      }
+    }
     return closed;
   }
   requestStart(now = Date.now()): void {
-    if (this.current && this.toolStarts.size === 0) this.pendingLlmAt = now;
+    if (this.current && this.toolStarts.size === 0) {
+      this.pendingLlmAt = now;
+      this.pendingRequestAt = now;
+      this.pendingFirstTokenAt = undefined;
+      this.pendingStepKey = undefined;
+    }
+  }
+  noteStreamUpdate(message: TurnMessage, event?: { type?: string; delta?: string; content?: string }, now = Date.now()): void {
+    if (!this.current || this.toolStarts.size > 0 || message.role !== "assistant") return;
+    const key = messageKey(message);
+    if (!key || this.pendingStepKey !== key || this.pendingFirstTokenAt !== undefined) return;
+    const type = event?.type;
+    const hasToken =
+      ((type === "text_delta" || type === "thinking_delta" || type === "toolcall_delta") && (event?.delta?.length ?? 0) > 0) ||
+      ((type === "text_end" || type === "thinking_end") && (event?.content?.length ?? 0) > 0) ||
+      type === "toolcall_end";
+    if (hasToken) this.pendingFirstTokenAt = now;
+  }
+  /** Whole-turn metrics: mean TTFT, and output tok/s over the requests' full durations. */
+  llmMetrics(turn: Turn): TurnLlmMetrics {
+    let ttftSum = 0;
+    let ttftCount = 0;
+    let outputSum = 0;
+    let durationSum = 0;
+    for (const step of turn.llmMetrics?.values() ?? []) {
+      if (step.stopReason === "error") continue;
+      if (typeof step.ttftMs === "number" && Number.isFinite(step.ttftMs) && step.ttftMs >= 0) {
+        ttftSum += step.ttftMs;
+        ttftCount++;
+      }
+      // Pair the numerator and the denominator: a step that spent time without
+      // producing tokens (or vice versa) must not drag the rate down or up.
+      if (
+        typeof step.outputTokens === "number" && Number.isFinite(step.outputTokens) && step.outputTokens > 0 &&
+        typeof step.durationMs === "number" && Number.isFinite(step.durationMs) && step.durationMs > 0
+      ) {
+        outputSum += step.outputTokens;
+        durationSum += step.durationMs;
+      }
+    }
+    const ttftMs = ttftCount > 0 ? ttftSum / ttftCount : undefined;
+    const tps = outputSum > 0 && durationSum > 0 ? outputSum / (durationSum / 1000) : undefined;
+    return { ttftMs, tps };
   }
   toolStart(id: string, parent: string | undefined, now = Date.now()): void {
     if (this.current && !parent) this.toolStarts.set(id, now);
@@ -211,6 +300,9 @@ export class TurnStore {
     finishText(turn);
     this.current = undefined;
     this.pendingLlmAt = undefined;
+    this.pendingRequestAt = undefined;
+    this.pendingFirstTokenAt = undefined;
+    this.pendingStepKey = undefined;
     return { keys: [...turn.messages.keys()], startedAt: turn.startedAt!, endedAt: now, outcome: turn.outcome, toolMs: turn.toolMs };
   }
   restore(entries: readonly any[]): void {
@@ -282,6 +374,7 @@ export const turnOptions = liveSlot("turn-presentation-options", {
   assistantColor: "border",
   timeFormat: "auto",
   headerStyle: "inline" as HeaderStyle,
+  replyMetrics: false,
 });
 export function turnFor(message: TurnMessage | undefined): Turn | undefined {
   const key = messageKey(message);

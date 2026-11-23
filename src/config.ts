@@ -54,6 +54,11 @@ export interface TidyConfig {
   messageTimeFormat: string;
   /** What a message's top edge looks like: `inline` or `split`. */
   messageHeaderStyle: HeaderStyle;
+  /**
+   * Show the final reply's model metrics — mean TTFT and output tok/s — next to
+   * the time in its top edge. Off by default.
+   */
+  replyMetrics: boolean;
   /** Prepend Nerd Font icons (tool kind / file type / message kind). */
   icons: boolean;
   /**
@@ -187,6 +192,7 @@ const DEFAULTS: TidyConfig = {
   finalReplyStyle: "rail",
   messageTimeFormat: "auto",
   messageHeaderStyle: "inline",
+  replyMetrics: false,
   icons: true,
   bashResultLines: DEFAULT_BASH_RESULT_LINES,
   writeLines: PI_WRITE_PREVIEW_LINES,
@@ -279,6 +285,7 @@ export function loadConfig(): TidyConfig {
           ? toolbox.messageTimeFormat
           : DEFAULTS.messageTimeFormat,
       messageHeaderStyle: toolbox?.messageHeaderStyle === "split" ? "split" : DEFAULTS.messageHeaderStyle,
+      replyMetrics: toolbox?.replyMetrics === true,
       icons: toolbox?.icons ?? DEFAULTS.icons,
       bashResultLines: typeof toolbox?.bashResultLines === "number" ? toolbox.bashResultLines : DEFAULTS.bashResultLines,
       writeLines: typeof toolbox?.writeLines === "number" ? toolbox.writeLines : DEFAULTS.writeLines,

@@ -10,7 +10,7 @@ import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hove
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { jobNoteCount } from "../tools/background-jobs.ts";
 import { toolKindName } from "../tools/tool-groups.ts";
-import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
+import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn, type TurnLlmMetrics } from "./turn-state.ts";
 import { closeThinking } from "../tools/tool-group-view.ts";
 import { toolColor } from "../tools/tool-lines.ts";
 import { delegateCounts, delegateRevision } from "./delegate-notices.ts";
@@ -45,6 +45,27 @@ function duration(ms: number | undefined): string {
   if (ms === undefined) return "—";
   const seconds = Math.max(0, Math.round(ms / 1000));
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+function formatTtft(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+function formatTps(tps: number): string {
+  return `${tps >= 100 ? Math.round(tps) : tps.toFixed(1)} tok/s`;
+}
+/** `TTFT 1.2s · 48.5 tok/s`, or the empty string when the turn has no live metrics. */
+export function formatTurnMetrics(metrics: TurnLlmMetrics): string {
+  const parts: string[] = [];
+  if (typeof metrics.ttftMs === "number" && Number.isFinite(metrics.ttftMs) && metrics.ttftMs >= 0) {
+    parts.push(`TTFT ${formatTtft(metrics.ttftMs)}`);
+  }
+  if (typeof metrics.tps === "number" && Number.isFinite(metrics.tps) && metrics.tps > 0) {
+    parts.push(formatTps(metrics.tps));
+  }
+  return parts.join(" · ");
 }
 export function hasProcess(turn: Turn): boolean {
   const cached = processCache.get(turn);
@@ -550,13 +571,18 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const color = options.assistantColor;
+  const timeText = typeof component.lastMessage.timestamp === "number"
+    ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat))
+    : "";
+  const metricsText = options.replyMetrics ? formatTurnMetrics(turnStore.get().llmMetrics(turn)) : "";
+  const tailText = [timeText, metricsText ? theme.fg("muted", metricsText) : ""].filter(Boolean).join(theme.fg("muted", " · "));
   const replyHeader = framed
     ? messageHeader(
         theme,
         color,
         // The one accent on a settled screen: whose answer this is, where the eye should land.
         theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
-        typeof component.lastMessage.timestamp === "number" ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat)) : "",
+        tailText,
         options.headerStyle,
         width,
       )
