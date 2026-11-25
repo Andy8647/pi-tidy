@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AssistantMessageComponent, ToolExecutionComponent, UserMessageComponent, createReadToolDefinition, initTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Markdown, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { cleanTranscriptRows } from "../src/clean-copy.ts";
 import { setClipboardWriter } from "../src/clipboard.ts";
 import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
@@ -79,6 +79,25 @@ test("both fences become rules that join the reply's frame", () => {
   assert.ok(close > open, plain.join("\n"));
   assert.ok(!plain.some((line) => line.includes("```")), "no fence rows left");
   assert.deepEqual(plain.slice(open + 1, close).map(inner), FISH.split("\n").map((line) => `  ${line}`));
+});
+
+test("a block already framed by another renderer keeps all its wrapped rows", (t) => {
+  const proto = Markdown.prototype as unknown as {
+    renderToken(token: { type: string }, width: number, ...args: unknown[]): string[];
+  };
+  const renderToken = proto.renderToken;
+  // Simulate Open TUI wrapping the code before tidy sees the rendered token.
+  const frameToken: typeof renderToken = function (this: Markdown, token, width, ...args) {
+    const rows = renderToken.call(this, token, width, ...args);
+    if (token.type !== "code") return rows;
+    const body = wrapTextWithAnsi(rows[1]!, width - 4).map((row) => `│ ${row} │`);
+    return ["╭─ code [Copy] ─╮", ...body, "╰───────────────╯", ...rows.slice(3)];
+  };
+  t.mock.method(proto, "renderToken", frameToken);
+  const line = "a long code line ".repeat(16).trimEnd();
+  const text = `\`\`\`\n${line}\n\`\`\``;
+  const expected = fixture(text, { codeBlocks: false }).plain;
+  assert.deepEqual(fixture(text).plain, expected);
 });
 
 test("the chip copies the block's own text and says so for a moment", async () => {

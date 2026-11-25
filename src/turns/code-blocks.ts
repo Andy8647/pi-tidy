@@ -254,8 +254,8 @@ export function isRuleOnly(line: string): boolean {
  * the shape is not what this expects, or the block is off, and then the caller keeps
  * pi's rows untouched.
  *
- * `lines` is the opening fence, one row per code line, the closing fence, and
- * sometimes a blank after it, so the body's extent is known without reading rows.
+ * Pi's own renderer returns an opening fence, one row per source line, a closing
+ * fence, and sometimes a blank after it.
  */
 export function ruleCodeToken(
   lines: readonly string[],
@@ -263,19 +263,21 @@ export function ruleCodeToken(
   width: number,
   options: CodeBlockOptions,
 ): { lines: string[]; block: CodeBlock } | undefined {
-  const count = token.text.split("\n").length;
-  if (!options.enabled || lines.length < count + 2 || width < 4) return undefined;
+  if (!options.enabled || width < 4) return undefined;
+  const closingFence = 1 + token.text.split("\n").length;
+  // A renderer like Open TUI may already have framed and wrapped the body.
+  if (visibleText(lines[0] ?? "") !== `\`\`\`${token.lang ?? ""}` || visibleText(lines[closingFence] ?? "") !== "```") return undefined;
   const lang = infoWord(token.lang);
   const indent = bodyIndent(lines[1]);
   // A replaced body can be a different number of rows (a diff's panes are), so the
   // block is rebuilt around it rather than patched in place.
   const replaced = bodyRows(token.text, lang, width, visibleWidth(indent), options);
-  const rows = replaced ? replaced.map((row) => `${indent}${row.trimEnd()}`) : lines.slice(1, 1 + count);
+  const rows = replaced ? replaced.map((row) => `${indent}${row.trimEnd()}`) : lines.slice(1, closingFence);
   const chip = options.canCopy ? chipLabels(options.icons).copy : "";
   const open = ruleRow(width, options.theme, options.ruleColor, lang, chip);
   const close = ruleRow(width, options.theme, options.ruleColor);
   return {
-    lines: [open, ...rows, close, ...lines.slice(2 + count)],
+    lines: [open, ...rows, close, ...lines.slice(closingFence + 1)],
     block: { lang, text: token.text, open: visibleText(open), close: visibleText(close), copyable: options.canCopy, chip },
   };
 }
