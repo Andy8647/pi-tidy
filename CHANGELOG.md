@@ -6,6 +6,17 @@ What changed in each released version of pi-tidy (published as
 
 ## [Unreleased]
 
+### Added
+
+**`/tidy settings`: an in-pi settings popup** (#98). Opens a keyboard-driven overlay (`↑`/`↓` to
+move, `←`/`→` or `Space` to cycle a value, type to filter, `Enter` to save, `Esc` to cancel) with
+your current values for `collapseTurns`, `groupTools`, `style`, `bashResultLines` and the other
+boolean, style and line-budget options. Cycling an option previews it live on the transcript behind
+the popup; saving merges only the keys you changed into `tidy` in `~/.pi/agent/settings.json`
+without touching any other keys, and cancelling restores the transcript and leaves `settings.json`
+as it was. Changes apply live right away (with a short `/reload` notice for startup-only hooks such
+as turning `enabled` back on after starting with it off).
+
 ### Fixed
 
 **Long code blocks keep all their wrapped rows with Open TUI** (#100). tidy leaves blocks that another extension

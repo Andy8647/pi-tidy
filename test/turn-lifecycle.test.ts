@@ -81,7 +81,7 @@ test("disabled turn features register no timing or persistence listeners", () =>
   const h = harness(); loadTidy(tidy, h.pi, { collapseTurns: "off", frameFinalReply: false });
   assert.equal(h.handlers.has("before_provider_request"), false);
   assert.equal(h.handlers.has("message_end"), false);
-  assert.equal(h.commands.has("tidy"), false);
+  assert.equal(h.commands.has("tidy"), true, "/tidy settings stays reachable when turn folding is off");
 });
 
 test("with no settings at all, turn features are on", () => {
