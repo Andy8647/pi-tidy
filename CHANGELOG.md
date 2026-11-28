@@ -4,6 +4,13 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**Long code blocks keep all their wrapped rows with Open TUI** (#100). tidy leaves blocks that another extension
+already framed alone, instead of drawing a closing rule over a row of code.
+
 ## [0.11.1] - 2026-11-22
 
 ### Added
