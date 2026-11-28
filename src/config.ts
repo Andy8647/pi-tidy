@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { HeaderStyle } from "./draw/frame-draw.ts";
@@ -350,7 +350,9 @@ export function parseConfig(toolbox: any): TidyConfig {
  * override (such as `userMessageStyle`) can return to its inherited default.
  */
 export function saveTidySettings(patch: Record<string, unknown>): TidyConfig {
-  const file = settingsPath();
+  // A settings.json linked in from elsewhere (a dotfiles repo) stays a link: the
+  // rename below lands on the file it points at, not on the link.
+  const file = existsSync(settingsPath()) ? realpathSync(settingsPath()) : settingsPath();
   let root: Record<string, unknown> = {};
   if (existsSync(file)) {
     const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));

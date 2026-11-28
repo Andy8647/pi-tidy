@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -114,6 +114,16 @@ test("saveTidySettings creates missing directories and refuses to clobber malfor
     assert.equal(readFileSync(join(dir, "settings.json"), "utf-8"), "{ broken json");
   });
 });
+
+test("saveTidySettings writes through a linked settings.json and keeps the link", () =>
+  withTempAgentDir(undefined, (dir) => {
+    const target = join(dir, "dotfiles-settings.json");
+    writeFileSync(target, JSON.stringify({ theme: "dark", tidy: { icons: true } }), "utf-8");
+    symlinkSync(target, join(dir, "settings.json"));
+    saveTidySettings({ groupTools: false });
+    assert.ok(lstatSync(join(dir, "settings.json")).isSymbolicLink(), "still a link");
+    assert.deepEqual(JSON.parse(readFileSync(target, "utf-8")), { theme: "dark", tidy: { icons: true, groupTools: false } });
+  }));
 
 test("TidySettingsPopup renders within width and height bounds, filters, previews, and cancels cleanly", () =>
   withTempAgentDir({ tidy: { bashResultLines: 23, style: "rail" } }, (dir) => {
