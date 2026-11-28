@@ -33,7 +33,7 @@ const { restoreColor, swatchColor, withHexSwatches } = await import("../src/mess
 
 type Theme = Parameters<typeof restoreColor>[0];
 
-function render(text: string, messageType: "user" | "assistant", width = 70): string[] {
+function render(text: string, messageType: "user" | "assistant", width = 70): readonly string[] {
   const restore = restoreColor(fakeTheme as unknown as Theme, messageType);
   const markdown = new Markdown(
     text,
@@ -136,7 +136,7 @@ test("the dot, its space and the hash cost three cells", () => {
 });
 
 /** The same Markdown with no transformer: what pi draws when swatches are off. */
-function renderUntouched(text: string, width = 70): string[] {
+function renderUntouched(text: string, width = 70): readonly string[] {
   return new Markdown(text, 0, 0, getMarkdownTheme()).render(width);
 }
 
@@ -166,4 +166,9 @@ test("prose around a link still gets its swatches", () => {
 test("four decimal digits are a pull request, not #RGBA; three and six still are colors", () => {
   const line = render("fixed in #7250, with #333 on #000000 and #f00a", "assistant")[0]!;
   assert.equal(plain(line).trimEnd(), "fixed in #7250, with ● #333 on ● #000000 and ● #f00a");
+});
+
+test("three decimal digits are an issue unless they are one grey: #100 stays text, #333 and #0af are colors", () => {
+  const line = render("see #100 and #123, then #333 on #000 with #0af", "assistant")[0]!;
+  assert.equal(plain(line).trimEnd(), "see #100 and #123, then ● #333 on ● #000 with ● #0af");
 });

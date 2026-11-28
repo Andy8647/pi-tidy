@@ -26,7 +26,7 @@ function render(lines: number, expanded = false): string[] {
   return new Text(text, 0, 0).render(80).map(plain);
 }
 
-const body = (rows: string[]) => rows.filter((row) => row.includes("const line"));
+const body = (rows: readonly string[]) => rows.filter((row) => row.includes("const line"));
 
 test("collapsed shows the configured number of lines plus a footer", () => {
   const rows = render(10);

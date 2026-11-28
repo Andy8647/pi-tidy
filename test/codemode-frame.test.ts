@@ -87,7 +87,7 @@ function codemode() {
 
 const strip = (s: string) => s.replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)/g, "").trimEnd();
 
-function frame(chat: Container): string[] {
+function frame(chat: Container): readonly string[] {
   return chat.render(W);
 }
 

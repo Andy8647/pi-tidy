@@ -18,6 +18,8 @@
  * the label instead, and inside a URL (`…/page#fade`) the swatch cuts the link
  * in two. A link's `#7250` is a pull request, not a color. So is a bare `#7250`:
  * four decimal digits are read as `#RGBA` by the pattern, and almost never are.
+ * Three decimal digits are a pull request too (`#100`), unless all three are the
+ * same: `#333` and `#000` are the greys people do write.
  */
 
 import { paint } from "../draw/paint.ts";
@@ -249,6 +251,10 @@ function swatchesInLine(line: string, restore: string, theme: ThemeLike): string
   return out;
 }
 
+function isIssueNumber(hex: string): boolean {
+  return /^#\d{4}$/.test(hex) || (/^#\d{3}$/.test(hex) && !/^#(\d)\1\1$/.test(hex));
+}
+
 /** The color value that starts exactly at `index`, or undefined. */
 function colorAt(line: string, index: number): string | undefined {
   const char = line[index];
@@ -256,8 +262,9 @@ function colorAt(line: string, index: number): string | undefined {
     HEX_AT.lastIndex = index;
     const match = HEX_AT.exec(line);
     if (!match || match.index !== index) return undefined;
-    // `#7250` is a pull request or an issue: the only colors made of four decimal digits are `#RGBA`s nobody writes.
-    return /^#\d{4}$/.test(match[0]) ? undefined : match[0];
+    // `#7250` and `#100` are pull requests or issues: four decimal digits are an `#RGBA`
+    // nobody writes, and three are a color only as a grey (`#333`).
+    return isIssueNumber(match[0]) ? undefined : match[0];
   }
   if (char !== "r" && char !== "R" && char !== "h" && char !== "H") return undefined;
   // `myrgb(…)` is not a color, and the regex's `\b` starts one cell later.

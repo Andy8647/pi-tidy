@@ -52,8 +52,8 @@ function fixture(mode: CollapseTurns = "afterRun", settled = true, groupOpen = f
   if (settled) chat.addChild(answer);
   return { chat, store, read, edit, answer, saved };
 }
-function frame(chat: Container): string[] {
-  let lines: string[] = [];
+function frame(chat: Container): readonly string[] {
+  let lines: readonly string[] = [];
   for (let pass = 0; pass < 4; pass++) lines = chat.render(W);
   return lines.map(visibleText);
 }
@@ -760,7 +760,7 @@ test("the reply's name is the one accent, and its edges are the chrome grey", ()
   const { chat } = fixture();
   turnOptions.set({ ...turnOptions.get(), replyStyle: "frame", assistantColor: "border" });
   const theme = getTheme()!;
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 4; pass++) rows = chat.render(W);
   const top = rows.find((row) => visibleText(row).includes("claude-sonnet-4-5"))!;
   assert.ok(top.includes(theme.fg("accent", replyLabel("anthropic", "claude-sonnet-4-5", true))), JSON.stringify(top));

@@ -41,7 +41,7 @@ function fixture(text: string, options: { style?: "frame" | "rail"; open?: boole
   const chat = new Container();
   chat.addChild(new UserMessageComponent("show me"));
   chat.addChild(answer);
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 3; pass++) rows = chat.render(width);
   return { chat, answer, width, rows, plain: rows.map(visibleText) };
 }
@@ -140,7 +140,7 @@ test("a quote on an open run's rail keeps its chip, one cell past the line", asy
     chat.addChild(tool);
     const answer = new AssistantMessageComponent(final, true);
     chat.addChild(answer);
-    let rows: string[] = [];
+    let rows: readonly string[] = [];
     for (let pass = 0; pass < 3; pass++) rows = chat.render(W);
     const plain = rows.map(visibleText);
     const y = plain.findIndex((line) => line.includes(CHIP.copy));

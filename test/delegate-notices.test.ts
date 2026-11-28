@@ -12,7 +12,7 @@ import { patchContainerBoxes, patchToolBoxFrames } from "../src/frame.ts";
 import { tidyEnabled } from "../src/live.ts";
 import { DELEGATE_NOTICE, noticeBodyText, noticeLabel } from "../src/messages/extension-notice.ts";
 import { resetGroups } from "../src/tools/tool-groups.ts";
-import { delegateCounts, noteDelegateNotice, resetDelegateNotices } from "../src/turns/delegate-notices.ts";
+import { claimNotices, delegateCounts, noteDelegateNotice, resetDelegateNotices } from "../src/turns/delegate-notices.ts";
 import { TurnStore, turnOptions, turnStore } from "../src/turns/turn-state.ts";
 
 initTheme("dark");
@@ -98,8 +98,8 @@ function session(notices: any[]) {
   return { chat, calls, store };
 }
 
-function frame(chat: Container, width = W): string[] {
-  let lines: string[] = [];
+function frame(chat: Container, width = W): readonly string[] {
+  let lines: readonly string[] = [];
   for (let i = 0; i < 4; i++) lines = chat.render(width);
   for (const line of lines) assert.ok(visibleWidth(line) <= width, `past the width: ${strip(line)}`);
   return lines.map(strip);
@@ -187,5 +187,67 @@ test("a turn compacted away claims nothing: its notice is back in place", () => 
   for (const call of calls) chat.removeChild(call);
   const body = frame(chat).join("\n");
   assert.ok(body.includes("researcher completed"), body);
+  resetDelegateNotices();
+});
+
+/**
+ * A sub-agent launched from inside a program (#102): the run's origin is the
+ * nested call (`cm1/3`), which only the program's result names. The call that
+ * ran the program stands in for it.
+ */
+const nested = (status = "completed") => researcher(status, "cm1/3");
+const programCall = { type: "toolCall", id: "cm1", name: "codemode", arguments: { code: "await tools.acp_delegate({ agent: 'researcher', async: true })" } };
+const programResult = {
+  role: "toolResult", toolCallId: "cm1", toolName: "codemode", timestamp: 1200, isError: false,
+  content: [{ type: "text", text: "launched" }],
+  details: { calls: [{ id: "cm1/3", name: "acp_delegate", args: '{"agent":"researcher","async":true}', status: "ok" }] },
+  nestedCalls: { calls: [{ id: "cm1/3", name: "acp_delegate", arguments: { agent: "researcher", async: true } }] },
+} as any;
+
+test("a run launched inside a program is counted on, and drawn by, the program's call", () => {
+  setup();
+  const store = new TurnStore();
+  turnStore.set(store);
+  const launch = { role: "assistant", timestamp: 1100, provider: "p", model: "m", stopReason: "toolUse", content: [programCall] } as any;
+  const reply = { role: "assistant", timestamp: 1300, provider: "p", model: "m", stopReason: "stop", content: [{ type: "text", text: "Running." }] } as any;
+  const later = { role: "user", content: "meanwhile", timestamp: 2000 } as any;
+  const answer = { role: "assistant", timestamp: 2100, provider: "p", model: "m", stopReason: "stop", content: [{ type: "text", text: "Sure." }] } as any;
+  store.restore([{ role: "user", content: "go", timestamp: 1000 }, launch, programResult, reply, later, answer].map((message) => ({ type: "message", message })));
+  const done = notice(3000, [nested()], COMPLETED);
+  resetDelegateNotices([{ type: "custom_message", customType: done.customType, content: done.content, display: true, details: done.details, timestamp: new Date(done.timestamp).toISOString() }]);
+
+  const chat = new Container();
+  chat.addChild(new UserMessageComponent("go"));
+  chat.addChild(new AssistantMessageComponent(launch, true));
+  const call = new ToolExecutionComponent("codemode", "cm1", programCall.arguments, {}, undefined, ui as any, "/tmp");
+  call.setArgsComplete();
+  call.markExecutionStarted();
+  call.updateResult({ ...programResult, durationMs: 20 } as any, false);
+  chat.addChild(call);
+  chat.addChild(new AssistantMessageComponent(reply, true));
+  chat.addChild(new UserMessageComponent("meanwhile"));
+  chat.addChild(new AssistantMessageComponent(answer, true));
+  chat.addChild(new CustomMessageComponent(done));
+
+  const lines = frame(chat);
+  const body = lines.join("\n");
+  assert.ok(!body.includes("researcher completed"), `not drawn where it arrived:\n${body}`);
+  assert.match(lines.find((line) => line.includes("sub-agent")) ?? "", /sub-agents 1 completed/, body);
+  resetDelegateNotices();
+});
+
+test("a nested run's notice that beats its program's result is claimed once the result lands", () => {
+  const store = new TurnStore();
+  turnStore.set(store);
+  turnOptions.set({ ...turnOptions.get(), collapseTurns: "afterRun" });
+  store.begin(0);
+  store.note({ role: "user", content: "go", timestamp: 0 } as any);
+  store.note({ role: "assistant", timestamp: 10, provider: "p", model: "m", stopReason: "toolUse", content: [programCall] } as any, true);
+  resetDelegateNotices();
+  noteDelegateNotice(notice(20, [nested()], COMPLETED));
+  assert.equal(claimNotices("cm1").length, 0, "nothing says yet where cm1/3 came from");
+  store.note(programResult, true);
+  assert.equal(claimNotices("cm1").length, 1, "the program's result says it");
+  assert.deepEqual(delegateCounts(store.current!), { completed: 1, failed: 0, other: 0 });
   resetDelegateNotices();
 });

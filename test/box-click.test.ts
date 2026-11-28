@@ -84,7 +84,7 @@ function bash() {
   return { id, c: c as any };
 }
 
-function draw(component: any, width = W): string[] {
+function draw(component: any, width = W): readonly string[] {
   const host = new Container();
   host.addChild(component);
   after(host, width);
@@ -92,8 +92,8 @@ function draw(component: any, width = W): string[] {
 }
 
 /** Let the frame settle: renders that ask for another frame. */
-function after(host: Container, width = W): string[] {
-  let lines: string[] = [];
+function after(host: Container, width = W): readonly string[] {
+  let lines: readonly string[] = [];
   for (let i = 0; i < 6; i++) {
     const before = renders;
     lines = host.render(width);

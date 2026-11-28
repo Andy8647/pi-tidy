@@ -40,7 +40,7 @@ interface SkillInternals {
   messageId?: string;
   timestamp?: string;
   setExpanded(expanded: boolean): void;
-  render(width: number): string[];
+  render(width: number): readonly string[];
   handleMouse?(event: unknown): unknown;
   [TYPED]?: UserMessageComponent;
   [PROMPT]?: { text: string; view: UserMessageComponent };
@@ -114,7 +114,7 @@ export function installSkillPrompts(): void {
   const originalRender = proto.render;
   const originalMouse = proto.handleMouse;
 
-  proto.render = function (this: SkillInternals, width: number): string[] {
+  proto.render = function (this: SkillInternals, width: number): readonly string[] {
     if (!tidyEnabled.get()) {
       // pi's two components, in pi's order: the typed text was only ever moved.
       const rows = originalRender.call(this, width);

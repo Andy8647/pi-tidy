@@ -30,7 +30,7 @@ export class CommandText extends Text {
     this.indent = state;
   }
 
-  override render(width: number): string[] {
+  override render(width: number): readonly string[] {
     const column = Math.min(this.indent.tidyCommandIndent ?? CALL_PROMPT_CELLS, Math.max(0, width - MIN_ROW_CELLS));
     // One row, or a frame too narrow to give a column away: nothing to hang.
     if (column <= 0) return super.render(width);

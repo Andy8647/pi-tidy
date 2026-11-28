@@ -10,7 +10,7 @@ import { claimHover, hoverBand, isRowHovered, requestHoverRender } from "../hove
 import { getTheme, type ThemeLike } from "../theme-access.ts";
 import { jobNoteCount } from "../tools/background-jobs.ts";
 import { toolKindName } from "../tools/tool-groups.ts";
-import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn } from "./turn-state.ts";
+import { folded, messageKey, turnFor, turnOptions, turnStore, type Turn, type TurnLlmMetrics } from "./turn-state.ts";
 import { closeThinking } from "../tools/tool-group-view.ts";
 import { toolColor } from "../tools/tool-lines.ts";
 import { delegateCounts, delegateRevision } from "./delegate-notices.ts";
@@ -45,6 +45,37 @@ function duration(ms: number | undefined): string {
   if (ms === undefined) return "—";
   const seconds = Math.max(0, Math.round(ms / 1000));
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+function formatTtft(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+function formatTps(tps: number): string {
+  return `${tps >= 100 ? Math.round(tps) : tps.toFixed(1)} tok/s`;
+}
+/** `TTFT 1.2s · 48.5 tok/s`, or the empty string when the turn has no live metrics. */
+export function formatTurnMetrics(metrics: TurnLlmMetrics): string {
+  const parts: string[] = [];
+  if (typeof metrics.ttftMs === "number" && Number.isFinite(metrics.ttftMs) && metrics.ttftMs >= 0) {
+    parts.push(`TTFT ${formatTtft(metrics.ttftMs)}`);
+  }
+  if (typeof metrics.tps === "number" && Number.isFinite(metrics.tps) && metrics.tps > 0) {
+    parts.push(formatTps(metrics.tps));
+  }
+  return parts.join(" · ");
+}
+/**
+ * What follows the model's name on the reply's top edge: the time, then the run's
+ * metrics when `replyMetrics` is on. Only a framed reply has an edge to put it on,
+ * and every other step of a turn passes here on every frame, so it is built there.
+ */
+function replyTail(message: any, turn: Turn, theme: ThemeLike, options: { timeFormat: string; replyMetrics: boolean }): string {
+  const time = typeof message.timestamp === "number" ? italicDim(theme, formatMessageTime(message.timestamp, options.timeFormat)) : "";
+  const metrics = options.replyMetrics ? formatTurnMetrics(turnStore.get().llmMetrics(turn)) : "";
+  return metrics ? [time, theme.fg("muted", metrics)].filter(Boolean).join(theme.fg("muted", " · ")) : time;
 }
 export function hasProcess(turn: Turn): boolean {
   const cached = processCache.get(turn);
@@ -466,7 +497,7 @@ function saysSomething(message: any): boolean {
 }
 
 /** Decorate the existing message view, never a second markdown renderer. */
-export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => string[]): string[] {
+export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => readonly string[]): readonly string[] {
   component[LAYOUT] = undefined;
   const options = turnOptions.get();
   if (!tidyEnabled.get() || (options.collapseTurns === "off" && !options.frameFinalReply)) return draw(width);
@@ -556,7 +587,7 @@ export function presentTurn(component: any, width: number, draw: (width: number,
         color,
         // The one accent on a settled screen: whose answer this is, where the eye should land.
         theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
-        typeof component.lastMessage.timestamp === "number" ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat)) : "",
+        replyTail(component.lastMessage, turn, theme, options),
         options.headerStyle,
         width,
       )

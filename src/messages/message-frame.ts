@@ -256,10 +256,10 @@ const NOTICE_LINES = 1;
 /** Open state per message object: pi keeps the message across rebuilds. */
 const noticeOpen = new WeakMap<object, boolean>();
 /** Markdown costs more than the frame around it, so its rows are kept per message. */
-const noticeBodies = new WeakMap<object, { key: string; lines: string[] }>();
+const noticeBodies = new WeakMap<object, { key: string; lines: readonly string[] }>();
 
 /** The notice's own text as rows: one row while closed, everything once open. */
-function noticeBody(message: object & { content?: unknown }, width: number, open: boolean, theme: ThemeLike, label: NoticeLabel): string[] {
+function noticeBody(message: object & { content?: unknown }, width: number, open: boolean, theme: ThemeLike, label: NoticeLabel): readonly string[] {
   const text = noticeBodyText(message, label).trim();
   if (!text) return [];
   const key = `${width}:${open}:${label.name ?? ""}:${label.status ?? ""}`;

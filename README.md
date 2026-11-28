@@ -39,8 +39,8 @@ every box is drawn one way: rails by default, rounded frames if you prefer.
 
 ## Turn folding
 
-On by default since 0.8.0. To go back, merge these keys into the `tidy` object in
-`~/.pi/agent/settings.json` and run `/reload`:
+On by default since 0.8.0. Run `/tidy settings` in pi to change it from the keyboard, or merge
+these keys into the `tidy` object in `~/.pi/agent/settings.json` and run `/reload`:
 
 ```json
 { "tidy": { "collapseTurns": "off", "finalReplyStyle": "off" } }
@@ -202,8 +202,13 @@ if the tag and the manifest version disagree.
 
 ## Configuration
 
-Add keys to the `tidy` object in `~/.pi/agent/settings.json`, then run `/reload`. A key you leave
-out keeps its default:
+Run `/tidy settings` (or `/tidy`) in pi to open a keyboard-driven popup showing your current
+settings: use `↑`/`↓` to move, `←`/`→` or `Space` to preview another value live on the transcript
+behind the popup, type to filter, `Enter` to save to `~/.pi/agent/settings.json`, or `Esc` to
+cancel without changing anything.
+
+Or add keys directly to the `tidy` object in `~/.pi/agent/settings.json` and run `/reload`. A key
+you leave out keeps its default:
 
 ```json
 { "tidy": { "collapseTurns": "off", "style": "rail", "bashResultLines": 3 } }
@@ -266,6 +271,7 @@ that only thinks and calls joins the group above it, its thought one of the grou
 | `finalReplyStyle` | `"rail"` | The final reply's own style: `frame`, `rail` or `off`. Unset, it follows `style`: see [Styles](#styles). The provider glyph, the model's name and the time sit in its top edge. `frameFinalReply` from before 0.9 still works: `true` is `frame`, `false` is `off` | Once the run settles, and only on a final text reply. Independent of `collapseTurns` and `frameMessages` |
 | `messageTimeFormat` | `"auto"` | The time in a message's top edge. `auto` is the clock, with the date when the message is not from today. Anything else is a pattern of `YYYY`, `M`, `MM`, `D`, `DD`, `H`, `HH`, `mm`, `ss` and literal text, such as `"M月D日 HH:mm:ss"`. Those letters are always read as tokens, so a word like `Mon` will not survive | Wherever a time is shown: a final reply drawn by `finalReplyStyle`, and a user message under `userMessageTime` |
 | `messageHeaderStyle` | `"inline"` | How a message's top edge sets out who and when. `inline`: `╭─ model 13:09 ───╮`. `split`: `╭── model ── 13:09 ───╮` | Where a label is drawn: a final reply drawn by `finalReplyStyle`, and a user message with `icons`. With no time to separate, or on an edge too narrow for it, `split` looks like `inline` |
+| `replyMetrics` | `false` | Adds the run's model metrics to the final reply's top edge, next to the time: mean `TTFT` (first-token wait) and output `tok/s`. `tok/s` is output tokens over the whole request duration, first-token wait included — the convention used by Inspect AI and Open WebUI. A resumed session has no stream timing, so the numbers are left out | A final reply drawn by `finalReplyStyle`, from a live run |
 
 See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 
@@ -311,7 +317,7 @@ See [Turn folding](#turn-folding) for what a fold keeps and how to open it.
 |-----|---------|--------------|-----------------|
 | `toolColors` | `{ "bash": "bashMode", "read": "toolTitle", "edit": "syntaxVariable", "write": "syntaxVariable", "grep": "syntaxOperator", "find": "syntaxOperator", "ls": "syntaxOperator", "mcp": "customMessageLabel" }` | Border color per tool, on success. Pending stays grey, errors red, unlisted tools take `accent`. The map **replaces** the defaults, so `{}` turns per-tool colors off | Tool boxes, and each tool's icon on a summary or group line |
 | `thinkingColor` | `"warning"` | Color of the brain, the `N thoughts` count and an expanded thinking box | Always, with grouping on or off |
-| `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word, and neither does four-digit `#7250`, which is a pull request. Fenced blocks, inline code, links (label and URL) and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
+| `hexSwatches` | `true` | Puts a `●` in front of every color a message names, painted with that color (`● #7f849c`). Hex (3 to 8 digits, alpha dropped), `rgb()` / `rgba()` and `hsl()` / `hsla()` (spaces or commas) all count; named CSS colors do not, since `red` is an ordinary word, and neither do `#7250` and `#100`, which are pull requests (three digits all alike, like `#333`, are still a grey). Fenced blocks, inline code, links (label and URL) and thinking are left alone | Every message whose text tidy draws. `false` leaves the markdown exactly as pi rendered it |
 
 The defaults keep a settled screen quiet without draining it. Your messages, the reply and an opened run's line are
 drawn in the theme's plain `border` grey, and the model's name on the reply is the one `accent`. A folded summary's

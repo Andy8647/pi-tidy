@@ -84,7 +84,7 @@ function blankRows(rows: string[]): boolean {
  */
 function frameErrorRow(child: Component, label: () => string, live?: () => boolean): void {
   const unpainted = child.render.bind(child);
-  child.render = (width: number): string[] => {
+  child.render = (width: number): readonly string[] => {
     if (live && !live()) return unpainted(width);
     const theme = getTheme();
     const w = Math.max(4, width);

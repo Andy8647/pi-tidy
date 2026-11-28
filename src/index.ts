@@ -21,11 +21,12 @@ import { collapsedResultBudget, shrinkResultPreview } from "./tools/result-previ
 import { noteHostRecord, resetHostRecords } from "./tools/nested-calls.ts";
 import { noteDelegateNotice, resetDelegateNotices } from "./turns/delegate-notices.ts";
 import { installSkillPrompts } from "./messages/skill-prompt.ts";
-import { connectTurns } from "./turns/turn-lifecycle.ts";
+import { connectTurns, restoreBranchTurns, toggleTurn } from "./turns/turn-lifecycle.ts";
 import { codeBlocksAvailable } from "./turns/turn-view.ts";
 import { turnOptions } from "./turns/turn-state.ts";
 import { DEFAULT_BASH_RESULT_LINES, loadConfig, PI_WRITE_PREVIEW_LINES, type TidyConfig } from "./config.ts";
-import { agentRunning, chromeStyle, tidyEnabled } from "./live.ts";
+import { agentRunning, chromeStyle, liveSlot, tidyEnabled } from "./live.ts";
+import { openTidySettingsPopup } from "./settings-popup.ts";
 import { patchBashExecutions } from "./messages/bash-mode-frame.ts";
 import { patchErrorLines } from "./messages/error-lines.ts";
 import { installRunGaps } from "./messages/user-message.ts";
@@ -49,6 +50,16 @@ interface BashRenderState extends CommandIndent {
   tidyCallText?: Text;
 }
 
+const liveTidyConfig = liveSlot<TidyConfig>("tidy-config", loadConfig());
+
+interface RuntimeHooks {
+  patchesInstalled: boolean;
+  turnsConnected: boolean;
+  jobsConnected: boolean;
+  markdownConnected: boolean;
+  hasMarkdownTransformerApi: boolean;
+}
+
 /**
  * Decorate bash's rows without registering a replacement tool.
  *
@@ -59,12 +70,13 @@ interface BashRenderState extends CommandIndent {
  * active tool keeps execution, schema, shell and result renderer, and `next()`
  * hands us whatever it has (pi's built-in renderers when it defines none).
  */
-function registerBashRenderers(pi: ExtensionAPI, resultLines: number, highlight: boolean): void {
+function registerBashRenderers(pi: ExtensionAPI): void {
   if (!hasRendererApi(pi)) return;
 
   pi.registerToolRenderer((toolName, next) => {
     const renderers = next();
-    if (toolName !== "bash" || !renderers) return renderers;
+    if (toolName !== "bash" || !renderers || !tidyEnabled.get()) return renderers;
+    const live = liveTidyConfig.get();
 
     const renderCall = (args: any, theme: ThemeLike, context: any) => {
       const state = context.state as BashRenderState;
@@ -89,7 +101,7 @@ function registerBashRenderers(pi: ExtensionAPI, resultLines: number, highlight:
 
     // The budget has nothing to do with highlighting: with `highlightBash` off the
     // command row stays whoever owns it, and the result is still budgeted.
-    const call = highlight ? { renderCall } : {};
+    const call = live.highlightBash ? { renderCall } : {};
     // No result renderer downstream means nothing to budget; leave it absent
     // rather than inventing a bare component.
     const downstream = renderers.renderResult;
@@ -102,9 +114,10 @@ function registerBashRenderers(pi: ExtensionAPI, resultLines: number, highlight:
         // Whatever the execution extension draws stays: we only lower the
         // preview budget inside it.
         const component = downstream(result, options, theme, context);
+        if (!tidyEnabled.get()) return component;
         // 内置 bash 结果预览固定 5 行(BASH_PREVIEW_LINES),pi 没给配置项。
         // 折叠态下把它的行数预算改小;展开态和报错时保持原样(一行 traceback 没用)。
-        const budget = collapsedResultBudget(resultLines, context.isError);
+        const budget = collapsedResultBudget(liveTidyConfig.get().bashResultLines, context.isError);
         if (!options.expanded && budget !== undefined) shrinkResultPreview(component, budget);
         return component;
       },
@@ -136,38 +149,62 @@ function olderThan(version: string, min: string): boolean {
  * every other extension's resolver one more time for nothing. Markdown and LaTeX
  * files get a rendered body; everything else keeps exactly what pi drew.
  */
-function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
+function registerWritePreview(pi: ExtensionAPI): void {
   // No fallback to a tool override: a duplicate registration takes down
   // whoever else owns `write`. The caller has already warned (see entry point).
   if (!hasRendererApi(pi)) return;
-  const lines = config.writeLines;
 
   pi.registerToolRenderer((toolName, next) => {
     const renderers = next();
+    if (!tidyEnabled.get()) return renderers;
     if (toolName === "write") {
       return {
         ...renderers,
         renderCall(args, theme, context) {
+          const live = liveTidyConfig.get();
+          const lines = live.writeLines;
           // Rendering state is shared with the execution extension's renderers.
           // Use our own key so its cached components are not overwritten.
           const state = context.state as {
             tidyWriteCallText?: Text;
-            tidyWritePreview?: { path: unknown; filePath: unknown; content: unknown; expanded: boolean; theme: ThemeLike; component: Component };
+            tidyWritePreview?: {
+              path: unknown;
+              filePath: unknown;
+              content: unknown;
+              expanded: boolean;
+              lines: number;
+              renderMarkdown: boolean;
+              renderLatex: boolean;
+              theme: ThemeLike;
+              component: Component;
+            };
           };
           const writeArgs = args as Parameters<typeof formatWriteCallText>[0];
           const cached = state.tidyWritePreview;
           if (cached && cached.path === writeArgs?.path && cached.filePath === writeArgs?.file_path &&
-              cached.content === writeArgs?.content && cached.expanded === context.expanded && cached.theme === theme) {
+              cached.content === writeArgs?.content && cached.expanded === context.expanded &&
+              cached.lines === lines && cached.renderMarkdown === live.renderMarkdown &&
+              cached.renderLatex === live.renderLatex && cached.theme === theme) {
             return cached.component;
           }
           const preview = createWriteCallComponent(writeArgs, theme, {
             expanded: context.expanded,
             lines,
-            renderMarkdown: config.renderMarkdown,
-            renderLatex: config.renderLatex,
+            renderMarkdown: live.renderMarkdown,
+            renderLatex: live.renderLatex,
           });
           if (preview) {
-            state.tidyWritePreview = { path: writeArgs?.path, filePath: writeArgs?.file_path, content: writeArgs?.content, expanded: context.expanded, theme, component: preview };
+            state.tidyWritePreview = {
+              path: writeArgs?.path,
+              filePath: writeArgs?.file_path,
+              content: writeArgs?.content,
+              expanded: context.expanded,
+              lines,
+              renderMarkdown: live.renderMarkdown,
+              renderLatex: live.renderLatex,
+              theme,
+              component: preview,
+            };
             return preview;
           }
           state.tidyWritePreview = undefined;
@@ -185,11 +222,13 @@ function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
     return {
       ...renderers,
       renderResult(result: any, options: any, theme: any, context: any) {
+        if (!tidyEnabled.get()) return downstream(result, options, theme, context);
+        const live = liveTidyConfig.get();
         const rawPath = typeof context.args?.file_path === "string" ? context.args.file_path : typeof context.args?.path === "string" ? context.args.path : "";
-        const kindMarkdown = config.renderMarkdown && isMarkdownPath(rawPath);
-        const kindLatex = !kindMarkdown && config.renderLatex && isLatexPath(rawPath);
+        const kindMarkdown = live.renderMarkdown && isMarkdownPath(rawPath);
+        const kindLatex = !kindMarkdown && live.renderLatex && isLatexPath(rawPath);
         const state = context.state as {
-          tidyReadPreview?: { body: string; notice?: string; continuation?: string; kind: "markdown" | "latex"; theme: ThemeLike; component: Component };
+          tidyReadPreview?: { body: string; notice?: string; continuation?: string; kind: "markdown" | "latex"; renderLatex: boolean; theme: ThemeLike; component: Component };
         } | undefined;
         // Only expanded documents need a preview; pi owns collapsed and error
         // results, including the diagnostic for an oversized first line.
@@ -198,11 +237,11 @@ function registerWritePreview(pi: ExtensionAPI, config: TidyConfig): void {
           if (body.trim()) {
             const kind = kindMarkdown ? "markdown" : "latex";
             const cached = state?.tidyReadPreview;
-            if (cached && cached.body === body && cached.notice === notice && cached.continuation === continuation && cached.kind === kind && cached.theme === theme) {
+            if (cached && cached.body === body && cached.notice === notice && cached.continuation === continuation && cached.kind === kind && cached.renderLatex === live.renderLatex && cached.theme === theme) {
               return cached.component;
             }
-            const component = createReadPreviewComponent(body, theme, { kind, renderLatex: config.renderLatex, notice, continuation });
-            if (state) state.tidyReadPreview = { body, notice, continuation, kind, theme, component };
+            const component = createReadPreviewComponent(body, theme, { kind, renderLatex: live.renderLatex, notice, continuation });
+            if (state) state.tidyReadPreview = { body, notice, continuation, kind, renderLatex: live.renderLatex, theme, component };
             return component;
           }
         }
@@ -276,9 +315,165 @@ function warnUnavailableRenderers(pi: ExtensionAPI, features: string[]): void {
   });
 }
 
+function applyBaseConfig(config: TidyConfig): void {
+  liveTidyConfig.set(config);
+  turnOptions.set({
+    collapseTurns: config.collapseTurns,
+    frameFinalReply: config.finalReplyStyle !== "off",
+    replyStyle: config.finalReplyStyle === "off" ? "frame" : config.finalReplyStyle,
+    icons: config.icons,
+    assistantColor: config.messageBorderColors.assistant,
+    timeFormat: config.messageTimeFormat,
+    headerStyle: config.messageHeaderStyle,
+    replyMetrics: config.replyMetrics,
+    codeBlocks: config.codeBlocks,
+    splitDiff: config.splitDiff,
+    splitDiffMinWidth: config.splitDiffMinWidth,
+  });
+  tidyEnabled.set(config.enabled);
+  chromeStyle.set(config.style);
+  cleanCopy.set(config.cleanCopy);
+}
+
+function applyPatchConfig(config: TidyConfig, pi: ExtensionAPI): void {
+  try {
+    patchToolBoxFrames({
+      icons: config.icons,
+      toolColors: config.toolColors,
+      groupTools: config.groupTools,
+      groupOpen: config.groupOpen,
+      alwaysShowTools: config.alwaysShowTools,
+      backgroundJobs: config.backgroundJobs,
+      hideJobNotifications: config.hideJobNotifications,
+      splitDiff: config.splitDiff,
+      splitDiffMinWidth: config.splitDiffMinWidth,
+      diffLines: config.diffLines,
+      diffContext: config.diffContext,
+      thinkingColor: config.thinkingColor,
+      highlightBash: config.highlightBash,
+      toolRowLines: config.toolRowLines,
+      bashResultLines: config.bashResultLines,
+    });
+    // Live job updates (pi-processes broadcasts on the shared extension bus).
+    connectJobs(config.enabled && config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);
+  } catch (error) {
+    console.debug("[pi-tidy] tool box frame patch failed:", error);
+  }
+
+  try {
+    // Called even when off: `enabled: false` turns patches from an earlier
+    // load into pass-throughs.
+    patchMessageBoxes(config.messageBorderColors, config.icons, config.frameMessages);
+    patchContainerBoxes(config.messageBorderColors, {
+      icons: config.icons,
+      includeUser: config.userMessageStyle !== "off",
+      userOpen: config.userMessageStyle === "rail",
+      userAlign: config.userMessageAlign,
+      userMaxWidth: config.userMessageMaxWidth,
+      userFill: config.userMessageFill,
+      userTime: config.userMessageTime,
+      timeFormat: config.messageTimeFormat,
+      headerStyle: config.messageHeaderStyle,
+      enabled: config.frameMessages,
+    });
+    patchBashExecutions({
+      enabled: config.frameMessages,
+      icons: config.icons,
+      // The user's own commands wear the user's color.
+      color: config.messageBorderColors.user,
+    });
+    // pi's non-tool error rows: one framed row per failure instead of one per
+    // retry attempt.
+    patchErrorLines({ enabled: config.dedupeErrors });
+  } catch (error) {
+    console.debug("[pi-tidy] message box frame patch failed:", error);
+  }
+
+  // The user message rail and frame above draw on their own and never call
+  // down, so they bury the boundary wrapper `patchToolBoxFrames` installed. A
+  // buried wrapper used to come back only at the first grouped tool's render,
+  // mid-reply: the first reply of every process then split into two groups.
+  try {
+    installGroupBoundaries();
+  } catch (error) {
+    console.debug("[pi-tidy] group boundary install failed:", error);
+  }
+}
+
+function needsReload(config: TidyConfig, runtime: RuntimeHooks): boolean {
+  if (!config.enabled) return false;
+  if (!runtime.patchesInstalled) return true;
+  if (!runtime.turnsConnected && (config.collapseTurns !== "off" || config.finalReplyStyle !== "off")) return true;
+  if (!runtime.jobsConnected && config.backgroundJobs) return true;
+  if (!runtime.markdownConnected && runtime.hasMarkdownTransformerApi && (config.renderLatex || config.hexSwatches)) return true;
+  return false;
+}
+
+function registerTidyCommand(pi: ExtensionAPI, runtime: RuntimeHooks): void {
+  if (typeof (pi as { registerCommand?: unknown }).registerCommand !== "function") return;
+
+  pi.registerCommand("tidy", {
+    description: "Configure pi-tidy or toggle a turn: /tidy settings | /tidy turn [number|last]",
+    getArgumentCompletions: (prefix) => {
+      const tokens = prefix.trimStart().split(/\s+/);
+      if (tokens.length > 2) return null;
+      if (tokens.length <= 1) {
+        const partial = tokens[0] ?? "";
+        const items = [
+          { value: "settings", label: "settings", description: "Open the interactive pi-tidy settings popup" },
+          { value: "turn ", label: "turn", description: "Toggle a turn's folded process" },
+        ].filter((item) => item.label.startsWith(partial));
+        return items.length > 0 ? items : null;
+      }
+      if (tokens[0] === "turn") {
+        const partial = tokens[1] ?? "";
+        return "last".startsWith(partial)
+          ? [{ value: "turn last", label: "last", description: "Toggle the most recent turn" }]
+          : null;
+      }
+      return null;
+    },
+    handler: async (args, ctx) => {
+      const tokens = args.trim().split(/\s+/).filter(Boolean);
+      const action = tokens[0];
+      if ((action === undefined || action === "settings") && tokens.length <= 1) {
+        await openTidySettingsPopup(ctx, {
+          onApply: (nextConfig) => {
+            if (
+              !runtime.turnsConnected &&
+              (nextConfig.collapseTurns !== "off" || nextConfig.finalReplyStyle !== "off") &&
+              typeof ctx.sessionManager?.getBranch === "function"
+            ) {
+              restoreBranchTurns(ctx);
+            }
+            applyBaseConfig(nextConfig);
+            if (runtime.patchesInstalled) applyPatchConfig(nextConfig, pi);
+          },
+          needsReload: (nextConfig) => needsReload(nextConfig, runtime),
+        });
+        return;
+      }
+      if (action === "turn" && tokens.length <= 2) {
+        toggleTurn(tokens[1], ctx);
+        return;
+      }
+      ctx.ui.notify("Usage: /tidy settings | /tidy turn [number|last]", "warning");
+    },
+  });
+}
+
 /** Pi extension entry point. */
 export default function (pi: ExtensionAPI): void {
   const config = loadConfig();
+  const runtime: RuntimeHooks = {
+    patchesInstalled: false,
+    turnsConnected: false,
+    jobsConnected: false,
+    markdownConnected: false,
+    hasMarkdownTransformerApi: typeof (pi as { registerMarkdownTransformer?: unknown }).registerMarkdownTransformer === "function",
+  };
+  registerTidyCommand(pi, runtime);
+
   if (typeof VERSION === "string" && olderThan(VERSION, MIN_PI)) {
     pi.on("session_start", (_event, ctx) => {
       ctx.ui.notify(`pi-tidy needs pi ≥ ${MIN_PI} (this is ${VERSION}): clicks and durations won't work.`, "warning");
@@ -300,23 +495,14 @@ export default function (pi: ExtensionAPI): void {
   }
   // Patches installed by an earlier load (before a /reload) read this live,
   // so turning the extension off takes effect without a restart.
-  turnOptions.set({
-    collapseTurns: config.collapseTurns,
-    frameFinalReply: config.finalReplyStyle !== "off",
-    replyStyle: config.finalReplyStyle === "off" ? "frame" : config.finalReplyStyle,
-    icons: config.icons,
-    assistantColor: config.messageBorderColors.assistant,
-    timeFormat: config.messageTimeFormat,
-    headerStyle: config.messageHeaderStyle,
-    codeBlocks: config.codeBlocks,
-    splitDiff: config.splitDiff,
-    splitDiffMinWidth: config.splitDiffMinWidth,
-  });
-  tidyEnabled.set(config.enabled);
-  chromeStyle.set(config.style);
+  applyBaseConfig(config);
   agentRunning.set(false);
   if (!config.enabled) return;
-  if (config.collapseTurns !== "off" || config.finalReplyStyle !== "off") connectTurns(pi);
+
+  if (config.collapseTurns !== "off" || config.finalReplyStyle !== "off") {
+    connectTurns(pi);
+    runtime.turnsConnected = true;
+  }
 
   // The thinking row's "is this still arriving" cannot trust pi's private
   // `isStreaming` flag (it is not always settled), and a text-growth window
@@ -355,85 +541,31 @@ export default function (pi: ExtensionAPI): void {
   }
   warnUnavailableRenderers(pi, unavailable);
 
-  try {
-    patchToolBoxFrames({
-      icons: config.icons,
-      toolColors: config.toolColors,
-      groupTools: config.groupTools,
-      groupOpen: config.groupOpen,
-      alwaysShowTools: config.alwaysShowTools,
-      backgroundJobs: config.backgroundJobs,
-      hideJobNotifications: config.hideJobNotifications,
-      splitDiff: config.splitDiff,
-      splitDiffMinWidth: config.splitDiffMinWidth,
-      diffLines: config.diffLines,
-      diffContext: config.diffContext,
-      thinkingColor: config.thinkingColor,
-      highlightBash: config.highlightBash,
-      toolRowLines: config.toolRowLines,
-      bashResultLines: config.bashResultLines,
-    });
-    // Live job updates (pi-processes broadcasts on the shared extension bus).
-    connectJobs(config.backgroundJobs ? (pi as { events?: EventBusLike }).events : undefined);
-    if (config.backgroundJobs) registerNestedJobs(pi);
-  } catch (error) {
-    console.debug("[pi-tidy] tool box frame patch failed:", error);
+  runtime.patchesInstalled = true;
+  applyPatchConfig(config, pi);
+  if (config.backgroundJobs) {
+    try {
+      registerNestedJobs(pi);
+      runtime.jobsConnected = true;
+    } catch (error) {
+      console.debug("[pi-tidy] nested job registration failed:", error);
+    }
   }
 
-  try {
-    // Called even when off: `enabled: false` turns patches from an earlier
-    // load into pass-throughs.
-    patchMessageBoxes(config.messageBorderColors, config.icons, config.frameMessages);
-    patchContainerBoxes(config.messageBorderColors, {
-      icons: config.icons,
-      includeUser: config.userMessageStyle !== "off",
-      userOpen: config.userMessageStyle === "rail",
-      userAlign: config.userMessageAlign,
-      userMaxWidth: config.userMessageMaxWidth,
-      userFill: config.userMessageFill,
-      userTime: config.userMessageTime,
-      timeFormat: config.messageTimeFormat,
-      headerStyle: config.messageHeaderStyle,
-        enabled: config.frameMessages,
-    });
-    patchBashExecutions({
-      enabled: config.frameMessages,
-      icons: config.icons,
-      // The user's own commands wear the user's color.
-      color: config.messageBorderColors.user,
-    });
-    // pi's non-tool error rows: one framed row per failure instead of one per
-    // retry attempt.
-    patchErrorLines({ enabled: config.dedupeErrors });
-  } catch (error) {
-    console.debug("[pi-tidy] message box frame patch failed:", error);
-  }
-
-  cleanCopy.set(config.cleanCopy);
   if (config.cleanCopy && !installCleanCopy()) {
     pi.on("session_start", (_event, ctx) => {
       ctx.ui.notify("pi-tidy: this pi has no selection text to clean, so copies keep their frames.", "warning");
     });
   }
 
-  // The user message rail and frame above draw on their own and never call
-  // down, so they bury the boundary wrapper `patchToolBoxFrames` installed. A
-  // buried wrapper used to come back only at the first grouped tool's render,
-  // mid-reply: the first reply of every process then split into two groups.
   try {
-    installGroupBoundaries();
-  } catch (error) {
-    console.debug("[pi-tidy] group boundary install failed:", error);
-  }
-
-  try {
-    registerBashRenderers(pi, config.bashResultLines, config.highlightBash);
+    registerBashRenderers(pi);
   } catch (error) {
     console.debug("[pi-tidy] bash renderer failed:", error);
   }
 
   try {
-    registerWritePreview(pi, config);
+    registerWritePreview(pi);
   } catch (error) {
     console.debug("[pi-tidy] write preview renderer failed:", error);
   }
@@ -455,13 +587,15 @@ export default function (pi: ExtensionAPI): void {
       }
       pi.registerMarkdownTransformer((markdown, { messageType }) => {
         if (!tidyEnabled.get()) return markdown;
-        let text = config.renderLatex ? transformLatexEnvironmentsCached(markdown) : markdown;
-        if (config.hexSwatches && messageType !== "assistant-thinking") {
+        const live = liveTidyConfig.get();
+        let text = live.renderLatex ? transformLatexEnvironmentsCached(markdown) : markdown;
+        if (live.hexSwatches && messageType !== "assistant-thinking") {
           const theme = getTheme();
           if (theme) text = withHexSwatchesCached(text, restoreColor(theme, messageType), theme);
         }
         return text;
       });
+      runtime.markdownConnected = true;
     } catch (error) {
       console.debug("[pi-tidy] markdown transformer failed:", error);
     }

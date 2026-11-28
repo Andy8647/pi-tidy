@@ -170,7 +170,7 @@ test("an unchanged box still hits the cache (no re-framing)", () => {
 test("the frame patch leaves user messages alone without includeUser", () => {
   patchContainerBoxes({ user: "userCol", custom: "customCol" });
   const component = new UserMessageComponent("hello" as never);
-  const lines: string[] = component.render(60);
+  const lines: readonly string[] = component.render(60);
   assert.ok(!lines.some((l) => l.includes("╭")), "no frame on user messages by default");
   assert.ok(lines.join("\n").includes("hello"), "original render intact");
 });

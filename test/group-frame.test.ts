@@ -107,8 +107,8 @@ const thinkStep = (id: string, thinking: string) =>
 const strip = (s: string) => s.replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|_[^\x07]*\x07)/g, "").trimEnd();
 
 /** Render until the patch stops asking pi for another frame. */
-function frame(chat: Container): string[] {
-  let lines: string[] = [];
+function frame(chat: Container): readonly string[] {
+  let lines: readonly string[] = [];
   for (let i = 0; i < 5; i++) {
     const before = renders;
     lines = chat.render(W);
@@ -142,7 +142,7 @@ function threeBash() {
   return { chat, a, b, c };
 }
 
-const visible = (lines: string[]) => lines.filter((line) => line.trim());
+const visible = (lines: readonly string[]) => lines.filter((line) => line.trim());
 
 test("three bash calls across three model steps render as one C line", () => {
   const { chat } = threeBash();
@@ -571,7 +571,7 @@ test("the metrics columns follow a result that lands after the first frame", () 
   const long = Array.from({ length: 12 }, () => "x").join("\n");
   (b.component as any).updateResult({ content: [{ type: "text", text: long }], isError: false, durationMs: 2100 }, false);
   // Not `frame`: it collapses the runs of spaces this test is about.
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let i = 0; i < 3; i++) rows = chat.render(W).map(strip);
   const one = rows.find((row) => row.includes("1 line · "))!;
   const twelve = rows.find((row) => row.includes("12 lines · "))!;
@@ -1116,7 +1116,7 @@ test("a job's matched lines and its opened body hang on its arguments' column", 
     frame(chat);
     return chat.render(W).map(strip);
   };
-  const column = (lines: string[]) => {
+  const column = (lines: readonly string[]) => {
     const row = lines.find((line) => /process [◐◓◑◒✓]/.test(line))!;
     return row.indexOf("ticker");
   };

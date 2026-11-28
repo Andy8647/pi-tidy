@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AssistantMessageComponent, ToolExecutionComponent, UserMessageComponent, createReadToolDefinition, initTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Markdown, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { cleanTranscriptRows } from "../src/clean-copy.ts";
 import { setClipboardWriter } from "../src/clipboard.ts";
 import { disableHoverForTests, enableHoverForTests, resetHover } from "../src/hover.ts";
@@ -51,7 +51,7 @@ function fixture(text: string, options: FixtureOptions = {}) {
   const answer = new AssistantMessageComponent(message, true);
   const chat = new Container();
   chat.addChild(answer);
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 3; pass++) rows = chat.render(width);
   return { chat, answer, width, rows, plain: rows.map(visibleText) };
 }
@@ -79,6 +79,25 @@ test("both fences become rules that join the reply's frame", () => {
   assert.ok(close > open, plain.join("\n"));
   assert.ok(!plain.some((line) => line.includes("```")), "no fence rows left");
   assert.deepEqual(plain.slice(open + 1, close).map(inner), FISH.split("\n").map((line) => `  ${line}`));
+});
+
+test("a block already framed by another renderer keeps all its wrapped rows", (t) => {
+  const proto = Markdown.prototype as unknown as {
+    renderToken(token: { type: string }, width: number, ...args: unknown[]): string[];
+  };
+  const renderToken = proto.renderToken;
+  // Simulate Open TUI wrapping the code before tidy sees the rendered token.
+  const frameToken: typeof renderToken = function (this: Markdown, token, width, ...args) {
+    const rows = renderToken.call(this, token, width, ...args);
+    if (token.type !== "code") return rows;
+    const body = wrapTextWithAnsi(rows[1]!, width - 4).map((row) => `│ ${row} │`);
+    return ["╭─ code [Copy] ─╮", ...body, "╰───────────────╯", ...rows.slice(3)];
+  };
+  t.mock.method(proto, "renderToken", frameToken);
+  const line = "a long code line ".repeat(16).trimEnd();
+  const text = `\`\`\`\n${line}\n\`\`\``;
+  const expected = fixture(text, { codeBlocks: false }).plain;
+  assert.deepEqual(fixture(text).plain, expected);
 });
 
 test("the chip copies the block's own text and says so for a moment", async () => {
@@ -142,7 +161,7 @@ test("codeBlocks off leaves pi's own fences and code rows", () => {
 test("fish gets a grammar, so its rows are not one flat colour", () => {
   const off = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { codeBlocks: false });
   const on = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`);
-  const body = ({ rows, plain }: { rows: string[]; plain: string[] }) => {
+  const body = ({ rows, plain }: { rows: readonly string[]; plain: string[] }) => {
     const start = plain.findIndex((line) => line.includes("fish")) + 1;
     return rows.slice(start, start + FISH.split("\n").length);
   };
@@ -292,7 +311,7 @@ function turnFixture(text: string, options: { frame?: boolean; process?: boolean
   const answer = new AssistantMessageComponent(final, true);
   chat.addChild(answer);
   if (options.openTurn) for (const turn of new Set(store.byMessage.values())) turn.open = true;
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 3; pass++) rows = chat.render(width);
   return { chat, head, answer, width, rows, plain: rows.map(visibleText) };
 }

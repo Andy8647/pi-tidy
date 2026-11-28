@@ -60,7 +60,7 @@ function setup(config: Record<string, unknown> = {}) {
   } as any));
   chat.addChild(c);
   const frame = (width = W) => {
-    let lines: string[] = [];
+    let lines: readonly string[] = [];
     for (let i = 0; i < 5; i++) lines = chat.render(width);
     assert.ok(lines.every((line) => visibleWidth(line) <= width && !/[\r\n]/.test(line)), "one physical row per element, within terminal width");
     return lines.map(strip).filter((line) => line.trim());

@@ -230,6 +230,25 @@ export function nestedCallsOf(details: unknown, toolCallId?: string): NestedCall
   return nestedRunOf(details, toolCallId)?.calls ?? [];
 }
 
+/**
+ * The ids a result gives the calls its call made, from the tool's own
+ * `details.calls` and from pi's `nestedCalls`. Something launched by one of them
+ * names that id as its origin, not the call that ran the program (a sub-agent's
+ * notice does, see delegate-notices.ts).
+ */
+export function nestedCallIds(message: unknown): string[] {
+  const result = fields(message);
+  const ids = new Set<string>();
+  for (const list of [fields(result?.details)?.calls, fields(result?.nestedCalls)?.calls]) {
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      const id = text(fields(entry)?.id);
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 /** Whether a nested call ended badly: failed, or stopped before it finished. */
 export function nestedCallFailed(call: NestedCall): boolean {
   return call.status === "error" || call.status === "cancelled";
