@@ -64,8 +64,8 @@ function fixture(mode: CollapseTurns, groupOpen: boolean, pinned = "edit", expan
   return { chat, store, tools };
 }
 
-function rawFrame(chat: Container): string[] {
-  let rows: string[] = [];
+function rawFrame(chat: Container): readonly string[] {
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 5; pass++) rows = chat.render(W);
   return rows;
 }

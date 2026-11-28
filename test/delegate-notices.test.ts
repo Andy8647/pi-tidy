@@ -98,8 +98,8 @@ function session(notices: any[]) {
   return { chat, calls, store };
 }
 
-function frame(chat: Container, width = W): string[] {
-  let lines: string[] = [];
+function frame(chat: Container, width = W): readonly string[] {
+  let lines: readonly string[] = [];
   for (let i = 0; i < 4; i++) lines = chat.render(width);
   for (const line of lines) assert.ok(visibleWidth(line) <= width, `past the width: ${strip(line)}`);
   return lines.map(strip);

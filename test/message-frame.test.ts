@@ -96,7 +96,7 @@ test("expanded compaction box renders its summary inside the frame", () => {
   patchMessageBoxes(COLORS, true);
   const component = new CompactionSummaryMessageComponent(fakeMessage() as any);
   component.setExpanded(true);
-  const lines: string[] = component.render(60);
+  const lines: readonly string[] = component.render(60);
   const body = lines.join("\n");
   assert.match(lines[0], new RegExp(`^<fg:${COLORS.compaction}>╭─+╮</fg>$`), "still framed when expanded");
   assert.ok(body.includes("summary text"), "summary kept");
@@ -138,7 +138,7 @@ test("a custom message's type label moves into the border; a user's own [bracket
 test("user message gets a frame in the user color and keeps its OSC133 zone markers", () => {
   patchContainerBoxes(COLORS, { icons: true, includeUser: true });
   const component = new UserMessageComponent("hello **world**" as never);
-  const lines: string[] = component.render(60);
+  const lines: readonly string[] = component.render(60);
 
   assert.match(lines[0], /^\x1b\]133;A\x07/, "zone start on first line");
   assert.match(lines.at(-1)!, /^\x1b\]133;B\x07\x1b\]133;C\x07/, "zone end+final on last line");
@@ -209,7 +209,7 @@ test("a user message puts a muted clock next to its icon", () => {
 test("custom message with default rendering gets a frame in the custom color", () => {
   patchContainerBoxes(COLORS, { icons: true, includeUser: true });
   const component = new CustomMessageComponent({ customType: "notice", content: "pay attention" } as any);
-  const lines: string[] = component.render(60);
+  const lines: readonly string[] = component.render(60);
   assert.ok(lines.some((l) => l.includes(`<fg:${COLORS.custom}>╭`)), "rounded top border in custom color");
   const body = lines.join("\n");
   assert.ok(body.includes("[notice]"), "label kept");
@@ -231,7 +231,7 @@ test("a custom message from another extension keeps its renderer and gets the fr
     { customType: "ad-process:notification", content: "ignored" } as any,
     (() => body) as any,
   );
-  const lines: string[] = component.render(60);
+  const lines: readonly string[] = component.render(60);
   assert.equal(lines.length, 3, "one body row between two borders");
   assert.ok(lines[0]!.includes(`<fg:${COLORS.custom}>╭`), "top border in the custom color");
   assert.ok(lines[1]!.includes("matched stdout: READY"), "body row kept");
@@ -405,7 +405,7 @@ test("unknown border color falls back to the original render", () => {
     bg: (c: string, t: string) => t,
     bold: (t: string) => t,
   };
-  const lines: string[] = component.render(60);
+  const lines: readonly string[] = component.render(60);
   // Original Box render has no rounded border.
   assert.ok(!lines.some((l) => l.includes("╭")), "no frame on fallback");
 });

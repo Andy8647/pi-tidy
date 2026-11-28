@@ -51,7 +51,7 @@ function fixture(text: string, options: FixtureOptions = {}) {
   const answer = new AssistantMessageComponent(message, true);
   const chat = new Container();
   chat.addChild(answer);
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 3; pass++) rows = chat.render(width);
   return { chat, answer, width, rows, plain: rows.map(visibleText) };
 }
@@ -161,7 +161,7 @@ test("codeBlocks off leaves pi's own fences and code rows", () => {
 test("fish gets a grammar, so its rows are not one flat colour", () => {
   const off = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`, { codeBlocks: false });
   const on = fixture(`\`\`\`fish\n${FISH}\n\`\`\`\n`);
-  const body = ({ rows, plain }: { rows: string[]; plain: string[] }) => {
+  const body = ({ rows, plain }: { rows: readonly string[]; plain: string[] }) => {
     const start = plain.findIndex((line) => line.includes("fish")) + 1;
     return rows.slice(start, start + FISH.split("\n").length);
   };
@@ -311,7 +311,7 @@ function turnFixture(text: string, options: { frame?: boolean; process?: boolean
   const answer = new AssistantMessageComponent(final, true);
   chat.addChild(answer);
   if (options.openTurn) for (const turn of new Set(store.byMessage.values())) turn.open = true;
-  let rows: string[] = [];
+  let rows: readonly string[] = [];
   for (let pass = 0; pass < 3; pass++) rows = chat.render(width);
   return { chat, head, answer, width, rows, plain: rows.map(visibleText) };
 }

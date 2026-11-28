@@ -37,13 +37,13 @@ function transcript() {
   return chat;
 }
 
-function opened(icons: boolean, width: number): { rows: string[]; raw: string[] } {
+function opened(icons: boolean, width: number): { rows: string[]; raw: readonly string[] } {
   patchToolBoxFrames({ icons, groupTools: true });
   tidyEnabled.set(true);
   resetGroups();
   const chat = transcript();
   const frame = () => {
-    let lines: string[] = [];
+    let lines: readonly string[] = [];
     for (let i = 0; i < 3; i++) lines = chat.render(width);
     return lines;
   };

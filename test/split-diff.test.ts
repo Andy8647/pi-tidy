@@ -170,7 +170,7 @@ const ui = { requestRender: () => {} };
 patchToolBoxFrames({ icons: false, splitDiff: true, splitDiffMinWidth: 72 });
 
 /** pi computes the preview asynchronously (it reads the file); give it a beat. */
-async function editBox(path: string, width: number): Promise<string[]> {
+async function editBox(path: string, width: number): Promise<readonly string[]> {
   const file = join(dir, path);
   writeFileSync(file, BEFORE);
   const component = new ToolExecutionComponent(

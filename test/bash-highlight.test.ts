@@ -46,7 +46,7 @@ interface TokenizeResult {
   tokens: Array<[string, string]>;
 }
 
-function tokenize(inputs: string[], timeoutMs = 5000): Promise<TokenizeResult[]> {
+function tokenize(inputs: readonly string[], timeoutMs = 5000): Promise<TokenizeResult[]> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_SOURCE, {
       eval: true,

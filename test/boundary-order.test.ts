@@ -39,7 +39,7 @@ const ui = { requestRender: () => pending++ } as any;
 const cwd = process.cwd();
 const bashDef = createBashToolDefinition(cwd);
 const strip = (s: string) => s.replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|_[^\x07]*\x07)/g, "").trimEnd();
-const headers = (lines: string[]) => lines.filter((line) => /^\s*[▾▸] /.test(line));
+const headers = (lines: readonly string[]) => lines.filter((line) => /^\s*[▾▸] /.test(line));
 
 function fire(name: string): void {
   for (const handler of h.handlers.get(name) ?? []) handler({}, { ui: { notify() {} } });

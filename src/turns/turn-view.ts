@@ -487,7 +487,7 @@ function saysSomething(message: any): boolean {
 }
 
 /** Decorate the existing message view, never a second markdown renderer. */
-export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => string[]): string[] {
+export function presentTurn(component: any, width: number, draw: (width: number, hideThinking?: boolean) => readonly string[]): readonly string[] {
   component[LAYOUT] = undefined;
   const options = turnOptions.get();
   if (!tidyEnabled.get() || (options.collapseTurns === "off" && !options.frameFinalReply)) return draw(width);

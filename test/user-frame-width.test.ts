@@ -17,7 +17,7 @@ const colors = { user: "toolTitle", custom: "warning" };
 const options = { includeUser: true, icons: true };
 
 /** The frame's own width, without the indent right alignment puts in front of it. */
-function frameWidth(lines: string[]): number {
+function frameWidth(lines: readonly string[]): number {
   return Math.max(...lines.map((line) => visibleWidth(line.trimStart())));
 }
 

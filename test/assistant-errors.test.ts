@@ -58,8 +58,8 @@ const cwd = process.cwd();
 const bashDef = createBashToolDefinition(cwd);
 const strip = (s: string) => s.replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|_[^\x07]*\x07)/g, "").trimEnd();
 // A group header; `afterRun` adds the turn's own summary line (`▾ running …`) above it.
-const headers = (lines: string[]) => lines.filter((line) => /^\s*(?:│ )?[▾▸] \d+ calls? · /.test(line));
-const errorTops = (lines: string[]) => lines.filter((line) => /╭─ error/.test(line));
+const headers = (lines: readonly string[]) => lines.filter((line) => /^\s*(?:│ )?[▾▸] \d+ calls? · /.test(line));
+const errorTops = (lines: readonly string[]) => lines.filter((line) => /╭─ error/.test(line));
 const BODY = '401: {"message":"API 密钥无效","type":"invalid_api_key"}';
 
 function fire(name: string, event: any = {}): void {

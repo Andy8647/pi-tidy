@@ -885,7 +885,7 @@ function installCarrierMouse(component: any): void {
   };
 }
 
-type RenderFn = ((this: any, ...args: any[]) => string[]) & { [BOUNDARY_WRAPPER]?: true };
+type RenderFn = ((this: any, ...args: any[]) => readonly string[]) & { [BOUNDARY_WRAPPER]?: true };
 
 /** Whether grouping is on right now (the tool patch keeps this current). */
 let groupingActive: () => boolean = () => true;
@@ -975,7 +975,7 @@ class MessageView extends Container {
   private trimTop = 0;
   private rawHeight = 0;
 
-  override render(width: number): string[] {
+  override render(width: number): readonly string[] {
     const lines = super.render(width);
     const trimmed = trimMessageEdges(lines);
     this.trimTop = trimmed.top;
@@ -999,7 +999,7 @@ function installMessageMouse(component: any): void {
   };
 }
 
-function restyleThinking(component: any, lines: string[] | undefined, width: number, rethink: boolean, hideThinking = false): string[] {
+function restyleThinking(component: any, lines: readonly string[] | undefined, width: number, rethink: boolean, hideThinking = false): readonly string[] {
   const kids = component.contentContainer?.children;
   // If pi's structure changes, keep both its rendering and mouse routing intact.
   if (!Array.isArray(kids) || kids.length === 0) return lines ?? [];
@@ -1085,7 +1085,8 @@ function restyleThinking(component: any, lines: string[] | undefined, width: num
   }
   const tail = lines?.slice(cursor) ?? [];
   if (tail.length > 0) view.addChild({ render: () => tail, invalidate() {} });
-  const rendered = view.render(width);
+  // A view built for this call alone: its rows are ours to mark, not a cache pi keeps.
+  const rendered = view.render(width) as string[];
   if (!lines && rendered.length) {
     rendered[0] = "\x1b]133;A\x07" + rendered[0];
     rendered[rendered.length - 1] = "\x1b]133;B\x07\x1b]133;C\x07" + rendered[rendered.length - 1];
@@ -1109,7 +1110,7 @@ const ZONE_MARKERS = /\x1b\]133;[ABC]\x07/g;
  * markers that sit on them: the terminal uses those to place prompts, so they
  * move onto the rows that survive.
  */
-function trimMessageEdges(lines: string[]): { lines: string[]; top: number } {
+function trimMessageEdges(lines: readonly string[]): { lines: readonly string[]; top: number } {
   const blank = (line: string | undefined) => (line ?? "").replace(WITHOUT_ESCAPES, "").trim() === "";
   let start = 0;
   let end = lines.length;

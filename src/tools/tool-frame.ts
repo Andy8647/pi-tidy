@@ -614,7 +614,7 @@ const piRenderDiff = (codingAgent as unknown as { renderDiff?: (diff: string, op
  * The unified diff, drawn by pi's own renderer from the trimmed text, one cell in
  * from the box's sides as the panes are. Null when this pi has no renderer to lend.
  */
-function unifiedDiff(diff: string, width: number, filePath: string | undefined): { lines: string[]; bgRows: number[] } | null {
+function unifiedDiff(diff: string, width: number, filePath: string | undefined): { lines: readonly string[]; bgRows: number[] } | null {
   if (typeof piRenderDiff !== "function") return null;
   const text = piRenderDiff(diff, filePath ? { filePath } : {});
   return { lines: new Text(text, 1, 0).render(width), bgRows: [] };

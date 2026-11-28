@@ -33,7 +33,7 @@ const { restoreColor, swatchColor, withHexSwatches } = await import("../src/mess
 
 type Theme = Parameters<typeof restoreColor>[0];
 
-function render(text: string, messageType: "user" | "assistant", width = 70): string[] {
+function render(text: string, messageType: "user" | "assistant", width = 70): readonly string[] {
   const restore = restoreColor(fakeTheme as unknown as Theme, messageType);
   const markdown = new Markdown(
     text,
@@ -136,7 +136,7 @@ test("the dot, its space and the hash cost three cells", () => {
 });
 
 /** The same Markdown with no transformer: what pi draws when swatches are off. */
-function renderUntouched(text: string, width = 70): string[] {
+function renderUntouched(text: string, width = 70): readonly string[] {
   return new Markdown(text, 0, 0, getMarkdownTheme()).render(width);
 }
 

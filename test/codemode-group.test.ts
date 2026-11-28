@@ -95,8 +95,8 @@ function openBox(chat: Container) {
 
 const strip = (s: string) => s.replace(/\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)/g, "").trimEnd();
 
-function frame(chat: Container): string[] {
-  let lines: string[] = [];
+function frame(chat: Container): readonly string[] {
+  let lines: readonly string[] = [];
   for (let i = 0; i < 5; i++) {
     const before = renders.count;
     lines = chat.render(W);
