@@ -167,3 +167,8 @@ test("four decimal digits are a pull request, not #RGBA; three and six still are
   const line = render("fixed in #7250, with #333 on #000000 and #f00a", "assistant")[0]!;
   assert.equal(plain(line).trimEnd(), "fixed in #7250, with ● #333 on ● #000000 and ● #f00a");
 });
+
+test("three decimal digits are an issue unless they are one grey: #100 stays text, #333 and #0af are colors", () => {
+  const line = render("see #100 and #123, then #333 on #000 with #0af", "assistant")[0]!;
+  assert.equal(plain(line).trimEnd(), "see #100 and #123, then ● #333 on ● #000 with ● #0af");
+});
