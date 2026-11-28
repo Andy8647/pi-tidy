@@ -148,6 +148,7 @@ export const TIDY_SETTINGS: readonly TidySettingSpec[] = [
   enumSpec("userMessageAlign", ["left", "right"], "Horizontal alignment of framed or railed user messages"),
   booleanSpec("userMessageTime", "Show message timestamp next to the user icon"),
   enumSpec("messageHeaderStyle", ["inline", "split"], "Message top edge label layout: inline or split with a rule before time"),
+  booleanSpec("replyMetrics", "Show mean TTFT and output tok/s next to the time in the final reply's top edge"),
   booleanSpec("icons", "Show Nerd Font icons on boxes, rows, message labels, and copy chips"),
   booleanSpec("highlightBash", "Syntax-highlight bash commands and inline shell, Python, or Node payloads"),
   booleanSpec("codeBlocks", "Draw fenced code blocks in replies with labelled rules and a copy chip"),

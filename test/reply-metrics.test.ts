@@ -206,6 +206,7 @@ test("replyMetrics off leaves the top edge as it was", () => {
 test("the lifecycle records stream metrics end to end", async () => {
   const h = harness();
   loadTidy(tidy, h.pi, { collapseTurns: "off", finalReplyStyle: "frame", replyMetrics: true });
+  assert.equal(turnOptions.get().replyMetrics, true, "the setting reaches the reply header");
   const ctx = { sessionManager: { getBranch: () => [] }, ui: { notify() {} } } as any;
   const fire = async (event: string, data = {}) => {
     for (const handler of h.handlers.get(event) ?? []) await handler({ type: event, ...data }, ctx);
