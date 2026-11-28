@@ -19,6 +19,9 @@
  *   branch, or folding is off — claims nothing, and the notice stays in place.
  * - A notice whose runs were launched in different turns, or by a call tidy
  *   never saw, stays in place too.
+ * - A run launched from inside a program (`codemode`) names the program's nested
+ *   call (`<id>/3`). The call that ran the program stands in for it, once that
+ *   call's result has said which nested calls it made.
  */
 
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
@@ -113,7 +116,12 @@ export function delegateRevision(): number {
   return registry.get().revision;
 }
 
-const anchors = liveSlot<{ revision: number; store: object; on: boolean; byCall: Map<string, DelegateNotice[]> } | undefined>(
+/** The call on screen that launched a run: its own, or the one that ran its program. */
+function launcher(origin: string): string {
+  return turnStore.get().parentOf.get(origin) ?? origin;
+}
+
+const anchors = liveSlot<{ revision: number; store: object; nested: number; on: boolean; byCall: Map<string, DelegateNotice[]> } | undefined>(
   "delegate-notice-anchors",
   undefined,
 );
@@ -128,11 +136,14 @@ function anchorMap(): Map<string, DelegateNotice[]> {
   const store = turnStore.get();
   const on = turnOptions.get().collapseTurns !== "off";
   const cached = anchors.get();
-  if (cached && cached.revision === state.revision && cached.store === store && cached.on === on) return cached.byCall;
+  // A program's result can land after a notice from inside it: the nested calls it
+  // names only ever grow, so their count says when the anchors may have moved.
+  const nested = store.parentOf.size;
+  if (cached && cached.revision === state.revision && cached.store === store && cached.nested === nested && cached.on === on) return cached.byCall;
   const byCall = new Map<string, DelegateNotice[]>();
   if (on) {
     for (const notice of [...state.byKey.values()].sort((a, b) => a.timestamp - b.timestamp)) {
-      const origins = notice.runs.map((run) => run.origin);
+      const origins = notice.runs.map((run) => run.origin && launcher(run.origin));
       if (origins.some((origin) => origin === undefined)) continue;
       const turns = new Set(origins.map((origin) => store.byTool.get(origin!)));
       const [turn] = turns;
@@ -146,7 +157,7 @@ function anchorMap(): Map<string, DelegateNotice[]> {
   }
   // A notice that only just arrived may belong to a call already indexed: the
   // store keeps the same object, so the revision is what says it moved.
-  anchors.set({ revision: state.revision, store, on, byCall });
+  anchors.set({ revision: state.revision, store, nested, on, byCall });
   return byCall;
 }
 
@@ -190,7 +201,7 @@ export interface DelegateCounts {
 export function delegateCounts(turn: Turn): DelegateCounts {
   const latest = new Map<string, string>();
   for (const notice of [...registry.get().byKey.values()].sort((a, b) => a.timestamp - b.timestamp)) {
-    for (const run of notice.runs) if (run.origin && turn.tools.has(run.origin)) latest.set(run.runId, run.status);
+    for (const run of notice.runs) if (run.origin && turn.tools.has(launcher(run.origin))) latest.set(run.runId, run.status);
   }
   const counts = { completed: 0, failed: 0, other: 0 };
   for (const status of latest.values()) {

@@ -1,7 +1,7 @@
 import type { HeaderStyle } from "../draw/frame-draw.ts";
 import { liveSlot } from "../live.ts";
 import { nestedBreakdown, type BreakdownEntry } from "../tools/tool-groups.ts";
-import { nestedCallFailed, nestedCallsOf } from "../tools/nested-calls.ts";
+import { nestedCallFailed, nestedCallIds, nestedCallsOf } from "../tools/nested-calls.ts";
 
 export type CollapseTurns = "off" | "afterRun" | "live";
 export type FinalReplyStyle = "frame" | "rail" | "off";
@@ -135,6 +135,8 @@ function finishText(turn: Turn): void {
 export class TurnStore {
   byMessage = new Map<string, Turn>();
   byTool = new Map<string, Turn>();
+  /** A nested call's id → the call that ran it: the call that stands in for it on screen. */
+  parentOf = new Map<string, string>();
   current?: Turn;
   private toolStarts = new Map<string, number>();
   private toolIntervals: [number, number][] = [];
@@ -182,6 +184,7 @@ export class TurnStore {
     add(turn, key, message);
     this.byMessage.set(key, turn);
     if (message.role === "toolResult" && message.toolCallId) this.byTool.set(message.toolCallId, turn);
+    this.noteNested(message);
     if (message.role === "assistant") for (const block of message.content ?? []) {
       if (block.type === "toolCall") this.byTool.set(block.id, turn);
     }
@@ -305,9 +308,14 @@ export class TurnStore {
     this.pendingStepKey = undefined;
     return { keys: [...turn.messages.keys()], startedAt: turn.startedAt!, endedAt: now, outcome: turn.outcome, toolMs: turn.toolMs };
   }
+  private noteNested(message: TurnMessage): void {
+    if (message.role !== "toolResult" || !message.toolCallId) return;
+    for (const id of nestedCallIds(message)) this.parentOf.set(id, message.toolCallId);
+  }
   restore(entries: readonly any[]): void {
     this.byMessage.clear();
     this.byTool.clear();
+    this.parentOf.clear();
     this.current = undefined;
     this.pendingLlmAt = undefined;
     let legacy: Turn | undefined;
@@ -316,6 +324,7 @@ export class TurnStore {
         const message = entry.message as TurnMessage;
         const key = messageKey(message);
         if (!key) continue;
+        this.noteNested(message);
         if (!legacy || message.role === "user") legacy = newTurn();
         legacy.outcome = "unknown";
         add(legacy, key, message);
