@@ -308,6 +308,7 @@ export default function (pi: ExtensionAPI): void {
     assistantColor: config.messageBorderColors.assistant,
     timeFormat: config.messageTimeFormat,
     headerStyle: config.messageHeaderStyle,
+    replyMetrics: config.replyMetrics,
     codeBlocks: config.codeBlocks,
     splitDiff: config.splitDiff,
     splitDiffMinWidth: config.splitDiffMinWidth,

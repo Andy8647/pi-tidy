@@ -20,7 +20,10 @@ export function connectTurns(pi: ExtensionAPI): void {
   pi.on("agent_start", () => { turnStore.get().begin(); });
   pi.on("before_provider_request", () => { turnStore.get().requestStart(); });
   pi.on("message_start", ({ message }) => { note(message); });
-  pi.on("message_update", ({ message }) => { note(message); });
+  pi.on("message_update", ({ message, assistantMessageEvent }) => {
+    note(message);
+    turnStore.get().noteStreamUpdate(message, assistantMessageEvent);
+  });
   pi.on("message_end", ({ message }) => { note(message, true); });
   pi.on("tool_execution_start", (event) => {
     turnStore.get().toolStart(event.toolCallId, event.parentToolCallId);
