@@ -67,6 +67,16 @@ export function formatTurnMetrics(metrics: TurnLlmMetrics): string {
   }
   return parts.join(" · ");
 }
+/**
+ * What follows the model's name on the reply's top edge: the time, then the run's
+ * metrics when `replyMetrics` is on. Only a framed reply has an edge to put it on,
+ * and every other step of a turn passes here on every frame, so it is built there.
+ */
+function replyTail(message: any, turn: Turn, theme: ThemeLike, options: { timeFormat: string; replyMetrics: boolean }): string {
+  const time = typeof message.timestamp === "number" ? italicDim(theme, formatMessageTime(message.timestamp, options.timeFormat)) : "";
+  const metrics = options.replyMetrics ? formatTurnMetrics(turnStore.get().llmMetrics(turn)) : "";
+  return metrics ? [time, theme.fg("muted", metrics)].filter(Boolean).join(theme.fg("muted", " · ")) : time;
+}
 export function hasProcess(turn: Turn): boolean {
   const cached = processCache.get(turn);
   if (cached && cached.version === turn.version) return cached.value;
@@ -571,18 +581,13 @@ export function presentTurn(component: any, width: number, draw: (width: number,
   const hovered = header && isRowHovered(component, "turn-header");
   const line = header ? (hovered ? hoverBand(summaryLine(turn, theme, width, true), width, theme) : summaryLine(turn, theme, width)) : "";
   const color = options.assistantColor;
-  const timeText = typeof component.lastMessage.timestamp === "number"
-    ? italicDim(theme, formatMessageTime(component.lastMessage.timestamp, options.timeFormat))
-    : "";
-  const metricsText = options.replyMetrics ? formatTurnMetrics(turnStore.get().llmMetrics(turn)) : "";
-  const tailText = [timeText, metricsText ? theme.fg("muted", metricsText) : ""].filter(Boolean).join(theme.fg("muted", " · "));
   const replyHeader = framed
     ? messageHeader(
         theme,
         color,
         // The one accent on a settled screen: whose answer this is, where the eye should land.
         theme.fg("accent", replyLabel(component.lastMessage.provider, component.lastMessage.model, options.icons)),
-        tailText,
+        replyTail(component.lastMessage, turn, theme, options),
         options.headerStyle,
         width,
       )
