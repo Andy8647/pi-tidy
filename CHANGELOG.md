@@ -4,23 +4,41 @@ What changed in each released version of pi-tidy (published as
 `@andy8647/pi-toolbox` up to 0.4.1). Versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-11-28
 
 ### Added
 
-**`/tidy settings`: an in-pi settings popup** (#98). Opens a keyboard-driven overlay (`↑`/`↓` to
-move, `←`/`→` or `Space` to cycle a value, type to filter, `Enter` to save, `Esc` to cancel) with
-your current values for `collapseTurns`, `groupTools`, `style`, `bashResultLines` and the other
-boolean, style and line-budget options. Cycling an option previews it live on the transcript behind
-the popup; saving merges only the keys you changed into `tidy` in `~/.pi/agent/settings.json`
-without touching any other keys, and cancelling restores the transcript and leaves `settings.json`
-as it was. Changes apply live right away (with a short `/reload` notice for startup-only hooks such
-as turning `enabled` back on after starting with it off).
+**`/tidy settings`: change tidy from inside pi** (#98, #99, thanks @wuhaoyujerry). `/tidy settings` (or a bare
+`/tidy`) opens a popup with your current value for each option: `↑`/`↓` to move, `←`/`→` or `Space` to change a
+value, type to filter, `Enter` to save, `Esc` to cancel. A change shows on the transcript behind the popup as you make
+it. Saving writes only the keys you changed into `tidy` in `settings.json` and leaves every other key alone, a
+`settings.json` linked in from a dotfiles repo included; cancelling puts the transcript back and writes nothing. The few
+options that hook in at startup, such as turning `enabled` back on, say when they need a `/reload`.
+
+**`replyMetrics`: TTFT and tok/s on the final reply** (#96, thanks @yuzhi535). Off by default. On, the reply's top
+edge reads `think 18:35 · TTFT 14ms · 26.9 tok/s`: the mean wait for the first token over the run's model requests,
+and output tokens over the requests' whole duration. Both are measured from the live stream, so a resumed session's
+replies show neither. The popup above has the switch.
 
 ### Fixed
 
-**Long code blocks keep all their wrapped rows with Open TUI** (#100). tidy leaves blocks that another extension
-already framed alone, instead of drawing a closing rule over a row of code.
+**Long code blocks keep all their wrapped rows with Open TUI** (#100, #101, thanks @wuhaoyujerry). Open TUI frames
+and wraps a code block before tidy sees it, and tidy then drew its closing rule over the second row of a long line.
+tidy now leaves a block another extension already framed as that extension drew it.
+
+**`#100` gets no swatch.** 0.11.1 stopped painting `#7250`, but three decimal digits still read as `#RGB`, so an issue
+or pull request number below 1000 got a colored dot. Three digits are a color now only when all three are the same:
+`#333` and `#000` keep their dot, `#100` and `#123` do not.
+
+**A sub-agent launched inside `codemode` is counted and placed with the turn that launched it** (#102, thanks
+@Pasitearko). Its notice names the nested call (`<codemode call>/3`), which tidy looked for among the turn's own calls
+and never found, so the notice stayed a card of its own and the turn's summary left it out. The `codemode` call now
+stands in for the calls its program made, once its result has said which ones those were.
+
+### Changed
+
+**Developed and tested against pi 1.7.0** (was 1.5.0). pi 1.6.0 made a component's rendered rows read-only and
+cached; tidy never wrote into pi's rows, and its types now say so.
 
 ## [0.11.1] - 2026-11-22
 
